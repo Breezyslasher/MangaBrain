@@ -26,10 +26,14 @@ router = APIRouter()
 
 ADAPTATION_RELATIONS = ("ADAPTATION", "SOURCE")
 
+# Both embedding joins pin embed_model to the configured model: mid-way
+# through a re-embed migration the table holds vectors from two different
+# embedding spaces, and comparing across them silently produces garbage
+# similarities. Rows not yet re-embedded are treated as having no embedding.
 SEED_SQL = f"""
     SELECT {MEDIA_COLS}, e.embedding
     FROM media m
-    LEFT JOIN embeddings e ON e.media_id = m.id
+    LEFT JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
     WHERE m.id = %(id)s
 """
 
@@ -60,7 +64,7 @@ def recommend(
     mal_user: str | None = None,
 ) -> RecommendResponse:
     with get_pool().connection() as conn:
-        seed = conn.execute(SEED_SQL, {"id": media_id}).fetchone()
+        seed = conn.execute(SEED_SQL, {"id": media_id, "model": settings.embed_model}).fetchone()
         if seed is None:
             raise HTTPException(status_code=404, detail="unknown media id")
         if seed["embedding"] is None:
@@ -102,7 +106,7 @@ def recommend(
             SELECT {MEDIA_COLS},
                    1 - (e.embedding <=> %(seed_vec)s) AS semantic
             FROM media m
-            JOIN embeddings e ON e.media_id = m.id
+            JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
             WHERE m.medium = ANY(%(mediums)s)
               AND m.id <> ALL(%(exclude_ids)s::int[])
               {filter_sql}
@@ -113,6 +117,7 @@ def recommend(
             candidate_sql,
             {
                 "seed_vec": seed["embedding"],
+                "model": settings.embed_model,
                 "mediums": mediums,
                 "exclude_ids": exclude_ids,
                 "pool_size": settings.candidate_pool,
