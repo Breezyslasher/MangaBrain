@@ -80,7 +80,11 @@ def main() -> None:
     parser.add_argument("--cache-dir", default=settings.http_cache_dir)
     args = parser.parse_args()
 
-    client = RateLimitedClient(min_interval=args.min_interval, cache_dir=args.cache_dir)
+    # Low retry cap: entries that 504 through Jikan usually do so persistently,
+    # and skipping fast beats a minute of backoff per bad entry.
+    client = RateLimitedClient(
+        min_interval=args.min_interval, cache_dir=args.cache_dir, max_retries=2
+    )
     try:
         with psycopg.connect(settings.database_url) as conn:
             backfill(client, conn, args.limit)
