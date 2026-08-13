@@ -1,6 +1,6 @@
 # CLAUDE.md — AniBrain Rebuild (Full-Scope Recommendation Engine)
 
-## Project Overview
+## Project Overview 
 
 A self-hosted, content-based recommendation engine covering **anime, manga, manhwa, manhua, light novels, and one-shots**, rebuilding the full scope of the now-defunct anibrain.ai. The defining principle: **similarity is computed from content (synopsis, tags, genres, themes), never from popularity**. Obscure titles with high content similarity must rank above popular titles with lower similarity.
 
