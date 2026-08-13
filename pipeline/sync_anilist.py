@@ -1,9 +1,10 @@
 """Sync the AniList catalog into the local media table.
 
-Full sync is resumable: the current page is checkpointed in sync_state after
-every committed page, so an interrupted run picks up where it left off.
-Incremental sync walks UPDATED_AT_DESC and stops at the first entry older
-than the given cutoff.
+Full sync cursors by id (id_greater) because AniList caps pagination offsets
+at 5000 rows; the cursor is checkpointed in sync_state after every committed
+batch, so an interrupted run picks up where it left off. Incremental sync
+walks UPDATED_AT_DESC and stops at the first entry older than the given
+cutoff (or at the offset cap, with a warning).
 
 Usage:
     python -m pipeline.sync_anilist --type anime
@@ -16,6 +17,7 @@ import json
 import time
 from typing import Any
 
+import httpx
 import psycopg
 from psycopg.types.json import Jsonb
 
@@ -27,11 +29,14 @@ from pipeline.medium import derive_medium
 ANILIST_URL = "https://graphql.anilist.co"
 PER_PAGE = 50
 
-PAGE_QUERY = """
-query ($page: Int!, $type: MediaType!, $sort: [MediaSort]) {
-  Page(page: $page, perPage: 50) {
-    pageInfo { currentPage hasNextPage }
-    media(type: $type, sort: $sort) {
+# AniList rejects any paginated query whose offset (page * perPage) exceeds
+# 5000 rows with a 400, so the full sync cannot walk page numbers. It cursors
+# by id instead (id_greater, always page 1), which has no depth limit. The
+# incremental sync sorts by UPDATED_AT_DESC, which has no id cursor, so it is
+# capped at the offset limit and warns if it hits it.
+MAX_OFFSET_PAGES = 5000 // PER_PAGE
+
+MEDIA_FIELDS = """
       id
       idMal
       type
@@ -53,9 +58,28 @@ query ($page: Int!, $type: MediaType!, $sort: [MediaSort]) {
       updatedAt
       coverImage { medium large }
       relations { edges { relationType node { id } } }
-    }
-  }
-}
+"""
+
+BY_ID_QUERY = f"""
+query ($type: MediaType!, $idGreater: Int!) {{
+  Page(page: 1, perPage: {PER_PAGE}) {{
+    pageInfo {{ hasNextPage }}
+    media(type: $type, sort: ID, id_greater: $idGreater) {{
+{MEDIA_FIELDS}
+    }}
+  }}
+}}
+"""
+
+BY_UPDATED_QUERY = f"""
+query ($page: Int!, $type: MediaType!) {{
+  Page(page: $page, perPage: {PER_PAGE}) {{
+    pageInfo {{ hasNextPage }}
+    media(type: $type, sort: UPDATED_AT_DESC) {{
+{MEDIA_FIELDS}
+    }}
+  }}
+}}
 """
 
 UPSERT_SQL = """
@@ -122,17 +146,16 @@ def clear_state(conn: psycopg.Connection, key: str) -> None:
     conn.execute("DELETE FROM sync_state WHERE key = %s", (key,))
 
 
-def fetch_page(
-    client: RateLimitedClient, page: int, media_type: str, sort: list[str]
-) -> dict[str, Any]:
-    payload = client.request(
-        "POST",
-        ANILIST_URL,
-        json_body={
-            "query": PAGE_QUERY,
-            "variables": {"page": page, "type": media_type, "sort": sort},
-        },
-    )
+def fetch_page(client: RateLimitedClient, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+    try:
+        payload = client.request(
+            "POST", ANILIST_URL, json_body={"query": query, "variables": variables}
+        )
+    except httpx.HTTPStatusError as exc:
+        # Surface AniList's GraphQL error body, not just the status code.
+        raise RuntimeError(
+            f"AniList HTTP {exc.response.status_code}: {exc.response.text[:500]}"
+        ) from exc
     if payload.get("errors"):
         raise RuntimeError(f"AniList error: {payload['errors']}")
     return payload["data"]["Page"]
@@ -199,20 +222,24 @@ def upsert_entry(conn: psycopg.Connection, entry: dict[str, Any]) -> None:
 def full_sync(client: RateLimitedClient, conn: psycopg.Connection, media_type: str) -> None:
     checkpoint_key = f"anilist_full_{media_type.lower()}"
     state = get_state(conn, checkpoint_key) or {}
-    page = int(state.get("page", 1))
+    last_id = int(state.get("last_id", 0))
     started = int(time.time())
-    if page > 1:
-        print(f"[sync] resuming {media_type} full sync at page {page}")
+    total = 0
+    if last_id:
+        print(f"[sync] resuming {media_type} full sync after id {last_id}")
     while True:
-        data = fetch_page(client, page, media_type, ["ID"])
-        for entry in data["media"]:
+        data = fetch_page(client, BY_ID_QUERY, {"type": media_type, "idGreater": last_id})
+        entries = data["media"]
+        for entry in entries:
             upsert_entry(conn, entry)
-        set_state(conn, checkpoint_key, {"page": page})
+        if entries:
+            last_id = entries[-1]["id"]
+        total += len(entries)
+        set_state(conn, checkpoint_key, {"last_id": last_id})
         conn.commit()
-        print(f"[sync] {media_type} page {page} ({len(data['media'])} entries)")
-        if not data["pageInfo"]["hasNextPage"]:
+        print(f"[sync] {media_type} {total} entries this run (cursor at id {last_id})")
+        if not entries or not data["pageInfo"]["hasNextPage"]:
             break
-        page += 1
     clear_state(conn, checkpoint_key)
     set_state(conn, f"anilist_last_sync_{media_type.lower()}", {"ts": started})
     conn.commit()
@@ -226,7 +253,7 @@ def incremental_sync(
     page = 1
     updated = 0
     while True:
-        data = fetch_page(client, page, media_type, ["UPDATED_AT_DESC"])
+        data = fetch_page(client, BY_UPDATED_QUERY, {"page": page, "type": media_type})
         reached_cutoff = False
         for entry in data["media"]:
             if (entry.get("updatedAt") or 0) < since:
@@ -236,6 +263,13 @@ def incremental_sync(
             updated += 1
         conn.commit()
         if reached_cutoff or not data["pageInfo"]["hasNextPage"]:
+            break
+        if page >= MAX_OFFSET_PAGES:
+            print(
+                f"[sync] {media_type} incremental hit AniList's {MAX_OFFSET_PAGES * PER_PAGE}-row"
+                " offset limit before reaching the cutoff; older updates were skipped."
+                " Run a full sync to catch up."
+            )
             break
         page += 1
     print(f"[sync] {media_type} incremental: {updated} entries updated since {since}")
