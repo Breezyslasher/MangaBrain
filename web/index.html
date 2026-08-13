@@ -38,7 +38,7 @@
           <label>Year from <input type="number" id="yearMin" placeholder="1980"></label>
           <label>to <input type="number" id="yearMax" placeholder="2026"></label>
         </div>
-        <label>Minimum score <input type="number" id="minScore" min="0" max="100" placeholder="0"></label>
+        <label>Minimum score (0-100) <input type="number" id="minScore" min="0" max="100" placeholder="e.g. 70"></label>
         <label id="formatWrap">Format
           <select id="format">
             <option value="">Any</option>
@@ -65,6 +65,7 @@
         </label>
         <label class="check"><input type="checkbox" id="adult"> Include adult content</label>
         <label class="check"><input type="checkbox" id="crossMedia"> Cross-media suggestions</label>
+        <label class="check"><input type="checkbox" id="excludeFranchise"> Hide sequels and spin-offs</label>
       </section>
 
       <section class="panel-block">

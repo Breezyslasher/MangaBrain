@@ -186,6 +186,7 @@ async function loadRecommendations(mediaId) {
       ...weightParams(),
       ...filterParams(),
       cross_media: $("crossMedia").checked ? "true" : "",
+      exclude_franchise: $("excludeFranchise").checked ? "true" : "",
       limit: 60,
     });
     renderSeed(data.seed);
@@ -274,8 +275,8 @@ function bindEvents() {
     });
   }
 
-  for (const id of ["adult", "crossMedia", "yearMin", "yearMax", "minScore",
-                    "country", "status", "format", "malExclude"]) {
+  for (const id of ["adult", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
+                    "minScore", "country", "status", "format", "malExclude"]) {
     $(id).addEventListener("change", () => {
       if (state.seed) loadRecommendations(state.seed);
     });
