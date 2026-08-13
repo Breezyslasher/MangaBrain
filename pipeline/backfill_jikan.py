@@ -1,5 +1,6 @@
 """Backfill missing synopses from Jikan (MAL) for entries that have an id_mal
-but no usable AniList description.
+but no usable AniList description. Filled rows have their stale embedding
+dropped, so run `python -m pipeline.embed` afterwards to re-embed them.
 
 Usage:
     python -m pipeline.backfill_jikan
@@ -45,6 +46,9 @@ def backfill(client: RateLimitedClient, conn: psycopg.Connection, limit: int | N
             "UPDATE media SET description = %s, description_clean = %s WHERE id = %s",
             (synopsis, clean_description(synopsis), media_id),
         )
+        # The row was embedded from title-only text; drop the stale embedding
+        # so the next embed pass re-embeds it with the new synopsis.
+        conn.execute("DELETE FROM embeddings WHERE media_id = %s", (media_id,))
         filled += 1
         if i % 50 == 0:
             conn.commit()

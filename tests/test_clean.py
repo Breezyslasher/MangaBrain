@@ -17,3 +17,13 @@ def test_handles_empty():
 
 def test_collapses_blank_lines():
     assert clean_description("a<br><br><br><br>b") == "a\n\nb"
+
+
+def test_strips_spoiler_blocks_entirely():
+    raw = "A hero rises. ~!He was the villain all along.!~ The journey begins."
+    assert clean_description(raw) == "A hero rises. The journey begins."
+
+
+def test_strips_multiline_spoilers():
+    raw = "Intro.~!spoiler line one<br>spoiler line two!~Outro."
+    assert clean_description(raw) == "Intro.Outro."

@@ -77,7 +77,7 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | `GET /search?q=...&medium=anime` | Trigram-ranked title search within a medium group |
 | `GET /recommend/{id}` | Ranked similar titles with similarity percentage and per-component scores |
 | `GET /random?medium=manga` | A random title passing the active filters |
-| `POST /mal/{username}/refresh` | Fetch and cache the user's MAL anime + manga lists via Jikan |
+| `POST /mal/{username}/refresh` | Fetch and cache the user's MAL anime + manga lists via Jikan (synchronous: a large list holds the request open for a while at Jikan's rate limit, so avoid aggressive proxy timeouts in front of it) |
 | `GET /mal/{username}` | Cached list status |
 | `GET /healthz` | Liveness check |
 

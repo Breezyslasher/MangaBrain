@@ -171,6 +171,20 @@ def fetch_page(client: RateLimitedClient, query: str, variables: dict[str, Any])
     return payload["data"]["Page"]
 
 
+# Embeddings are computed from titles + description_clean, so when an update
+# changes any of those the old embedding is stale. Run before the upsert (it
+# compares against the currently stored row); the next embed pass re-embeds.
+STALE_EMBEDDING_SQL = """
+    DELETE FROM embeddings e
+    USING media m
+    WHERE e.media_id = m.id
+      AND m.id = %(id)s
+      AND (m.description_clean IS DISTINCT FROM %(description_clean)s
+           OR m.title_romaji IS DISTINCT FROM %(title_romaji)s
+           OR m.title_english IS DISTINCT FROM %(title_english)s)
+"""
+
+
 def upsert_entry(conn: psycopg.Connection, entry: dict[str, Any]) -> None:
     title = entry.get("title") or {}
     cover = entry.get("coverImage") or {}
@@ -181,38 +195,35 @@ def upsert_entry(conn: psycopg.Connection, entry: dict[str, Any]) -> None:
         for t in (entry.get("tags") or [])
         if t.get("name")
     ]
-    conn.execute(
-        UPSERT_SQL,
-        {
-            "id": entry["id"],
-            "id_mal": entry.get("idMal"),
-            "media_type": entry["type"],
-            "medium": derive_medium(
-                entry["type"], entry.get("format"), entry.get("countryOfOrigin")
-            ),
-            "title_romaji": title.get("romaji"),
-            "title_english": title.get("english"),
-            "title_native": title.get("native"),
-            "description": description,
-            "description_clean": clean_description(description),
-            "genres": entry.get("genres") or [],
-            "tags": Jsonb(tags),
-            "format": entry.get("format"),
-            "episodes": entry.get("episodes"),
-            "chapters": entry.get("chapters"),
-            "volumes": entry.get("volumes"),
-            "country_of_origin": entry.get("countryOfOrigin"),
-            "start_year": start.get("year"),
-            "status": entry.get("status"),
-            "average_score": entry.get("averageScore"),
-            "cover_image_medium": cover.get("medium"),
-            "cover_image_large": cover.get("large"),
-            "is_adult": entry.get("isAdult") or False,
-            "popularity": entry.get("popularity"),
-            "favourites": entry.get("favourites"),
-            "updated_at": entry.get("updatedAt"),
-        },
-    )
+    params = {
+        "id": entry["id"],
+        "id_mal": entry.get("idMal"),
+        "media_type": entry["type"],
+        "medium": derive_medium(entry["type"], entry.get("format"), entry.get("countryOfOrigin")),
+        "title_romaji": title.get("romaji"),
+        "title_english": title.get("english"),
+        "title_native": title.get("native"),
+        "description": description,
+        "description_clean": clean_description(description),
+        "genres": entry.get("genres") or [],
+        "tags": Jsonb(tags),
+        "format": entry.get("format"),
+        "episodes": entry.get("episodes"),
+        "chapters": entry.get("chapters"),
+        "volumes": entry.get("volumes"),
+        "country_of_origin": entry.get("countryOfOrigin"),
+        "start_year": start.get("year"),
+        "status": entry.get("status"),
+        "average_score": entry.get("averageScore"),
+        "cover_image_medium": cover.get("medium"),
+        "cover_image_large": cover.get("large"),
+        "is_adult": entry.get("isAdult") or False,
+        "popularity": entry.get("popularity"),
+        "favourites": entry.get("favourites"),
+        "updated_at": entry.get("updatedAt"),
+    }
+    conn.execute(STALE_EMBEDDING_SQL, params)
+    conn.execute(UPSERT_SQL, params)
     conn.execute("DELETE FROM media_relations WHERE media_id = %s", (entry["id"],))
     edges = (entry.get("relations") or {}).get("edges") or []
     rows = [
