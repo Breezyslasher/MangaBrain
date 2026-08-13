@@ -60,14 +60,16 @@ FRANCHISE_SQL = """
     SELECT DISTINCT id FROM franchise
 """
 
-# Both embedding joins pin embed_model to the configured model: mid-way
-# through a re-embed migration the table holds vectors from two different
-# embedding spaces, and comparing across them silently produces garbage
-# similarities. Rows not yet re-embedded are treated as having no embedding.
+# Candidates are pinned to the SEED's embedding version: mid-way through a
+# re-embed migration the table holds vectors from two different embedding
+# spaces, and comparing across them silently produces garbage similarities.
+# Matching the seed's own version keeps every comparison in one space while
+# staying usable throughout the migration (old-space seeds rank against
+# old-space candidates until pipeline.embed catches up).
 SEED_SQL = f"""
-    SELECT {MEDIA_COLS}, e.embedding
+    SELECT {MEDIA_COLS}, e.embedding, e.embed_model
     FROM media m
-    LEFT JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
+    LEFT JOIN embeddings e ON e.media_id = m.id
     WHERE m.id = %(id)s
 """
 
@@ -99,7 +101,7 @@ def recommend(
     mal_user: str | None = None,
 ) -> RecommendResponse:
     with get_pool().connection() as conn:
-        seed = conn.execute(SEED_SQL, {"id": media_id, "model": settings.embed_model}).fetchone()
+        seed = conn.execute(SEED_SQL, {"id": media_id}).fetchone()
         if seed is None:
             raise HTTPException(status_code=404, detail="unknown media id")
         if seed["embedding"] is None:
@@ -157,7 +159,7 @@ def recommend(
             candidate_sql,
             {
                 "seed_vec": seed["embedding"],
-                "model": settings.embed_model,
+                "model": seed["embed_model"],
                 "mediums": mediums,
                 "exclude_ids": exclude_ids,
                 "pool_size": settings.candidate_pool,

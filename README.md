@@ -16,9 +16,14 @@ function.
   entries) is synced from the AniList GraphQL API into one `media` table with
   a `medium` discriminator (`anime | manga | manhwa | manhua | light_novel |
   one_shot`) derived from AniList format + country of origin.
-- Synopses are embedded with `sentence-transformers/all-MiniLM-L6-v2`
-  (384-dim, CPU-friendly) into a single vector space shared across all
-  mediums, which makes cross-media similarity free.
+- Each title is embedded with `sentence-transformers/all-MiniLM-L6-v2`
+  (384-dim, CPU-friendly) over its titles, genres, top ranked tags, and
+  synopsis, into a single vector space shared across all mediums, which
+  makes cross-media similarity free. The text recipe is versioned alongside
+  the model name (`EMBED_TEXT_VERSION`); changing either makes
+  `pipeline.embed` re-embed the catalog as a migration, and recommendations
+  stay consistent throughout by ranking each seed against candidates from
+  the seed's own embedding version.
 - A recommendation request retrieves the top candidates by semantic ANN
   (pgvector HNSW index) within the seed's medium group, then re-ranks with
   the full weighted score:

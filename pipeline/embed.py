@@ -9,16 +9,18 @@ Usage:
 """
 
 import argparse
+from collections.abc import Iterable, Mapping
 
 import psycopg
 from pgvector.psycopg import register_vector
 
-from api.config import settings
+from api.config import embed_model_id, settings
 
 MAX_TEXT_CHARS = 4000
+MAX_TAGS = 15
 
 SELECT_MISSING_SQL = """
-    SELECT m.id, m.title_romaji, m.title_english, m.description_clean
+    SELECT m.id, m.title_romaji, m.title_english, m.description_clean, m.genres, m.tags
     FROM media m
     LEFT JOIN embeddings e
         ON e.media_id = m.id AND e.embed_model = %s
@@ -37,8 +39,30 @@ UPSERT_SQL = """
 """
 
 
-def embed_text(title_romaji: str | None, title_english: str | None, description: str | None) -> str:
-    parts = [p for p in (title_romaji, title_english, description) if p]
+def embed_text(
+    title_romaji: str | None,
+    title_english: str | None,
+    description: str | None,
+    genres: Iterable[str] | None = None,
+    tags: Iterable[Mapping] | None = None,
+) -> str:
+    """Compose the text a row is embedded from. Genres and the top ranked
+    tags come before the synopsis: the model truncates long input, and the
+    compact signals must survive while a synopsis tail can be cut. This
+    also sharpens titles whose synopsis is vague (the Death Note problem)."""
+    parts = [p for p in (title_romaji, title_english) if p]
+    genres = list(genres or [])
+    if genres:
+        parts.append("Genres: " + ", ".join(genres))
+    ranked = sorted(
+        (t for t in tags or [] if t.get("name")),
+        key=lambda t: t.get("rank") or 0,
+        reverse=True,
+    )
+    if ranked:
+        parts.append("Themes: " + ", ".join(t["name"] for t in ranked[:MAX_TAGS]))
+    if description:
+        parts.append(description)
     return "\n".join(parts)[:MAX_TEXT_CHARS]
 
 
@@ -47,25 +71,26 @@ def embed_missing(batch_size: int = 256, model_name: str | None = None) -> int:
     from sentence_transformers import SentenceTransformer
 
     model_name = model_name or settings.embed_model
+    stored_id = embed_model_id(model_name)
     model = SentenceTransformer(model_name)
     total = 0
     with psycopg.connect(settings.database_url) as conn:
         register_vector(conn)
         while True:
-            rows = conn.execute(SELECT_MISSING_SQL, (model_name, batch_size)).fetchall()
+            rows = conn.execute(SELECT_MISSING_SQL, (stored_id, batch_size)).fetchall()
             if not rows:
                 break
-            texts = [embed_text(row[1], row[2], row[3]) for row in rows]
+            texts = [embed_text(row[1], row[2], row[3], row[4], row[5]) for row in rows]
             vectors = model.encode(texts, batch_size=64, normalize_embeddings=True)
             with conn.cursor() as cur:
                 cur.executemany(
                     UPSERT_SQL,
-                    [(row[0], model_name, vec) for row, vec in zip(rows, vectors, strict=True)],
+                    [(row[0], stored_id, vec) for row, vec in zip(rows, vectors, strict=True)],
                 )
             conn.commit()
             total += len(rows)
             print(f"[embed] {total} embeddings written")
-    print(f"[embed] done, {total} new/updated embeddings ({model_name})")
+    print(f"[embed] done, {total} new/updated embeddings ({stored_id})")
     return total
 
 

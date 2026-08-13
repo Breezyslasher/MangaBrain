@@ -16,3 +16,14 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Version of the text recipe fed to the embedding model (titles, genres,
+# ranked tags, synopsis). Bump when the recipe changes: the composed id below
+# then differs from stored rows, so pipeline.embed re-embeds everything as a
+# normal migration.
+EMBED_TEXT_VERSION = 2
+
+
+def embed_model_id(model_name: str | None = None) -> str:
+    """The identifier stored per embedding row: model plus text recipe."""
+    return f"{model_name or settings.embed_model}#text-v{EMBED_TEXT_VERSION}"
