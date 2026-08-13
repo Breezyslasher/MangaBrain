@@ -33,6 +33,28 @@ def close_pool() -> None:
         _pool = None
 
 
+_hnsw_iterative_scan: bool | None = None
+
+
+def hnsw_supports_iterative_scan(conn: Any) -> bool:
+    """pgvector 0.8+ can keep scanning the HNSW index until the LIMIT is
+    satisfied even when WHERE clauses discard most neighbors. Cached: the
+    extension version cannot change while the server is up."""
+    global _hnsw_iterative_scan
+    if _hnsw_iterative_scan is None:
+        row = conn.execute(
+            "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
+        ).fetchone()
+        version = (row["extversion"] if row else "") or "0.0"
+        parts = version.split(".")
+        try:
+            major, minor = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            major, minor = 0, 0
+        _hnsw_iterative_scan = (major, minor) >= (0, 8)
+    return _hnsw_iterative_scan
+
+
 # Canonical column list for anything returning media rows. The cleaned
 # description is what the API exposes; tags stay internal (used for scoring).
 MEDIA_COLS = """

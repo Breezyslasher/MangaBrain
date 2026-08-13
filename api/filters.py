@@ -41,9 +41,14 @@ def build_filters(
         clauses.append("m.status = ANY(%(f_statuses)s)")
         params["f_statuses"] = [s.upper() for s in statuses]
     if mal_user:
+        # MAL anime and manga ids are separate id spaces (anime #1 and manga #1
+        # are different titles), so a list entry only excludes rows of the
+        # matching media type: list_type anime <-> media_type ANIME, manga <->
+        # MANGA (which covers manhwa, manhua, light novels, and one-shots).
         clauses.append(
             "NOT EXISTS (SELECT 1 FROM mal_list_entries l"
-            " WHERE l.username = %(f_mal_user)s AND l.id_mal = m.id_mal)"
+            " WHERE l.username = %(f_mal_user)s AND l.id_mal = m.id_mal"
+            " AND l.list_type = lower(m.media_type))"
         )
         params["f_mal_user"] = mal_user.strip().lower()
 

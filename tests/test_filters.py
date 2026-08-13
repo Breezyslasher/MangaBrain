@@ -40,3 +40,11 @@ def test_all_filters_produce_bound_params():
     assert params["f_mal_user"] == "someuser"
     assert "%(f_year_min)s" in sql and params["f_year_min"] == 1990
     assert "mal_list_entries" in sql
+
+
+def test_mal_exclusion_pairs_list_type_with_media_type():
+    # MAL anime and manga ids are separate id spaces: anime #1 on the user's
+    # list must not exclude manga #1. The clause has to pair list_type with
+    # the row's media_type.
+    sql, _ = build_filters(mal_user="someuser")
+    assert "l.list_type = lower(m.media_type)" in sql

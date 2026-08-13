@@ -11,7 +11,7 @@ the separate "related" list.
 from fastapi import APIRouter, HTTPException, Query
 
 from api.config import settings
-from api.db import MEDIA_COLS, get_pool, media_from_row
+from api.db import MEDIA_COLS, get_pool, hnsw_supports_iterative_scan, media_from_row
 from api.filters import build_filters
 from api.media_groups import ALL_MEDIUMS, group_for_medium
 from api.models import (
@@ -85,6 +85,18 @@ def recommend(
             statuses=statuses,
             mal_user=mal_user,
         )
+
+        # The WHERE clauses post-filter the HNSW index scan, and pgvector's
+        # default ef_search (40) would cap the scan long before candidate_pool
+        # rows survive. Raise ef_search to the pool size and, on pgvector 0.8+,
+        # let the scan iterate until the LIMIT is satisfied. relaxed_order may
+        # return neighbors slightly out of distance order, which is fine: the
+        # full weighted re-rank below reorders everything anyway. set_config
+        # with is_local=true scopes both settings to this transaction.
+        ef_search = min(max(settings.candidate_pool, 40), 1000)
+        conn.execute("SELECT set_config('hnsw.ef_search', %s, true)", (str(ef_search),))
+        if hnsw_supports_iterative_scan(conn):
+            conn.execute("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)")
 
         candidate_sql = f"""
             SELECT {MEDIA_COLS},
