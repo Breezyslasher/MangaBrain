@@ -17,9 +17,10 @@ function.
   a `medium` discriminator (`anime | manga | manhwa | manhua | light_novel |
   one_shot`) derived from AniList format + country of origin.
 - Each title is embedded with `sentence-transformers/all-MiniLM-L6-v2`
-  (384-dim, CPU-friendly) over its titles, genres, top ranked tags, and
-  synopsis, into a single vector space shared across all mediums, which
-  makes cross-media similarity free. The text recipe is versioned alongside
+  (384-dim, CPU-friendly) over its genres, top ranked tags, and synopsis
+  (title strings are embedded only for rows without a synopsis, to avoid
+  subword title leakage), into a single vector space shared across all
+  mediums, which makes cross-media similarity free. The text recipe is versioned alongside
   the model name (`EMBED_TEXT_VERSION`); changing either makes
   `pipeline.embed` re-embed the catalog as a migration, and recommendations
   stay consistent throughout by ranking each seed against candidates from

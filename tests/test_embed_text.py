@@ -14,6 +14,14 @@ def test_includes_genres_and_themes():
     assert text.endswith("A notebook that kills.")
 
 
+def test_titles_omitted_when_synopsis_exists():
+    # Title subwords leak into semantic similarity (Berserk ~ Tales of
+    # Berseria), so titles only appear when there is no synopsis to embed.
+    text = embed_text("Berserk", "Berserk", "A lone mercenary wanders.", genres=["Action"])
+    assert "Berserk" not in text
+    assert embed_text("Berserk", None, None) == "Berserk"
+
+
 def test_tags_sorted_by_rank_and_capped():
     tags = [{"name": f"Tag{i}", "rank": i} for i in range(1, 31)]
     text = embed_text("Title", None, None, tags=tags)

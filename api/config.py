@@ -21,7 +21,7 @@ settings = Settings()
 # ranked tags, synopsis). Bump when the recipe changes: the composed id below
 # then differs from stored rows, so pipeline.embed re-embeds everything as a
 # normal migration.
-EMBED_TEXT_VERSION = 2
+EMBED_TEXT_VERSION = 3
 
 
 def embed_model_id(model_name: str | None = None) -> str:

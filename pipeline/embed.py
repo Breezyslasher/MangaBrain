@@ -49,8 +49,13 @@ def embed_text(
     """Compose the text a row is embedded from. Genres and the top ranked
     tags come before the synopsis: the model truncates long input, and the
     compact signals must survive while a synopsis tail can be cut. This
-    also sharpens titles whose synopsis is vague (the Death Note problem)."""
-    parts = [p for p in (title_romaji, title_english) if p]
+    also sharpens titles whose synopsis is vague (the Death Note problem).
+
+    Titles are omitted whenever a synopsis exists: title strings leak into
+    semantic similarity through shared subwords ("Berserk" pulling in "Tales
+    of Berseria") without adding content signal. They remain the fallback
+    for rows that have no synopsis at all."""
+    parts = [] if description else [p for p in (title_romaji, title_english) if p]
     genres = list(genres or [])
     if genres:
         parts.append("Genres: " + ", ".join(genres))
