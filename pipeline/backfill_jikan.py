@@ -31,14 +31,26 @@ def backfill(client: RateLimitedClient, conn: psycopg.Connection, limit: int | N
     if limit is not None:
         rows = rows[:limit]
     filled = 0
+    skipped = 0
     for i, (media_id, id_mal, media_type) in enumerate(rows, start=1):
         endpoint = "anime" if media_type == "ANIME" else "manga"
         try:
             data = client.request("GET", f"{JIKAN_BASE}/{endpoint}/{id_mal}")
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                continue
-            raise
+            # Enrichment is best-effort: some entries 404 (removed from MAL)
+            # and some persistently 504 (Jikan's gateway gives up on slow MAL
+            # pages) even after the client's retries. Skip and keep going; a
+            # later run retries anything still missing a synopsis.
+            skipped += 1
+            if exc.response.status_code != 404:
+                print(
+                    f"[backfill] skipping mal {endpoint} {id_mal} (HTTP {exc.response.status_code})"
+                )
+            continue
+        except httpx.TransportError as exc:
+            skipped += 1
+            print(f"[backfill] skipping mal {endpoint} {id_mal} ({type(exc).__name__})")
+            continue
         synopsis = (data.get("data") or {}).get("synopsis")
         if not synopsis:
             continue
@@ -54,7 +66,10 @@ def backfill(client: RateLimitedClient, conn: psycopg.Connection, limit: int | N
             conn.commit()
             print(f"[backfill] {i}/{len(rows)} checked, {filled} filled")
     conn.commit()
-    print(f"[backfill] done: {filled} synopses filled out of {len(rows)} candidates")
+    print(
+        f"[backfill] done: {filled} synopses filled out of {len(rows)} candidates"
+        f" ({skipped} skipped)"
+    )
     return filled
 
 
