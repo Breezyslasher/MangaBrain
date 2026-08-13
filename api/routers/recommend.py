@@ -26,6 +26,40 @@ router = APIRouter()
 
 ADAPTATION_RELATIONS = ("ADAPTATION", "SOURCE")
 
+# Relation types that connect entries of the same franchise. CHARACTER and
+# OTHER are deliberately absent: character cameos link across unrelated
+# franchises and would bleed the traversal into the whole catalog.
+FRANCHISE_RELATIONS = (
+    "ADAPTATION",
+    "SOURCE",
+    "PREQUEL",
+    "SEQUEL",
+    "PARENT",
+    "SIDE_STORY",
+    "ALTERNATIVE",
+    "SPIN_OFF",
+    "SUMMARY",
+    "COMPILATION",
+    "CONTAINS",
+)
+
+# Franchises are chains (season 1 -> season 2 -> movie), so one hop from the
+# seed misses most of them; walk the relation graph transitively. UNION
+# dedups visited rows and the depth cap bounds cycles.
+FRANCHISE_SQL = """
+    WITH RECURSIVE franchise(id, depth) AS (
+        SELECT r.related_id, 1
+        FROM media_relations r
+        WHERE r.media_id = %(id)s AND r.relation_type = ANY(%(ftypes)s)
+        UNION
+        SELECT r.related_id, f.depth + 1
+        FROM media_relations r
+        JOIN franchise f ON r.media_id = f.id
+        WHERE f.depth < 6 AND r.relation_type = ANY(%(ftypes)s)
+    )
+    SELECT DISTINCT id FROM franchise
+"""
+
 # Both embedding joins pin embed_model to the configured model: mid-way
 # through a re-embed migration the table holds vectors from two different
 # embedding spaces, and comparing across them silently produces garbage
@@ -79,12 +113,10 @@ def recommend(
         ).fetchall()
         exclude_ids = [media_id, *(row["id"] for row in related_rows)]
         if exclude_franchise:
-            # Hide every directly related entry (sequels, prequels, side
-            # stories, alternates), not just adaptation/source pairs.
             franchise_rows = conn.execute(
-                "SELECT related_id FROM media_relations WHERE media_id = %s", (media_id,)
+                FRANCHISE_SQL, {"id": media_id, "ftypes": list(FRANCHISE_RELATIONS)}
             ).fetchall()
-            exclude_ids.extend(row["related_id"] for row in franchise_rows)
+            exclude_ids.extend(row["id"] for row in franchise_rows)
 
         mediums = ALL_MEDIUMS if cross_media else group_for_medium(seed["medium"])
         filter_sql, filter_params = build_filters(
