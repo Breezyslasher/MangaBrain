@@ -37,8 +37,7 @@ docker compose up -d db                          # Postgres 16 + pgvector, schem
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
 
-python -m pipeline.sync_anilist --type anime     # resumable; run once per type
-python -m pipeline.sync_anilist --type manga     # long: ~150k entries, rate-limited
+python -m pipeline.sync_anilist                  # full catalog, both types in one resumable id scan
 python -m pipeline.embed                         # generate/update embeddings
 python -m pipeline.backfill_jikan                # optional: fill missing synopses from MAL
 
@@ -62,10 +61,14 @@ Services:
 One-off jobs run through the worker image:
 
 ```
-docker compose run --rm worker python -m pipeline.sync_anilist --type anime
-docker compose run --rm worker python -m pipeline.sync_anilist --type manga
+docker compose run --rm worker python -m pipeline.sync_anilist
 docker compose run --rm worker python -m pipeline.embed
 ```
+
+The full sync scans the shared AniList id space in `id_in` batches (AniList
+caps pagination offsets at 5000 rows, so page-number pagination cannot cover
+the catalog). It checkpoints after every batch and is safe to interrupt and
+rerun; `--type anime` or `--type manga` restricts what gets stored.
 
 ## API
 

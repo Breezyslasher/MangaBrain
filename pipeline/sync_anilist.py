@@ -1,15 +1,18 @@
 """Sync the AniList catalog into the local media table.
 
-Full sync cursors by id (id_greater) because AniList caps pagination offsets
-at 5000 rows; the cursor is checkpointed in sync_state after every committed
-batch, so an interrupted run picks up where it left off. Incremental sync
-walks UPDATED_AT_DESC and stops at the first entry older than the given
-cutoff (or at the offset cap, with a warning).
+AniList caps pagination offsets at 5000 rows and has no id_greater filter,
+so the full sync scans the id space in explicit id_in batches of 50 up to the
+current max id (fetched via sort: ID_DESC). The id space is shared between
+ANIME and MANGA, so one scan syncs both types in a single pass. The scan
+position is checkpointed in sync_state after every committed batch, so an
+interrupted run picks up where it left off. Incremental sync walks
+UPDATED_AT_DESC and stops at the first entry older than the given cutoff
+(or at the offset cap, with a warning).
 
 Usage:
-    python -m pipeline.sync_anilist --type anime
-    python -m pipeline.sync_anilist --type manga
-    python -m pipeline.sync_anilist --type anime --since 1700000000
+    python -m pipeline.sync_anilist                    # full sync, both types
+    python -m pipeline.sync_anilist --type anime       # full sync, one type only
+    python -m pipeline.sync_anilist --since 1700000000 # incremental
 """
 
 import argparse
@@ -30,10 +33,10 @@ ANILIST_URL = "https://graphql.anilist.co"
 PER_PAGE = 50
 
 # AniList rejects any paginated query whose offset (page * perPage) exceeds
-# 5000 rows with a 400, so the full sync cannot walk page numbers. It cursors
-# by id instead (id_greater, always page 1), which has no depth limit. The
-# incremental sync sorts by UPDATED_AT_DESC, which has no id cursor, so it is
-# capped at the offset limit and warns if it hits it.
+# 5000 rows with a 400, so the full sync cannot walk page numbers; it scans
+# id_in batches instead. The incremental sync sorts by UPDATED_AT_DESC, which
+# has no cursor alternative, so it is capped at the offset limit and warns if
+# it hits it.
 MAX_OFFSET_PAGES = 5000 // PER_PAGE
 
 MEDIA_FIELDS = """
@@ -60,15 +63,22 @@ MEDIA_FIELDS = """
       relations { edges { relationType node { id } } }
 """
 
-BY_ID_QUERY = f"""
-query ($type: MediaType!, $idGreater: Int!) {{
+ID_IN_QUERY = f"""
+query ($ids: [Int]!) {{
   Page(page: 1, perPage: {PER_PAGE}) {{
-    pageInfo {{ hasNextPage }}
-    media(type: $type, sort: ID, id_greater: $idGreater) {{
+    media(id_in: $ids) {{
 {MEDIA_FIELDS}
     }}
   }}
 }}
+"""
+
+MAX_ID_QUERY = """
+query ($type: MediaType!) {
+  Page(page: 1, perPage: 1) {
+    media(type: $type, sort: ID_DESC) { id }
+  }
+}
 """
 
 BY_UPDATED_QUERY = f"""
@@ -219,31 +229,46 @@ def upsert_entry(conn: psycopg.Connection, entry: dict[str, Any]) -> None:
             )
 
 
-def full_sync(client: RateLimitedClient, conn: psycopg.Connection, media_type: str) -> None:
-    checkpoint_key = f"anilist_full_{media_type.lower()}"
+def fetch_max_id(client: RateLimitedClient, media_type: str) -> int:
+    page = fetch_page(client, MAX_ID_QUERY, {"type": media_type})
+    return page["media"][0]["id"] if page["media"] else 0
+
+
+def full_sync(
+    client: RateLimitedClient, conn: psycopg.Connection, media_type: str | None = None
+) -> None:
+    """Scan the whole AniList id space in id_in batches. With media_type None
+    (the default) one scan syncs both ANIME and MANGA."""
+    label = (media_type or "all").lower()
+    types = [media_type] if media_type else ["ANIME", "MANGA"]
+    checkpoint_key = f"anilist_full_{label}"
     state = get_state(conn, checkpoint_key) or {}
     last_id = int(state.get("last_id", 0))
     started = int(time.time())
+    max_id = max(fetch_max_id(client, t) for t in types)
     total = 0
     if last_id:
-        print(f"[sync] resuming {media_type} full sync after id {last_id}")
-    while True:
-        data = fetch_page(client, BY_ID_QUERY, {"type": media_type, "idGreater": last_id})
-        entries = data["media"]
+        print(f"[sync] resuming {label} full sync after id {last_id}")
+    print(f"[sync] {label}: scanning ids {last_id + 1}..{max_id}")
+    batch = 0
+    while last_id < max_id:
+        ids = list(range(last_id + 1, min(last_id + PER_PAGE, max_id) + 1))
+        data = fetch_page(client, ID_IN_QUERY, {"ids": ids})
+        entries = [e for e in data["media"] if media_type is None or e["type"] == media_type]
         for entry in entries:
             upsert_entry(conn, entry)
-        if entries:
-            last_id = entries[-1]["id"]
         total += len(entries)
+        last_id = ids[-1]
         set_state(conn, checkpoint_key, {"last_id": last_id})
         conn.commit()
-        print(f"[sync] {media_type} {total} entries this run (cursor at id {last_id})")
-        if not entries or not data["pageInfo"]["hasNextPage"]:
-            break
+        batch += 1
+        if batch % 10 == 0 or last_id >= max_id:
+            print(f"[sync] {label}: scanned through id {last_id}/{max_id}, {total} entries")
     clear_state(conn, checkpoint_key)
-    set_state(conn, f"anilist_last_sync_{media_type.lower()}", {"ts": started})
+    for t in types:
+        set_state(conn, f"anilist_last_sync_{t.lower()}", {"ts": started})
     conn.commit()
-    print(f"[sync] {media_type} full sync complete")
+    print(f"[sync] {label} full sync complete ({total} entries)")
 
 
 def incremental_sync(
@@ -278,7 +303,12 @@ def incremental_sync(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync the AniList catalog")
-    parser.add_argument("--type", required=True, choices=["anime", "manga"])
+    parser.add_argument(
+        "--type",
+        choices=["anime", "manga", "all"],
+        default="all",
+        help="media type to sync; the default full sync covers both in one id scan",
+    )
     parser.add_argument(
         "--since",
         type=int,
@@ -289,12 +319,13 @@ def main() -> None:
     parser.add_argument("--cache-dir", default=settings.http_cache_dir)
     args = parser.parse_args()
 
-    media_type = args.type.upper()
+    media_type = None if args.type == "all" else args.type.upper()
     client = RateLimitedClient(min_interval=args.min_interval, cache_dir=args.cache_dir)
     try:
         with psycopg.connect(settings.database_url) as conn:
             if args.since is not None:
-                incremental_sync(client, conn, media_type, args.since)
+                for t in [media_type] if media_type else ["ANIME", "MANGA"]:
+                    incremental_sync(client, conn, t, args.since)
             else:
                 full_sync(client, conn, media_type)
     finally:

@@ -62,8 +62,7 @@ docker-compose.yml
 
 ```
 docker compose up -d db
-python -m pipeline.sync_anilist --type anime     # resumable; run once per type
-python -m pipeline.sync_anilist --type manga
+python -m pipeline.sync_anilist                  # resumable id_in scan, both types in one pass
 python -m pipeline.embed                         # generate/update embeddings
 uvicorn api.main:app --reload                    # dev server
 docker compose up --build                        # full stack
