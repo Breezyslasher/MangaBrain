@@ -28,6 +28,7 @@ def random_pick(
     mal_user: str | None = None,
     anilist_user: str | None = None,
     exclude_list: list[str] | None = Query(None),
+    keep_planned: bool = False,
 ) -> MediaOut:
     filter_sql, filter_params = build_filters(
         adult=adult,
@@ -45,6 +46,7 @@ def random_pick(
         mal_user=mal_user,
         anilist_user=anilist_user,
         exclude_lists=exclude_list,
+        keep_planned=keep_planned,
     )
     sql = f"""
         SELECT {MEDIA_COLS}

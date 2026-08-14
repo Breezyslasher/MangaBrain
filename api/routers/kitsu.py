@@ -32,14 +32,18 @@ KINDS = ("anime", "manga")
 
 def harvest_entries(
     kind: str, entries: list[dict], included: list[dict]
-) -> tuple[set[tuple[str, int]], int]:
-    """Translate one kind's library entries into exclusion (kind, id) pairs.
+) -> tuple[dict[tuple[str, int], bool], int]:
+    """Translate one kind's library entries into {(kind, id): planned} pairs.
 
     JSON:API response shape: each library entry references its media under
     relationships[kind].data, the media resources sit in `included` with
     their mapping references, and the mapping resources (externalSite,
     externalId) sit alongside them. externalId is a string and occasionally
     non-numeric (known Kitsu data bug), hence the isdigit guard.
+
+    planned=True for entries with library status "planned" (Kitsu statuses:
+    current, planned, completed, on_hold, dropped); when the same external id
+    appears both planned and started, started wins so it keeps excluding.
     """
     media_by_id = {item["id"]: item for item in included if item.get("type") == kind}
     mapping_by_id = {item["id"]: item for item in included if item.get("type") == "mappings"}
@@ -48,23 +52,24 @@ def harvest_entries(
         f"anilist/{kind}": "anilist",
     }
 
-    harvested: set[tuple[str, int]] = set()
+    harvested: dict[tuple[str, int], bool] = {}
     skipped = 0
     for entry in entries:
+        planned = ((entry.get("attributes") or {}).get("status")) == "planned"
         ref = ((entry.get("relationships") or {}).get(kind) or {}).get("data") or {}
         media = media_by_id.get(ref.get("id"))
         refs = ((media or {}).get("relationships") or {}).get("mappings") or {}
-        found: set[tuple[str, int]] = set()
+        found = False
         for mapping_ref in refs.get("data") or []:
             mapping = mapping_by_id.get(mapping_ref.get("id")) or {}
             attrs = mapping.get("attributes") or {}
             target = site_to_kind.get(attrs.get("externalSite"))
             ext_id = str(attrs.get("externalId") or "")
             if target and ext_id.isdigit():
-                found.add((target, int(ext_id)))
-        if found:
-            harvested.update(found)
-        else:
+                key = (target, int(ext_id))
+                harvested[key] = harvested.get(key, True) and planned
+                found = True
+        if not found:
             skipped += 1
     return harvested, skipped
 
@@ -122,7 +127,7 @@ def refresh_kitsu() -> ExclusionStatus:
         min_interval=0.2,
         extra_headers={"Accept": "application/vnd.api+json"},
     )
-    all_entries: set[tuple[str, int]] = set()
+    all_entries: dict[tuple[str, int], bool] = {}
     skipped = 0
     try:
         try:
@@ -130,7 +135,8 @@ def refresh_kitsu() -> ExclusionStatus:
             for kind in KINDS:
                 entries, included = _fetch_library(client, user_id, kind)
                 harvested, kind_skipped = harvest_entries(kind, entries, included)
-                all_entries.update(harvested)
+                for key, planned in harvested.items():
+                    all_entries[key] = all_entries.get(key, True) and planned
                 skipped += kind_skipped
         except httpx.HTTPStatusError as exc:
             raise HTTPException(

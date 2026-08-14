@@ -132,6 +132,12 @@ CREATE TABLE IF NOT EXISTS custom_exclusion_entries (
 CREATE INDEX IF NOT EXISTS idx_custom_exclusion_lookup
     ON custom_exclusion_entries (list_name);
 
+-- planned marks entries the tracker reports as plan-to-watch/plan-to-read;
+-- the keep_planned query option skips excluding those. Existing rows default
+-- to FALSE (always excluded) until the next tracker sync fills the flag.
+ALTER TABLE custom_exclusion_entries
+    ADD COLUMN IF NOT EXISTS planned BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE TABLE IF NOT EXISTS custom_exclusion_state (
     list_name   TEXT PRIMARY KEY,
     entry_count INTEGER NOT NULL DEFAULT 0,

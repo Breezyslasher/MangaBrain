@@ -68,6 +68,7 @@ def foryou(
     max_episodes: int | None = Query(None, ge=1),
     max_chapters: int | None = Query(None, ge=1),
     exclude_list: list[str] | None = Query(None),
+    keep_planned: bool = False,
 ) -> RecommendResponse:
     if not anilist_user and not mal_user:
         raise HTTPException(status_code=422, detail="provide anilist_user or mal_user")
@@ -122,5 +123,6 @@ def foryou(
             "mal_user": mal_user,
             "anilist_user": anilist_user,
             "exclude_lists": exclude_list,
+            "keep_planned": keep_planned,
         },
     )

@@ -94,6 +94,24 @@ def test_exclusion_lists_with_only_blank_names_add_no_clause():
     assert params == {}
 
 
+def test_keep_planned_adds_status_guards_to_every_list_source():
+    sql, _ = build_filters(
+        mal_user="u", anilist_user="u", exclude_lists=["kitsu"], keep_planned=True
+    )
+    # MAL status code 6 is plan to watch/read; AniList uses the
+    # MediaListStatus PLANNING value; generic lists carry a planned flag.
+    assert "l.status <> '6'" in sql
+    assert "al.status <> 'PLANNING'" in sql
+    assert "NOT ce.planned" in sql
+
+
+def test_planned_entries_excluded_by_default():
+    sql, _ = build_filters(mal_user="u", anilist_user="u", exclude_lists=["kitsu"])
+    assert "l.status" not in sql
+    assert "al.status" not in sql
+    assert "ce.planned" not in sql
+
+
 def test_mal_exclusion_pairs_list_type_with_media_type():
     # MAL anime and manga ids are separate id spaces: anime #1 on the user's
     # list must not exclude manga #1. The clause has to pair list_type with

@@ -56,7 +56,7 @@ def refresh_yamtrack() -> ExclusionStatus:
         min_interval=0.05,
         extra_headers={"Authorization": f"Bearer {token}"},
     )
-    entries: set[tuple[str, int]] = set()
+    entries: dict[tuple[str, int], bool] = {}
     skipped = 0
     try:
         for media_type, kind in MEDIA_TYPES:
@@ -77,7 +77,13 @@ def refresh_yamtrack() -> ExclusionStatus:
                 if item.get("source") != "mal" or not str(media_id or "").isdigit():
                     skipped += 1
                     continue
-                entries.add((kind, int(media_id)))
+                # Yamtrack's API serializes status numerically (its
+                # MEDIA_STATUS_MAP): 0 Planning, 1 In progress, 2 Paused,
+                # 3 Completed, 4 Dropped. Only Planning counts as planned;
+                # if an id appears both planned and started, started wins.
+                planned = row.get("status") == 0
+                key = (kind, int(media_id))
+                entries[key] = entries.get(key, True) and planned
     finally:
         client.close()
 
