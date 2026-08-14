@@ -29,6 +29,20 @@ const GENRES = [
 
 const $ = (id) => document.getElementById(id);
 
+// A browser can hold a cached index.html from one deploy alongside a fresh
+// app.js from the next; a missing element must degrade to a warning, never
+// an exception that kills the rest of startup and leaves buttons dead.
+function on(id, event, fn) {
+  const node = $(id);
+  if (node) node.addEventListener(event, fn);
+  else console.warn(`missing #${id} - stale cached index.html? Hard-refresh the page.`);
+}
+
+const isChecked = (id) => {
+  const node = $(id);
+  return node ? node.checked : false;
+};
+
 function debounce(fn, ms) {
   let timer;
   return (...args) => {
@@ -75,18 +89,18 @@ function filterParams() {
     if (state.medium === "anime") params.max_episodes = maxLen;
     else params.max_chapters = maxLen;
   }
-  if ($("malExclude").checked && $("malUser").value.trim()) {
+  if (isChecked("malExclude") && $("malUser").value.trim()) {
     params.mal_user = $("malUser").value.trim();
   }
-  if ($("alExclude").checked && $("alUser").value.trim()) {
+  if (isChecked("alExclude") && $("alUser").value.trim()) {
     params.anilist_user = $("alUser").value.trim();
   }
   // exclude_list is repeatable: every checked tracker list combines.
   const excludeLists = [];
-  if ($("kitsuExclude").checked) excludeLists.push("kitsu");
-  if ($("ytExclude").checked) excludeLists.push("yamtrack");
+  if (isChecked("kitsuExclude")) excludeLists.push("kitsu");
+  if (isChecked("ytExclude")) excludeLists.push("yamtrack");
   if (excludeLists.length) params.exclude_list = excludeLists;
-  if ($("keepPlanned").checked) params.keep_planned = "true";
+  if (isChecked("keepPlanned")) params.keep_planned = "true";
   return params;
 }
 
@@ -417,7 +431,7 @@ async function loadAccountSettings() {
     const data = await api("/settings");
     if (data.anilist_username) $("alUser").value = data.anilist_username;
     if (data.mal_username) $("malUser").value = data.mal_username;
-    if (data.kitsu_username) $("kitsuUser").value = data.kitsu_username;
+    if (data.kitsu_username && $("kitsuUser")) $("kitsuUser").value = data.kitsu_username;
     if (data.yamtrack_url) $("ytUrl").value = data.yamtrack_url;
     if (data.yamtrack_token_set) $("ytToken").placeholder = "saved (enter to replace)";
   } catch {
@@ -429,9 +443,11 @@ async function saveAccountSettings() {
   const body = {
     anilist_username: $("alUser").value.trim(),
     mal_username: $("malUser").value.trim(),
-    kitsu_username: $("kitsuUser").value.trim(),
     yamtrack_url: $("ytUrl").value.trim(),
   };
+  // Omit (not blank) the field when the input is missing from a stale page:
+  // an empty string would clear the stored value server-side.
+  if ($("kitsuUser")) body.kitsu_username = $("kitsuUser").value.trim();
   // Token is write-only: only send it when the user typed a new one.
   if ($("ytToken").value.trim()) body.yamtrack_token = $("ytToken").value.trim();
   $("acctStatus").textContent = "Saving...";
@@ -668,45 +684,45 @@ function bindEvents() {
     });
   }
 
-  $("search").addEventListener("input", debounce((e) => runSearch(e.target.value), 300));
+  on("search", "input", debounce((e) => runSearch(e.target.value), 300));
 
   for (const [slider, label] of [
     ["wSemantic", "wSemanticVal"],
     ["wTags", "wTagsVal"],
     ["wGenres", "wGenresVal"],
   ]) {
-    $(slider).addEventListener("input", () => {
+    on(slider, "input", () => {
       $(label).textContent = $(slider).value;
     });
-    $(slider).addEventListener("change", rerunActive);
+    on(slider, "change", rerunActive);
   }
 
   for (const id of ["adult", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
                     "minScore", "country", "status", "format", "maxPop", "maxLen",
                     "malExclude", "alExclude", "kitsuExclude", "ytExclude", "keepPlanned"]) {
-    $(id).addEventListener("change", rerunActive);
+    on(id, "change", rerunActive);
   }
 
-  $("ytRefresh").addEventListener("click", refreshYamtrack);
-  $("kitsuRefresh").addEventListener("click", refreshKitsu);
-  $("acctSave").addEventListener("click", saveAccountSettings);
+  on("ytRefresh", "click", refreshYamtrack);
+  on("kitsuRefresh", "click", refreshKitsu);
+  on("acctSave", "click", saveAccountSettings);
 
-  $("tagReq").addEventListener("click", () => addTagFilter("inc"));
-  $("tagExc").addEventListener("click", () => addTagFilter("exc"));
-  $("alRefresh").addEventListener("click", refreshAnilist);
+  on("tagReq", "click", () => addTagFilter("inc"));
+  on("tagExc", "click", () => addTagFilter("exc"));
+  on("alRefresh", "click", refreshAnilist);
 
   $("titleLang").value = state.titleLang;
-  $("titleLang").addEventListener("change", () => {
+  on("titleLang", "change", () => {
     state.titleLang = $("titleLang").value;
     localStorage.setItem("mb_title_lang", state.titleLang);
     if (state.mode) rerunActive();
     else if ($("search").value.trim()) runSearch($("search").value);
   });
 
-  $("forYou").addEventListener("click", loadForYou);
-  $("surprise").addEventListener("click", surprise);
-  $("malRefresh").addEventListener("click", refreshMal);
-  $("mixGo").addEventListener("click", loadMix);
+  on("forYou", "click", loadForYou);
+  on("surprise", "click", surprise);
+  on("malRefresh", "click", refreshMal);
+  on("mixGo", "click", loadMix);
   window.addEventListener("hashchange", () => {
     if (state.mode && state.mode.type === "single") {
       const current = `#/rec/${state.medium}/${state.mode.id}`;
