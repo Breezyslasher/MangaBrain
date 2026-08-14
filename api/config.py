@@ -9,7 +9,11 @@ class Settings(BaseSettings):
     # earlier all-MiniLM-L6-v2 (also 384-dim, so the vector column fits both).
     # Our similarity is symmetric (title text vs title text), so bge's query
     # instruction prefix is deliberately not used.
-    embed_model: str = "BAAI/bge-small-en-v1.5"
+    # Chosen by measured recall on the AniList recommendation-pair benchmark
+    # (pipeline.benchmark): r@10 0.132 vs 0.103 for bge-small-en-v1.5, same
+    # 384 dims and size. bge-base-en-v1.5 scored 0.144 but needs a 768-dim
+    # migration and triple the embed time for a statistically marginal edge.
+    embed_model: str = "avsolatorio/GIST-small-Embedding-v0"
     candidate_pool: int = 500
     http_cache_dir: str = ""
     anilist_min_interval: float = 2.0
