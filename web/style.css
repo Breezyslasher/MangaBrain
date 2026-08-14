@@ -76,8 +76,11 @@ main {
 
 label { font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.25rem; }
 label.check { flex-direction: row; align-items: center; gap: 0.5rem; }
-.row { display: flex; gap: 0.5rem; }
+/* Rows wrap and their buttons share the width, so a row of sync buttons
+   stays inside the panel instead of overflowing it. */
+.row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .row label { flex: 1; }
+.row button { flex: 1 1 auto; min-width: 0; padding: 0.45rem 0.5rem; font-size: 0.8rem; }
 
 input[type="text"], input[type="number"], input[type="search"], select {
   background: var(--card);
