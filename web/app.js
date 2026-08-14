@@ -7,6 +7,7 @@ const state = {
   pending: [], // rendered lazily via Show more
   shown: 0,
   genreState: {}, // name -> "inc" | "exc"
+  titleLang: localStorage.getItem("mb_title_lang") || "english",
 };
 
 const PAGE_SIZE = 60;
@@ -97,6 +98,9 @@ function setStatus(text) {
 }
 
 function mediaTitle(media) {
+  if (state.titleLang === "english") {
+    return media.title_english || media.title || media.title_native || `#${media.id}`;
+  }
   return media.title || media.title_english || media.title_native || `#${media.id}`;
 }
 
@@ -479,6 +483,14 @@ function bindEvents() {
                     "minScore", "country", "status", "format", "maxPop", "malExclude"]) {
     $(id).addEventListener("change", rerunActive);
   }
+
+  $("titleLang").value = state.titleLang;
+  $("titleLang").addEventListener("change", () => {
+    state.titleLang = $("titleLang").value;
+    localStorage.setItem("mb_title_lang", state.titleLang);
+    if (state.mode) rerunActive();
+    else if ($("search").value.trim()) runSearch($("search").value);
+  });
 
   $("surprise").addEventListener("click", surprise);
   $("malRefresh").addEventListener("click", refreshMal);
