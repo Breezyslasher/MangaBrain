@@ -19,6 +19,13 @@ from api.config import embed_model_id, settings
 MAX_TEXT_CHARS = 4000
 MAX_TAGS = 15
 
+# Transformer attention memory scales with the square of sequence length, and
+# bge-class models take 512-token inputs (twice MiniLM's 256), so encoding at
+# batch 64 OOM-kills small hosts (observed as a worker crash loop dying after
+# the first written batch). 16 keeps peak memory modest at minor throughput
+# cost; raise via --encode-batch-size on beefier machines.
+ENCODE_BATCH_SIZE = 16
+
 SELECT_MISSING_SQL = """
     SELECT m.id, m.title_romaji, m.title_english, m.description_clean, m.genres, m.tags
     FROM media m
@@ -71,7 +78,11 @@ def embed_text(
     return "\n".join(parts)[:MAX_TEXT_CHARS]
 
 
-def embed_missing(batch_size: int = 256, model_name: str | None = None) -> int:
+def embed_missing(
+    batch_size: int = 256,
+    model_name: str | None = None,
+    encode_batch_size: int = ENCODE_BATCH_SIZE,
+) -> int:
     # Imported lazily: pulls in torch, which the API service never needs.
     from sentence_transformers import SentenceTransformer
 
@@ -86,7 +97,7 @@ def embed_missing(batch_size: int = 256, model_name: str | None = None) -> int:
             if not rows:
                 break
             texts = [embed_text(row[1], row[2], row[3], row[4], row[5]) for row in rows]
-            vectors = model.encode(texts, batch_size=64, normalize_embeddings=True)
+            vectors = model.encode(texts, batch_size=encode_batch_size, normalize_embeddings=True)
             with conn.cursor() as cur:
                 cur.executemany(
                     UPSERT_SQL,
@@ -102,9 +113,14 @@ def embed_missing(batch_size: int = 256, model_name: str | None = None) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate missing embeddings")
     parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--encode-batch-size", type=int, default=ENCODE_BATCH_SIZE)
     parser.add_argument("--model", default=None, help="override EMBED_MODEL")
     args = parser.parse_args()
-    embed_missing(batch_size=args.batch_size, model_name=args.model)
+    embed_missing(
+        batch_size=args.batch_size,
+        model_name=args.model,
+        encode_batch_size=args.encode_batch_size,
+    )
 
 
 if __name__ == "__main__":
