@@ -262,14 +262,35 @@ def fetch_max_id(client: RateLimitedClient, media_type: str) -> int:
 
 
 def full_sync(
-    client: RateLimitedClient, conn: psycopg.Connection, media_type: str | None = None
+    client: RateLimitedClient,
+    conn: psycopg.Connection,
+    media_type: str | None = None,
+    skip_if_fresh_hours: float | None = None,
 ) -> None:
     """Scan the whole AniList id space in id_in batches. With media_type None
-    (the default) one scan syncs both ANIME and MANGA."""
+    (the default) one scan syncs both ANIME and MANGA.
+
+    skip_if_fresh_hours: skip entirely when a full sync already completed
+    within that window and no scan is mid-way. CI reruns after a downstream
+    failure (embedding, publish) restore the previous run's checkpoint and
+    pass this so they do not repeat the multi-hour scan; a mid-scan resume
+    checkpoint always takes priority over skipping."""
     label = (media_type or "all").lower()
     types = [media_type] if media_type else ["ANIME", "MANGA"]
     checkpoint_key = f"anilist_full_{label}"
     state = get_state(conn, checkpoint_key) or {}
+    if not state and skip_if_fresh_hours is not None:
+        last_done = min(
+            int((get_state(conn, f"anilist_last_sync_{t.lower()}") or {}).get("ts", 0))
+            for t in types
+        )
+        age_hours = (time.time() - last_done) / 3600
+        if age_hours < skip_if_fresh_hours:
+            print(
+                f"[sync] {label}: full sync completed {age_hours:.1f}h ago;"
+                " skipping (skip-if-fresh)"
+            )
+            return
     last_id = int(state.get("last_id", 0))
     started = int(time.time())
     max_id = max(fetch_max_id(client, t) for t in types)
@@ -349,6 +370,14 @@ def main() -> None:
     )
     parser.add_argument("--min-interval", type=float, default=settings.anilist_min_interval)
     parser.add_argument("--cache-dir", default=settings.http_cache_dir)
+    parser.add_argument(
+        "--skip-if-fresh",
+        type=float,
+        default=None,
+        metavar="HOURS",
+        help="skip the full sync when one completed within HOURS"
+        " (mid-scan resume checkpoints still run); used by CI reruns",
+    )
     args = parser.parse_args()
 
     from api.db import ensure_schema
@@ -362,7 +391,7 @@ def main() -> None:
                 for t in [media_type] if media_type else ["ANIME", "MANGA"]:
                     incremental_sync(client, conn, t, args.since)
             else:
-                full_sync(client, conn, media_type)
+                full_sync(client, conn, media_type, skip_if_fresh_hours=args.skip_if_fresh)
     finally:
         client.close()
 
