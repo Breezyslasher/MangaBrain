@@ -56,6 +56,9 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="run a single pass and exit")
     args = parser.parse_args()
 
+    from api.db import ensure_schema
+
+    ensure_schema()
     client = RateLimitedClient(min_interval=settings.anilist_min_interval)
     interval = settings.sync_interval_hours * 3600
     while True:
