@@ -27,6 +27,7 @@ def random_pick(
     max_chapters: int | None = Query(None, ge=1),
     mal_user: str | None = None,
     anilist_user: str | None = None,
+    exclude_list: str | None = None,
 ) -> MediaOut:
     filter_sql, filter_params = build_filters(
         adult=adult,
@@ -43,6 +44,7 @@ def random_pick(
         max_chapters=max_chapters,
         mal_user=mal_user,
         anilist_user=anilist_user,
+        exclude_list=exclude_list,
     )
     sql = f"""
         SELECT {MEDIA_COLS}

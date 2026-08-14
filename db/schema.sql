@@ -119,6 +119,25 @@ CREATE TABLE IF NOT EXISTS anilist_list_state (
     PRIMARY KEY (username, list_type)
 );
 
+-- Generic named exclusion lists: any tracker (or hand-curated list) can push
+-- AniList ids or MAL ids (typed by media kind, since MAL anime and manga ids
+-- are separate id spaces) and exclude them via exclude_list=<name>.
+CREATE TABLE IF NOT EXISTS custom_exclusion_entries (
+    list_name   TEXT NOT NULL,
+    kind        TEXT NOT NULL CHECK (kind IN ('anilist', 'mal_anime', 'mal_manga')),
+    ext_id      INTEGER NOT NULL,
+    PRIMARY KEY (list_name, kind, ext_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_custom_exclusion_lookup
+    ON custom_exclusion_entries (list_name);
+
+CREATE TABLE IF NOT EXISTS custom_exclusion_state (
+    list_name   TEXT PRIMARY KEY,
+    entry_count INTEGER NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Per-entry state for the Jikan synopsis backfill: entries that repeatedly
 -- fail, 404, or have no synopsis on MAL are not retried on later runs.
 -- Also created by pipeline/backfill_jikan.py itself for existing installs.

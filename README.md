@@ -117,6 +117,8 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | `GET /anilist/{username}` | Cached AniList list status |
 | `GET /tags` | Distinct tag vocabulary (for filter autocomplete) |
 | `GET /foryou?medium=anime&anilist_user=...` | Personal discovery feed: blends a fresh random sample of the user's list into one multi-seed recommendation, excluding everything already on it |
+| `POST /exclusions/{name}` | Replace a generic named exclusion list: body `{"anilist_ids": [], "mal_anime_ids": [], "mal_manga_ids": []}`; exclude with `exclude_list={name}` (GET for status, DELETE to remove) |
+| `POST /yamtrack/refresh` | Pull the configured Yamtrack instance's anime + manga lists into the `yamtrack` exclusion list (set `YAMTRACK_URL` and `YAMTRACK_TOKEN`) |
 | `GET /healthz` | Liveness check |
 
 Medium groups match Anibrain's recommenders: `anime`, `manga` (includes
@@ -141,6 +143,10 @@ manhwa/manhua), `light_novel`, `one_shot`.
   lists (any status)
 - `anilist_user=<username>` — same, for a cached AniList list (matched by
   AniList id directly)
+- `exclude_list=<name>` — exclude everything on a generic named exclusion
+  list (see `POST /exclusions/{name}`; any tracker that can export AniList
+  or MAL ids can feed one, and the Yamtrack integration fills the
+  `yamtrack` list)
 
 Search also matches alternate titles (AniList synonyms) once entries carry
 them; synonyms arrive via the nightly incremental sync, or immediately for

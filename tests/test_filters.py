@@ -78,6 +78,15 @@ def test_length_filters_include_unknown_lengths():
     assert params["f_max_chapters"] == 100
 
 
+def test_generic_exclusion_list_pairs_mal_kinds_with_media_type():
+    sql, params = build_filters(exclude_list="  MyList ")
+    assert "custom_exclusion_entries" in sql
+    assert "ce.kind = 'anilist' AND ce.ext_id = m.id" in sql
+    assert "ce.kind = 'mal_anime' AND m.media_type = 'ANIME'" in sql
+    assert "ce.kind = 'mal_manga' AND m.media_type = 'MANGA'" in sql
+    assert params["f_excl_list"] == "mylist"
+
+
 def test_mal_exclusion_pairs_list_type_with_media_type():
     # MAL anime and manga ids are separate id spaces: anime #1 on the user's
     # list must not exclude manga #1. The clause has to pair list_type with

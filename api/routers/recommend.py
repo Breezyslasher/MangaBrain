@@ -260,6 +260,7 @@ def recommend_multi(
     max_chapters: int | None = Query(None, ge=1),
     mal_user: str | None = None,
     anilist_user: str | None = None,
+    exclude_list: str | None = None,
 ) -> RecommendResponse:
     unique_ids = list(dict.fromkeys(ids))
     return _recommend_for_seeds(
@@ -285,6 +286,7 @@ def recommend_multi(
             "max_chapters": max_chapters,
             "mal_user": mal_user,
             "anilist_user": anilist_user,
+            "exclude_list": exclude_list,
         },
     )
 
@@ -314,6 +316,7 @@ def recommend(
     max_chapters: int | None = Query(None, ge=1),
     mal_user: str | None = None,
     anilist_user: str | None = None,
+    exclude_list: str | None = None,
 ) -> RecommendResponse:
     return _recommend_for_seeds(
         [media_id],
@@ -338,5 +341,6 @@ def recommend(
             "max_chapters": max_chapters,
             "mal_user": mal_user,
             "anilist_user": anilist_user,
+            "exclude_list": exclude_list,
         },
     )
