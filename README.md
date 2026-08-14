@@ -34,6 +34,23 @@ function.
 - Direct adaptation/source relations of the seed are excluded from results
   and returned separately as "related".
 
+## Run from the prebuilt image (no clone needed)
+
+Every merge to main publishes `ghcr.io/breezyslasher/mangabrain:latest`
+(linux/amd64) via GitHub Actions. To run without building anything, copy the
+single file [`docker-compose.prebuilt.yml`](docker-compose.prebuilt.yml)
+anywhere and:
+
+```
+docker compose -f docker-compose.prebuilt.yml up -d
+docker compose -f docker-compose.prebuilt.yml run --rm worker python -m pipeline.sync_anilist
+docker compose -f docker-compose.prebuilt.yml run --rm worker python -m pipeline.embed
+```
+
+The services apply the database schema themselves on first start, so no
+repository checkout or schema mount is required. The web UI is at
+`http://<host>:8000`.
+
 ## Quick start (development)
 
 Requires Python 3.12 and Docker.

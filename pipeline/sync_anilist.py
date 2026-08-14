@@ -348,6 +348,9 @@ def main() -> None:
     parser.add_argument("--cache-dir", default=settings.http_cache_dir)
     args = parser.parse_args()
 
+    from api.db import ensure_schema
+
+    ensure_schema()
     media_type = None if args.type == "all" else args.type.upper()
     client = RateLimitedClient(min_interval=args.min_interval, cache_dir=args.cache_dir)
     try:

@@ -7,12 +7,13 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from api.db import close_pool, get_pool
+from api.db import close_pool, ensure_schema, get_pool
 from api.routers import mal, random_pick, recommend, search
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    ensure_schema()
     get_pool()
     yield
     close_pool()

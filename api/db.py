@@ -1,7 +1,9 @@
-"""Connection pool and row helpers shared by all routers."""
+"""Connection pool, schema bootstrap, and row helpers shared by all routers."""
 
+from pathlib import Path
 from typing import Any
 
+import psycopg
 from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
@@ -10,6 +12,33 @@ from api.config import settings
 from api.models import MediaOut
 
 _pool: ConnectionPool | None = None
+
+
+def _schema_path() -> Path | None:
+    candidates = [
+        Path(__file__).resolve().parent.parent / "db" / "schema.sql",
+        Path.cwd() / "db" / "schema.sql",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def ensure_schema() -> None:
+    """Apply db/schema.sql when the media table is missing, so the prebuilt
+    image runs against a fresh database without a repo checkout or initdb
+    mount. The schema is fully IF NOT EXISTS, so this is idempotent. Must run
+    before the pool opens: register_vector fails until the extension exists."""
+    with psycopg.connect(settings.database_url, autocommit=True) as conn:
+        row = conn.execute("SELECT to_regclass('media')").fetchone()
+        if row is not None and row[0] is not None:
+            return
+        schema = _schema_path()
+        if schema is None:
+            raise RuntimeError("media table missing and db/schema.sql not found")
+        print(f"[db] applying schema from {schema}")
+        conn.execute(schema.read_text())
 
 
 def get_pool() -> ConnectionPool:
