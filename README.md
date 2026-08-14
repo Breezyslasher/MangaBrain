@@ -74,6 +74,14 @@ python -m pipeline.sync_anilist                  # full catalog, both types in o
 python -m pipeline.embed                         # generate/update embeddings
 python -m pipeline.backfill_jikan                # optional: fill missing synopses from MAL
 
+# quality benchmark: AniList's human-voted recommendation pairs as ground
+# truth (evaluation only - the pairs never enter scoring). fetch once, then
+# compare embedding models by recall@10/@50 and MRR before committing to a
+# full re-embed:
+python -m pipeline.benchmark fetch --out benchmark_pairs.json
+python -m pipeline.benchmark run --pairs-file benchmark_pairs.json \
+    --model BAAI/bge-small-en-v1.5 --model avsolatorio/GIST-small-Embedding-v0
+
 uvicorn api.main:app --reload                    # dev server + SPA at http://localhost:8000
 ```
 
