@@ -79,12 +79,19 @@ def test_length_filters_include_unknown_lengths():
 
 
 def test_generic_exclusion_list_pairs_mal_kinds_with_media_type():
-    sql, params = build_filters(exclude_list="  MyList ")
+    sql, params = build_filters(exclude_lists=["  MyList ", "kitsu"])
     assert "custom_exclusion_entries" in sql
+    assert "ce.list_name = ANY(%(f_excl_lists)s)" in sql
     assert "ce.kind = 'anilist' AND ce.ext_id = m.id" in sql
     assert "ce.kind = 'mal_anime' AND m.media_type = 'ANIME'" in sql
     assert "ce.kind = 'mal_manga' AND m.media_type = 'MANGA'" in sql
-    assert params["f_excl_list"] == "mylist"
+    assert params["f_excl_lists"] == ["mylist", "kitsu"]
+
+
+def test_exclusion_lists_with_only_blank_names_add_no_clause():
+    sql, params = build_filters(exclude_lists=["  ", ""])
+    assert "custom_exclusion_entries" not in sql
+    assert params == {}
 
 
 def test_mal_exclusion_pairs_list_type_with_media_type():

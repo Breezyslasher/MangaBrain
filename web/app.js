@@ -81,9 +81,11 @@ function filterParams() {
   if ($("alExclude").checked && $("alUser").value.trim()) {
     params.anilist_user = $("alUser").value.trim();
   }
-  if ($("ytExclude").checked) {
-    params.exclude_list = "yamtrack";
-  }
+  // exclude_list is repeatable: every checked tracker list combines.
+  const excludeLists = [];
+  if ($("kitsuExclude").checked) excludeLists.push("kitsu");
+  if ($("ytExclude").checked) excludeLists.push("yamtrack");
+  if (excludeLists.length) params.exclude_list = excludeLists;
   return params;
 }
 
@@ -414,6 +416,7 @@ async function loadAccountSettings() {
     const data = await api("/settings");
     if (data.anilist_username) $("alUser").value = data.anilist_username;
     if (data.mal_username) $("malUser").value = data.mal_username;
+    if (data.kitsu_username) $("kitsuUser").value = data.kitsu_username;
     if (data.yamtrack_url) $("ytUrl").value = data.yamtrack_url;
     if (data.yamtrack_token_set) $("ytToken").placeholder = "saved (enter to replace)";
   } catch {
@@ -425,6 +428,7 @@ async function saveAccountSettings() {
   const body = {
     anilist_username: $("alUser").value.trim(),
     mal_username: $("malUser").value.trim(),
+    kitsu_username: $("kitsuUser").value.trim(),
     yamtrack_url: $("ytUrl").value.trim(),
   };
   // Token is write-only: only send it when the user typed a new one.
@@ -460,6 +464,23 @@ async function refreshYamtrack() {
     $("ytStatus").textContent = text;
   } catch (err) {
     $("ytStatus").textContent = err.message;
+  }
+}
+
+async function refreshKitsu() {
+  $("kitsuStatus").textContent = "Fetching from Kitsu...";
+  try {
+    const resp = await fetch("/kitsu/refresh", { method: "POST" });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body.detail || `Refresh failed (${resp.status})`);
+    }
+    const data = await resp.json();
+    let text = `${data.entry_count} entries cached`;
+    if (data.skipped) text += ` (${data.skipped} unmapped entries skipped)`;
+    $("kitsuStatus").textContent = text;
+  } catch (err) {
+    $("kitsuStatus").textContent = err.message;
   }
 }
 
@@ -661,11 +682,12 @@ function bindEvents() {
 
   for (const id of ["adult", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
                     "minScore", "country", "status", "format", "maxPop", "maxLen",
-                    "malExclude", "alExclude", "ytExclude"]) {
+                    "malExclude", "alExclude", "kitsuExclude", "ytExclude"]) {
     $(id).addEventListener("change", rerunActive);
   }
 
   $("ytRefresh").addEventListener("click", refreshYamtrack);
+  $("kitsuRefresh").addEventListener("click", refreshKitsu);
   $("acctSave").addEventListener("click", saveAccountSettings);
 
   $("tagReq").addEventListener("click", () => addTagFilter("inc"));

@@ -13,6 +13,7 @@ from api.routers import (
     app_settings,
     exclusions,
     foryou,
+    kitsu,
     mal,
     random_pick,
     recommend,
@@ -53,6 +54,7 @@ app.include_router(anilist.router)
 app.include_router(foryou.router)
 app.include_router(exclusions.router)
 app.include_router(yamtrack.router)
+app.include_router(kitsu.router)
 app.include_router(app_settings.router)
 
 

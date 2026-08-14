@@ -1,7 +1,8 @@
 """Single-user application settings, editable from the web UI.
 
-Stores tracker account details (AniList/MAL usernames, Yamtrack endpoint and
-token) in the database so they survive browser changes; environment variables
+Stores tracker account details (AniList/MAL/Kitsu usernames, Yamtrack
+endpoint and token) in the database so they survive browser changes;
+environment variables
 remain as fallback for anything not set here. The Yamtrack token is write-only
 through the API: responses only say whether one is configured.
 """
@@ -14,7 +15,13 @@ from api.models import AppSettingsIn, AppSettingsOut
 
 router = APIRouter()
 
-SETTING_KEYS = ("anilist_username", "mal_username", "yamtrack_url", "yamtrack_token")
+SETTING_KEYS = (
+    "anilist_username",
+    "mal_username",
+    "kitsu_username",
+    "yamtrack_url",
+    "yamtrack_token",
+)
 
 UPSERT_SQL = """
     INSERT INTO app_settings (key, value, updated_at)
@@ -43,6 +50,7 @@ def _to_out(stored: dict[str, str]) -> AppSettingsOut:
     return AppSettingsOut(
         anilist_username=stored.get("anilist_username", ""),
         mal_username=stored.get("mal_username", ""),
+        kitsu_username=stored.get("kitsu_username", ""),
         yamtrack_url=stored.get("yamtrack_url") or settings.yamtrack_url,
         yamtrack_token_set=bool(stored.get("yamtrack_token") or settings.yamtrack_token),
     )

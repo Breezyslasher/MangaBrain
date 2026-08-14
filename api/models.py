@@ -96,6 +96,7 @@ class AppSettingsIn(BaseModel):
 
     anilist_username: str | None = None
     mal_username: str | None = None
+    kitsu_username: str | None = None
     yamtrack_url: str | None = None
     yamtrack_token: str | None = None
 
@@ -103,6 +104,7 @@ class AppSettingsIn(BaseModel):
 class AppSettingsOut(BaseModel):
     anilist_username: str = ""
     mal_username: str = ""
+    kitsu_username: str = ""
     yamtrack_url: str = ""
     # The token itself is never returned, only whether one is configured.
     yamtrack_token_set: bool = False
