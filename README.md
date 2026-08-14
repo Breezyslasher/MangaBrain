@@ -118,7 +118,8 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | `GET /tags` | Distinct tag vocabulary (for filter autocomplete) |
 | `GET /foryou?medium=anime&anilist_user=...` | Personal discovery feed: blends a fresh random sample of the user's list into one multi-seed recommendation, excluding everything already on it |
 | `POST /exclusions/{name}` | Replace a generic named exclusion list: body `{"anilist_ids": [], "mal_anime_ids": [], "mal_manga_ids": []}`; exclude with `exclude_list={name}` (GET for status, DELETE to remove) |
-| `POST /yamtrack/refresh` | Pull the configured Yamtrack instance's anime + manga lists into the `yamtrack` exclusion list (set `YAMTRACK_URL` and `YAMTRACK_TOKEN`) |
+| `POST /yamtrack/refresh` | Pull the configured Yamtrack instance's anime + manga lists into the `yamtrack` exclusion list (configure via the Accounts panel or `YAMTRACK_URL`/`YAMTRACK_TOKEN`) |
+| `GET` / `PUT /settings` | Account settings (AniList/MAL usernames, Yamtrack endpoint and token) persisted server-side; the token is write-only |
 | `GET /healthz` | Liveness check |
 
 Medium groups match Anibrain's recommenders: `anime`, `manga` (includes

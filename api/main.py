@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from api.db import close_pool, ensure_schema, get_pool
 from api.routers import (
     anilist,
+    app_settings,
     exclusions,
     foryou,
     mal,
@@ -52,6 +53,7 @@ app.include_router(anilist.router)
 app.include_router(foryou.router)
 app.include_router(exclusions.router)
 app.include_router(yamtrack.router)
+app.include_router(app_settings.router)
 
 
 @app.get("/healthz")

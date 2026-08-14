@@ -409,6 +409,43 @@ function addToMix(media) {
   renderMix();
 }
 
+async function loadAccountSettings() {
+  try {
+    const data = await api("/settings");
+    if (data.anilist_username) $("alUser").value = data.anilist_username;
+    if (data.mal_username) $("malUser").value = data.mal_username;
+    if (data.yamtrack_url) $("ytUrl").value = data.yamtrack_url;
+    if (data.yamtrack_token_set) $("ytToken").placeholder = "saved (enter to replace)";
+  } catch {
+    // Settings are a convenience; the app works without them.
+  }
+}
+
+async function saveAccountSettings() {
+  const body = {
+    anilist_username: $("alUser").value.trim(),
+    mal_username: $("malUser").value.trim(),
+    yamtrack_url: $("ytUrl").value.trim(),
+  };
+  // Token is write-only: only send it when the user typed a new one.
+  if ($("ytToken").value.trim()) body.yamtrack_token = $("ytToken").value.trim();
+  $("acctStatus").textContent = "Saving...";
+  try {
+    const resp = await fetch("/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(`Save failed (${resp.status})`);
+    const data = await resp.json();
+    $("ytToken").value = "";
+    if (data.yamtrack_token_set) $("ytToken").placeholder = "saved (enter to replace)";
+    $("acctStatus").textContent = "Saved.";
+  } catch (err) {
+    $("acctStatus").textContent = err.message;
+  }
+}
+
 async function refreshYamtrack() {
   $("ytStatus").textContent = "Fetching from Yamtrack...";
   try {
@@ -629,6 +666,7 @@ function bindEvents() {
   }
 
   $("ytRefresh").addEventListener("click", refreshYamtrack);
+  $("acctSave").addEventListener("click", saveAccountSettings);
 
   $("tagReq").addEventListener("click", () => addTagFilter("inc"));
   $("tagExc").addEventListener("click", () => addTagFilter("exc"));
@@ -659,4 +697,5 @@ populateFormats();
 renderGenreChips();
 bindEvents();
 loadTagVocabulary();
+loadAccountSettings();
 applyHash();
