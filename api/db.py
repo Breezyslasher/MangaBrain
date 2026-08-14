@@ -30,24 +30,24 @@ _SCHEMA_LOCK_KEY = 727_272
 
 
 def ensure_schema() -> None:
-    """Apply db/schema.sql when the media table is missing, so the prebuilt
-    image runs against a fresh database without a repo checkout or initdb
-    mount. The schema is fully IF NOT EXISTS, so this is idempotent. Must run
-    before the pool opens: register_vector fails until the extension exists.
+    """Apply db/schema.sql on every startup. The schema file is fully
+    idempotent (IF NOT EXISTS tables/indexes plus ADD COLUMN IF NOT EXISTS
+    migrations), so this both bootstraps a fresh database and migrates an
+    existing one when new tables or columns land. Must run before the pool
+    opens: register_vector fails until the extension exists.
 
     Serialized with an advisory lock: api and worker both call this at first
-    boot, and two concurrent CREATE TABLE IF NOT EXISTS runs can still
-    collide. The second caller waits, re-checks, and finds the schema done."""
+    boot, and two concurrent schema applies can collide. The second caller
+    waits, re-runs the idempotent statements, and changes nothing."""
     with psycopg.connect(settings.database_url, autocommit=True) as conn:
         conn.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_LOCK_KEY,))
         try:
-            row = conn.execute("SELECT to_regclass('media')").fetchone()
-            if row is not None and row[0] is not None:
-                return
             schema = _schema_path()
             if schema is None:
+                row = conn.execute("SELECT to_regclass('media')").fetchone()
+                if row is not None and row[0] is not None:
+                    return
                 raise RuntimeError("media table missing and db/schema.sql not found")
-            print(f"[db] applying schema from {schema}")
             conn.execute(schema.read_text())
         finally:
             conn.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_LOCK_KEY,))

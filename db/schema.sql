@@ -34,9 +34,14 @@ CREATE TABLE IF NOT EXISTS media (
     is_adult            BOOLEAN NOT NULL DEFAULT FALSE,
     popularity          INTEGER,                    -- display only, never scored
     favourites          INTEGER,                    -- display only, never scored
+    synonyms            TEXT[] NOT NULL DEFAULT '{}',  -- alternate titles, searchable
     updated_at          BIGINT,                     -- AniList updatedAt (unix seconds)
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration for installs created before the column existed; the schema is
+-- applied idempotently on every service start.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS synonyms TEXT[] NOT NULL DEFAULT '{}';
 
 CREATE INDEX IF NOT EXISTS idx_media_medium ON media (medium);
 CREATE INDEX IF NOT EXISTS idx_media_id_mal ON media (id_mal);
@@ -86,6 +91,27 @@ CREATE TABLE IF NOT EXISTS mal_list_entries (
 CREATE INDEX IF NOT EXISTS idx_mal_list_entries_lookup ON mal_list_entries (username, id_mal);
 
 CREATE TABLE IF NOT EXISTS mal_list_state (
+    username    TEXT NOT NULL,
+    list_type   TEXT NOT NULL CHECK (list_type IN ('anime', 'manga')),
+    entry_count INTEGER NOT NULL DEFAULT 0,
+    fetched_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (username, list_type)
+);
+
+-- Cached AniList user lists, fetched via MediaListCollection. Exclusion is a
+-- direct match on the AniList media id, no MAL id join needed.
+CREATE TABLE IF NOT EXISTS anilist_list_entries (
+    username    TEXT NOT NULL,
+    list_type   TEXT NOT NULL CHECK (list_type IN ('anime', 'manga')),
+    media_id    INTEGER NOT NULL,
+    status      TEXT,
+    PRIMARY KEY (username, list_type, media_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_anilist_list_entries_lookup
+    ON anilist_list_entries (username, media_id);
+
+CREATE TABLE IF NOT EXISTS anilist_list_state (
     username    TEXT NOT NULL,
     list_type   TEXT NOT NULL CHECK (list_type IN ('anime', 'manga')),
     entry_count INTEGER NOT NULL DEFAULT 0,

@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from api.config import settings
 from api.db import get_pool
-from api.models import MalListStatus, MalStatus
+from api.models import UserListsStatus, UserListStatus
 from pipeline.client import RateLimitedClient
 
 router = APIRouter()
@@ -65,8 +65,8 @@ def _fetch_list(client: RateLimitedClient, username: str, list_type: str) -> dic
     return entries
 
 
-@router.post("/mal/{username}/refresh", response_model=MalStatus)
-def refresh_mal_lists(username: str) -> MalStatus:
+@router.post("/mal/{username}/refresh", response_model=UserListsStatus)
+def refresh_mal_lists(username: str) -> UserListsStatus:
     username = username.strip().lower()
     if not username:
         raise HTTPException(status_code=422, detail="empty username")
@@ -92,8 +92,8 @@ def refresh_mal_lists(username: str) -> MalStatus:
     return get_mal_status(username)
 
 
-@router.get("/mal/{username}", response_model=MalStatus)
-def get_mal_status(username: str) -> MalStatus:
+@router.get("/mal/{username}", response_model=UserListsStatus)
+def get_mal_status(username: str) -> UserListsStatus:
     username = username.strip().lower()
     with get_pool().connection() as conn:
         rows = conn.execute(
@@ -103,10 +103,10 @@ def get_mal_status(username: str) -> MalStatus:
         ).fetchall()
     if not rows:
         raise HTTPException(status_code=404, detail="no cached lists; refresh first")
-    return MalStatus(
+    return UserListsStatus(
         username=username,
         lists=[
-            MalListStatus(
+            UserListStatus(
                 list_type=row["list_type"],
                 entry_count=row["entry_count"],
                 fetched_at=row["fetched_at"],

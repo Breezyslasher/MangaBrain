@@ -7,6 +7,7 @@ const state = {
   pending: [], // rendered lazily via Show more
   shown: 0,
   genreState: {}, // name -> "inc" | "exc"
+  tagState: {}, // name -> "inc" | "exc"
   titleLang: localStorage.getItem("mb_title_lang") || "english",
 };
 
@@ -66,9 +67,19 @@ function filterParams() {
     max_popularity: $("maxPop").value,
     genre_in: GENRES.filter((g) => state.genreState[g] === "inc"),
     genre_ex: GENRES.filter((g) => state.genreState[g] === "exc"),
+    tag_in: Object.keys(state.tagState).filter((t) => state.tagState[t] === "inc"),
+    tag_ex: Object.keys(state.tagState).filter((t) => state.tagState[t] === "exc"),
   };
+  const maxLen = $("maxLen").value;
+  if (maxLen) {
+    if (state.medium === "anime") params.max_episodes = maxLen;
+    else params.max_chapters = maxLen;
+  }
   if ($("malExclude").checked && $("malUser").value.trim()) {
     params.mal_user = $("malUser").value.trim();
+  }
+  if ($("alExclude").checked && $("alUser").value.trim()) {
+    params.anilist_user = $("alUser").value.trim();
   }
   return params;
 }
@@ -104,11 +115,20 @@ function mediaTitle(media) {
   return media.title || media.title_english || media.title_native || `#${media.id}`;
 }
 
+function formatMembers(n) {
+  if (!n) return null;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}
+
 function mediaMeta(media) {
   const parts = [];
   if (media.start_year) parts.push(media.start_year);
   if (media.format) parts.push(media.format.replaceAll("_", " "));
   if (media.average_score) parts.push(String(media.average_score));
+  const members = formatMembers(media.popularity);
+  if (members) parts.push(members);
   if (media.medium && media.medium !== state.medium) parts.push(media.medium.replaceAll("_", " "));
   return parts.join(" / ");
 }
@@ -433,6 +453,69 @@ function renderGenreChips() {
   }
 }
 
+function renderTagChips() {
+  const wrap = $("tagChips");
+  wrap.innerHTML = "";
+  for (const [name, mode] of Object.entries(state.tagState)) {
+    const chip = document.createElement("span");
+    chip.className = `chip ${mode}`;
+    chip.textContent = `${name} (remove)`;
+    chip.addEventListener("click", () => {
+      delete state.tagState[name];
+      renderTagChips();
+      rerunActive();
+    });
+    wrap.appendChild(chip);
+  }
+}
+
+function addTagFilter(mode) {
+  const name = $("tagInput").value.trim();
+  if (!name) return;
+  state.tagState[name] = mode;
+  $("tagInput").value = "";
+  renderTagChips();
+  rerunActive();
+}
+
+async function loadTagVocabulary() {
+  try {
+    const data = await api("/tags");
+    const list = $("tagList");
+    for (const name of data.tags) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      list.appendChild(opt);
+    }
+  } catch {
+    // Autocomplete is a convenience; typing exact tag names still works.
+  }
+}
+
+async function refreshAnilist() {
+  const username = $("alUser").value.trim();
+  if (!username) {
+    $("alStatus").textContent = "Enter an AniList username first.";
+    return;
+  }
+  $("alStatus").textContent = "Fetching lists...";
+  try {
+    const resp = await fetch(`/anilist/${encodeURIComponent(username)}/refresh`, {
+      method: "POST",
+    });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body.detail || `Refresh failed (${resp.status})`);
+    }
+    const data = await resp.json();
+    $("alStatus").textContent = data.lists
+      .map((l) => `${l.list_type}: ${l.entry_count} entries`)
+      .join(", ");
+  } catch (err) {
+    $("alStatus").textContent = err.message;
+  }
+}
+
 function rerunActive() {
   if (!state.mode) return;
   if (state.mode.type === "single") loadRecommendations(state.mode.id, { updateHash: false });
@@ -480,9 +563,14 @@ function bindEvents() {
   }
 
   for (const id of ["adult", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
-                    "minScore", "country", "status", "format", "maxPop", "malExclude"]) {
+                    "minScore", "country", "status", "format", "maxPop", "maxLen",
+                    "malExclude", "alExclude"]) {
     $(id).addEventListener("change", rerunActive);
   }
+
+  $("tagReq").addEventListener("click", () => addTagFilter("inc"));
+  $("tagExc").addEventListener("click", () => addTagFilter("exc"));
+  $("alRefresh").addEventListener("click", refreshAnilist);
 
   $("titleLang").value = state.titleLang;
   $("titleLang").addEventListener("change", () => {
@@ -507,4 +595,5 @@ function bindEvents() {
 populateFormats();
 renderGenreChips();
 bindEvents();
+loadTagVocabulary();
 applyHash();

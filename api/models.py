@@ -60,12 +60,16 @@ class SearchResponse(BaseModel):
     results: list[MediaOut]
 
 
-class MalListStatus(BaseModel):
+class UserListStatus(BaseModel):
     list_type: str
     entry_count: int
     fetched_at: datetime
 
 
-class MalStatus(BaseModel):
+class UserListsStatus(BaseModel):
     username: str
-    lists: list[MalListStatus]
+    lists: list[UserListStatus]
+
+
+class TagsResponse(BaseModel):
+    tags: list[str]

@@ -45,6 +45,7 @@ MEDIA_FIELDS = """
       type
       format
       title { romaji english native }
+      synonyms
       description(asHtml: false)
       genres
       tags { name rank isAdult }
@@ -95,13 +96,13 @@ query ($page: Int!, $type: MediaType!) {{
 UPSERT_SQL = """
     INSERT INTO media (
         id, id_mal, media_type, medium, title_romaji, title_english, title_native,
-        description, description_clean, genres, tags, format, episodes, chapters,
+        synonyms, description, description_clean, genres, tags, format, episodes, chapters,
         volumes, country_of_origin, start_year, status, average_score,
         cover_image_medium, cover_image_large, is_adult, popularity, favourites,
         updated_at, synced_at
     ) VALUES (
         %(id)s, %(id_mal)s, %(media_type)s, %(medium)s, %(title_romaji)s,
-        %(title_english)s, %(title_native)s, %(description)s, %(description_clean)s,
+        %(title_english)s, %(title_native)s, %(synonyms)s, %(description)s, %(description_clean)s,
         %(genres)s, %(tags)s, %(format)s, %(episodes)s, %(chapters)s, %(volumes)s,
         %(country_of_origin)s, %(start_year)s, %(status)s, %(average_score)s,
         %(cover_image_medium)s, %(cover_image_large)s, %(is_adult)s, %(popularity)s,
@@ -114,6 +115,7 @@ UPSERT_SQL = """
         title_romaji = EXCLUDED.title_romaji,
         title_english = EXCLUDED.title_english,
         title_native = EXCLUDED.title_native,
+        synonyms = EXCLUDED.synonyms,
         description = EXCLUDED.description,
         description_clean = EXCLUDED.description_clean,
         genres = EXCLUDED.genres,
@@ -211,6 +213,7 @@ def upsert_entry(conn: psycopg.Connection, entry: dict[str, Any]) -> None:
         "title_romaji": title.get("romaji"),
         "title_english": title.get("english"),
         "title_native": title.get("native"),
+        "synonyms": [s for s in (entry.get("synonyms") or []) if s],
         "description": description,
         "description_clean": clean_description(description),
         "genres": entry.get("genres") or [],

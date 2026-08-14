@@ -20,7 +20,13 @@ def random_pick(
     min_score: int | None = None,
     countries: list[str] | None = Query(None, alias="country"),
     statuses: list[str] | None = Query(None, alias="status"),
+    genres_include: list[str] | None = Query(None, alias="genre_in"),
+    genres_exclude: list[str] | None = Query(None, alias="genre_ex"),
+    max_popularity: int | None = Query(None, ge=0),
+    max_episodes: int | None = Query(None, ge=1),
+    max_chapters: int | None = Query(None, ge=1),
     mal_user: str | None = None,
+    anilist_user: str | None = None,
 ) -> MediaOut:
     filter_sql, filter_params = build_filters(
         adult=adult,
@@ -30,7 +36,13 @@ def random_pick(
         min_score=min_score,
         countries=countries,
         statuses=statuses,
+        genres_include=genres_include,
+        genres_exclude=genres_exclude,
+        max_popularity=max_popularity,
+        max_episodes=max_episodes,
+        max_chapters=max_chapters,
         mal_user=mal_user,
+        anilist_user=anilist_user,
     )
     sql = f"""
         SELECT {MEDIA_COLS}

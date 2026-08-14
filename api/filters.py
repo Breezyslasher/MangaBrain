@@ -17,7 +17,10 @@ def build_filters(
     tags_include: list[str] | None = None,
     tags_exclude: list[str] | None = None,
     max_popularity: int | None = None,
+    max_episodes: int | None = None,
+    max_chapters: int | None = None,
     mal_user: str | None = None,
+    anilist_user: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Return (sql_fragment, params). The fragment is a chain of ' AND ...'
     clauses safe to append to a WHERE clause that already has a condition.
@@ -70,6 +73,13 @@ def build_filters(
         # unknown popularity count as obscure.
         clauses.append("(m.popularity IS NULL OR m.popularity <= %(f_max_pop)s)")
         params["f_max_pop"] = max_popularity
+    if max_episodes is not None:
+        # Unknown lengths (often still-releasing titles) stay included.
+        clauses.append("(m.episodes IS NULL OR m.episodes <= %(f_max_episodes)s)")
+        params["f_max_episodes"] = max_episodes
+    if max_chapters is not None:
+        clauses.append("(m.chapters IS NULL OR m.chapters <= %(f_max_chapters)s)")
+        params["f_max_chapters"] = max_chapters
     if mal_user:
         # MAL anime and manga ids are separate id spaces (anime #1 and manga #1
         # are different titles), so a list entry only excludes rows of the
@@ -81,6 +91,13 @@ def build_filters(
             " AND l.list_type = lower(m.media_type))"
         )
         params["f_mal_user"] = mal_user.strip().lower()
+    if anilist_user:
+        # AniList exclusion matches the AniList media id directly.
+        clauses.append(
+            "NOT EXISTS (SELECT 1 FROM anilist_list_entries al"
+            " WHERE al.username = %(f_anilist_user)s AND al.media_id = m.id)"
+        )
+        params["f_anilist_user"] = anilist_user.strip().lower()
 
     sql = "".join(f" AND {clause}" for clause in clauses)
     return sql, params
