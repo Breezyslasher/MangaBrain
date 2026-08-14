@@ -171,9 +171,12 @@ def fetch_page(client: RateLimitedClient, query: str, variables: dict[str, Any])
     return payload["data"]["Page"]
 
 
-# Embeddings are computed from titles + description_clean, so when an update
-# changes any of those the old embedding is stale. Run before the upsert (it
-# compares against the currently stored row); the next embed pass re-embeds.
+# Embeddings are computed from genres, tags, description_clean, and titles
+# (fallback), so when an update changes any of those the old embedding is
+# stale. Runs before the upsert (it compares against the currently stored
+# row); the next embed pass re-embeds. Genres and tag names are compared as
+# sorted sets: AniList tag ranks jitter constantly, and rank-sensitive
+# comparison would re-embed half the catalog every night for no text change.
 STALE_EMBEDDING_SQL = """
     DELETE FROM embeddings e
     USING media m
@@ -181,7 +184,12 @@ STALE_EMBEDDING_SQL = """
       AND m.id = %(id)s
       AND (m.description_clean IS DISTINCT FROM %(description_clean)s
            OR m.title_romaji IS DISTINCT FROM %(title_romaji)s
-           OR m.title_english IS DISTINCT FROM %(title_english)s)
+           OR m.title_english IS DISTINCT FROM %(title_english)s
+           OR COALESCE((SELECT array_agg(g ORDER BY g) FROM unnest(m.genres) g), '{}')
+              IS DISTINCT FROM %(genres_sorted)s::text[]
+           OR COALESCE((SELECT array_agg(t->>'name' ORDER BY t->>'name')
+                        FROM jsonb_array_elements(m.tags) t), '{}')
+              IS DISTINCT FROM %(tag_names_sorted)s::text[])
 """
 
 
@@ -222,7 +230,12 @@ def upsert_entry(conn: psycopg.Connection, entry: dict[str, Any]) -> None:
         "favourites": entry.get("favourites"),
         "updated_at": entry.get("updatedAt"),
     }
-    conn.execute(STALE_EMBEDDING_SQL, params)
+    stale_params = {
+        **params,
+        "genres_sorted": sorted(params["genres"]),
+        "tag_names_sorted": sorted(t["name"] for t in tags),
+    }
+    conn.execute(STALE_EMBEDDING_SQL, stale_params)
     conn.execute(UPSERT_SQL, params)
     conn.execute("DELETE FROM media_relations WHERE media_id = %s", (entry["id"],))
     edges = (entry.get("relations") or {}).get("edges") or []
@@ -284,10 +297,15 @@ def full_sync(
 
 def incremental_sync(
     client: RateLimitedClient, conn: psycopg.Connection, media_type: str, since: int
-) -> int:
-    """Sync entries updated since the given unix timestamp. Returns the count."""
+) -> tuple[int, bool]:
+    """Sync entries updated since the given unix timestamp.
+
+    Returns (updated_count, hit_offset_cap). hit_offset_cap means entries
+    older in the UPDATED_AT_DESC ordering could not be reached; the caller
+    should catch up with a full sync."""
     page = 1
     updated = 0
+    hit_cap = False
     while True:
         data = fetch_page(client, BY_UPDATED_QUERY, {"page": page, "type": media_type})
         reached_cutoff = False
@@ -301,15 +319,15 @@ def incremental_sync(
         if reached_cutoff or not data["pageInfo"]["hasNextPage"]:
             break
         if page >= MAX_OFFSET_PAGES:
+            hit_cap = True
             print(
                 f"[sync] {media_type} incremental hit AniList's {MAX_OFFSET_PAGES * PER_PAGE}-row"
                 " offset limit before reaching the cutoff; older updates were skipped."
-                " Run a full sync to catch up."
             )
             break
         page += 1
     print(f"[sync] {media_type} incremental: {updated} entries updated since {since}")
-    return updated
+    return updated, hit_cap
 
 
 def main() -> None:
