@@ -63,9 +63,28 @@
             <option value="CANCELLED">Cancelled</option>
           </select>
         </label>
+        <label>Max popularity
+          <select id="maxPop">
+            <option value="">Any</option>
+            <option value="200000">Under 200k members</option>
+            <option value="50000">Under 50k members</option>
+            <option value="10000">Under 10k members</option>
+            <option value="2000">Under 2k members</option>
+          </select>
+        </label>
+        <div class="genre-filter">
+          <div class="chips-hint">Genres: click to require, click again to exclude</div>
+          <div id="genreChips" class="chips"></div>
+        </div>
         <label class="check"><input type="checkbox" id="adult"> Include adult content</label>
         <label class="check"><input type="checkbox" id="crossMedia"> Cross-media suggestions</label>
         <label class="check"><input type="checkbox" id="excludeFranchise" checked> Hide sequels and spin-offs</label>
+      </section>
+
+      <section class="panel-block" id="mixBlock" hidden>
+        <h2>Seed mix</h2>
+        <div id="mixChips" class="chips"></div>
+        <button id="mixGo">Recommend from mix</button>
       </section>
 
       <section class="panel-block">

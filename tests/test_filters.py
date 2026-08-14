@@ -42,6 +42,27 @@ def test_all_filters_produce_bound_params():
     assert "mal_list_entries" in sql
 
 
+def test_genre_and_tag_filters():
+    sql, params = build_filters(
+        genres_include=["Romance", "Drama"],
+        genres_exclude=["Ecchi"],
+        tags_include=["Time Travel"],
+        tags_exclude=["Harem"],
+    )
+    assert "m.genres @> %(f_genres_inc)s::text[]" in sql
+    assert "NOT (m.genres && %(f_genres_exc)s::text[])" in sql
+    assert params["f_genres_inc"] == ["Romance", "Drama"]
+    assert params["f_genres_exc"] == ["Ecchi"]
+    assert params["f_tags_inc"] == ["Time Travel"]
+    assert params["f_tags_exc"] == ["Harem"]
+
+
+def test_max_popularity_is_a_filter_and_treats_unknown_as_obscure():
+    sql, params = build_filters(max_popularity=10000)
+    assert "(m.popularity IS NULL OR m.popularity <= %(f_max_pop)s)" in sql
+    assert params["f_max_pop"] == 10000
+
+
 def test_mal_exclusion_pairs_list_type_with_media_type():
     # MAL anime and manga ids are separate id spaces: anime #1 on the user's
     # list must not exclude manga #1. The clause has to pair list_type with

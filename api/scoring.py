@@ -68,3 +68,29 @@ def final_score(
     w = weights.normalized()
     semantic = min(max(semantic, 0.0), 1.0)
     return w.semantic * semantic + w.tags * tag_sim + w.genres * genre_sim
+
+
+def merge_tag_maps(maps: Iterable[Mapping[str, float]]) -> dict[str, float]:
+    """Average tag weight maps across several seeds into one profile; a tag
+    absent from a seed contributes zero, so shared tags dominate."""
+    maps = list(maps)
+    if not maps:
+        return {}
+    merged: dict[str, float] = {}
+    for tag_map in maps:
+        for name, weight in tag_map.items():
+            merged[name] = merged.get(name, 0.0) + weight
+    return {name: total / len(maps) for name, total in merged.items()}
+
+
+DISPLAY_EXPONENT = 1.8
+
+
+def display_similarity(score: float) -> float:
+    """Monotonic calibration from the blended score to the displayed
+    percentage. Raw cosine blends max out around 0.7-0.8 for excellent
+    matches, which reads misleadingly low; this maps the same ordering onto
+    an Anibrain-like scale (0.75 -> ~92). Strictly increasing, so ranking
+    order is never affected."""
+    score = min(max(score, 0.0), 1.0)
+    return round(100.0 * (1.0 - (1.0 - score) ** DISPLAY_EXPONENT), 1)

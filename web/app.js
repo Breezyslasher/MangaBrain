@@ -2,8 +2,15 @@
 
 const state = {
   medium: "anime",
-  seed: null,
+  mode: null, // {type: "single", id} | {type: "mix"}
+  mix: [], // [{id, title}]
+  pending: [], // rendered lazily via Show more
+  shown: 0,
+  genreState: {}, // name -> "inc" | "exc"
 };
+
+const PAGE_SIZE = 60;
+const MAX_MIX = 5;
 
 const FORMATS = {
   anime: ["TV", "TV_SHORT", "MOVIE", "OVA", "ONA", "SPECIAL", "MUSIC"],
@@ -11,6 +18,12 @@ const FORMATS = {
   light_novel: ["NOVEL"],
   one_shot: ["ONE_SHOT"],
 };
+
+const GENRES = [
+  "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror",
+  "Mahou Shoujo", "Mecha", "Music", "Mystery", "Psychological", "Romance",
+  "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller",
+];
 
 const $ = (id) => document.getElementById(id);
 
@@ -25,14 +38,17 @@ function debounce(fn, ms) {
 async function api(path, params = {}) {
   const url = new URL(path, window.location.origin);
   for (const [key, value] of Object.entries(params)) {
-    if (value !== null && value !== undefined && value !== "") {
+    if (value === null || value === undefined || value === "") continue;
+    if (Array.isArray(value)) {
+      for (const item of value) url.searchParams.append(key, item);
+    } else {
       url.searchParams.set(key, value);
     }
   }
   const resp = await fetch(url);
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed (${resp.status})`);
+    throw new Error(body.detail ? JSON.stringify(body.detail) : `Request failed (${resp.status})`);
   }
   return resp.json();
 }
@@ -46,6 +62,9 @@ function filterParams() {
     country: $("country").value,
     status: $("status").value,
     format: $("format").value,
+    max_popularity: $("maxPop").value,
+    genre_in: GENRES.filter((g) => state.genreState[g] === "inc"),
+    genre_ex: GENRES.filter((g) => state.genreState[g] === "exc"),
   };
   if ($("malExclude").checked && $("malUser").value.trim()) {
     params.mal_user = $("malUser").value.trim();
@@ -61,6 +80,16 @@ function weightParams() {
   };
 }
 
+function recommendParams() {
+  return {
+    ...weightParams(),
+    ...filterParams(),
+    cross_media: $("crossMedia").checked ? "true" : "false",
+    exclude_franchise: $("excludeFranchise").checked ? "true" : "false",
+    limit: 200,
+  };
+}
+
 function setStatus(text) {
   $("status").textContent = text || "";
 }
@@ -73,13 +102,31 @@ function mediaMeta(media) {
   const parts = [];
   if (media.start_year) parts.push(media.start_year);
   if (media.format) parts.push(media.format.replaceAll("_", " "));
+  if (media.average_score) parts.push(String(media.average_score));
   if (media.medium && media.medium !== state.medium) parts.push(media.medium.replaceAll("_", " "));
   return parts.join(" / ");
 }
 
-function card(media, badgeText, onClick) {
+function anilistUrl(media) {
+  const kind = media.medium === "anime" ? "anime" : "manga";
+  return `https://anilist.co/${kind}/${media.id}`;
+}
+
+function malUrl(media) {
+  if (!media.id_mal) return null;
+  const kind = media.medium === "anime" ? "anime" : "manga";
+  return `https://myanimelist.net/${kind}/${media.id_mal}`;
+}
+
+function card(media, badgeText, onClick, components) {
   const el = document.createElement("div");
   el.className = "card";
+  if (components) {
+    el.title =
+      `Match components - synopsis: ${Math.round(components.semantic * 100)},` +
+      ` tags: ${Math.round(components.tags * 100)},` +
+      ` genres: ${Math.round(components.genres * 100)}`;
+  }
   const img = document.createElement("img");
   img.className = "cover";
   img.loading = "lazy";
@@ -94,6 +141,16 @@ function card(media, badgeText, onClick) {
     badge.textContent = badgeText;
     el.appendChild(badge);
   }
+  const addBtn = document.createElement("button");
+  addBtn.className = "add-mix";
+  addBtn.textContent = "+";
+  addBtn.title = "Add to seed mix";
+  addBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    addToMix(media);
+  });
+  el.appendChild(addBtn);
+
   const info = document.createElement("div");
   info.className = "info";
   const title = document.createElement("div");
@@ -102,8 +159,16 @@ function card(media, badgeText, onClick) {
   const meta = document.createElement("div");
   meta.className = "meta";
   meta.textContent = mediaMeta(media);
+  const link = document.createElement("a");
+  link.className = "ext";
+  link.href = anilistUrl(media);
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = "AniList";
+  link.addEventListener("click", (e) => e.stopPropagation());
   info.appendChild(title);
   info.appendChild(meta);
+  info.appendChild(link);
   el.appendChild(info);
   el.addEventListener("click", onClick);
   return el;
@@ -113,11 +178,35 @@ function clearResults() {
   $("seed").innerHTML = "";
   $("related").innerHTML = "";
   $("results").innerHTML = "";
+  const more = document.querySelector(".show-more");
+  if (more) more.remove();
+  state.pending = [];
+  state.shown = 0;
   setStatus("");
 }
 
+function renderPending() {
+  const grid = $("results");
+  const next = state.pending.slice(state.shown, state.shown + PAGE_SIZE);
+  for (const item of next) {
+    grid.appendChild(
+      card(item.media, `${item.similarity}%`, () => loadRecommendations(item.media.id), item.components)
+    );
+  }
+  state.shown += next.length;
+  const existing = document.querySelector(".show-more");
+  if (existing) existing.remove();
+  if (state.shown < state.pending.length) {
+    const btn = document.createElement("button");
+    btn.className = "show-more";
+    btn.textContent = `Show more (${state.pending.length - state.shown} left)`;
+    btn.addEventListener("click", renderPending);
+    grid.after(btn);
+  }
+}
+
 async function runSearch(query) {
-  state.seed = null;
+  state.mode = null;
   clearResults();
   if (!query.trim()) return;
   setStatus("Searching...");
@@ -137,9 +226,7 @@ async function runSearch(query) {
   }
 }
 
-function renderSeed(seed) {
-  const wrap = $("seed");
-  wrap.innerHTML = "";
+function renderSeedCard(seed) {
   const el = document.createElement("div");
   el.className = "seed-card";
   const img = document.createElement("img");
@@ -155,14 +242,40 @@ function renderSeed(seed) {
   meta.textContent = [mediaMeta(seed), (seed.genres || []).join(", ")]
     .filter(Boolean)
     .join(" — ");
+  const links = document.createElement("div");
+  links.className = "ext-links";
+  const al = document.createElement("a");
+  al.href = anilistUrl(seed);
+  al.target = "_blank";
+  al.rel = "noopener";
+  al.textContent = "AniList";
+  links.appendChild(al);
+  const mal = malUrl(seed);
+  if (mal) {
+    const ml = document.createElement("a");
+    ml.href = mal;
+    ml.target = "_blank";
+    ml.rel = "noopener";
+    ml.textContent = "MyAnimeList";
+    links.appendChild(ml);
+  }
   const desc = document.createElement("p");
   desc.textContent = seed.description || "";
   body.appendChild(h3);
   body.appendChild(meta);
+  body.appendChild(links);
   body.appendChild(desc);
   el.appendChild(img);
   el.appendChild(body);
-  wrap.appendChild(el);
+  return el;
+}
+
+function renderSeeds(seeds) {
+  const wrap = $("seed");
+  wrap.innerHTML = "";
+  for (const seed of seeds) {
+    wrap.appendChild(renderSeedCard(seed));
+  }
 }
 
 function renderRelated(related) {
@@ -177,31 +290,76 @@ function renderRelated(related) {
   }
 }
 
-async function loadRecommendations(mediaId) {
-  state.seed = mediaId;
+function renderRecommendations(data) {
+  renderSeeds(data.seeds && data.seeds.length ? data.seeds : [data.seed]);
+  renderRelated(data.related);
+  state.pending = data.results;
+  state.shown = 0;
+  renderPending();
+  setStatus(data.results.length ? "" : "No recommendations pass the active filters.");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function loadRecommendations(mediaId, opts = {}) {
+  state.mode = { type: "single", id: mediaId };
   clearResults();
   setStatus("Finding similar titles...");
+  if (opts.updateHash !== false) {
+    const target = `#/rec/${state.medium}/${mediaId}`;
+    if (location.hash !== target) location.hash = target;
+  }
   try {
-    const data = await api(`/recommend/${mediaId}`, {
-      ...weightParams(),
-      ...filterParams(),
-      cross_media: $("crossMedia").checked ? "true" : "",
-      exclude_franchise: $("excludeFranchise").checked ? "true" : "false",
-      limit: 60,
-    });
-    renderSeed(data.seed);
-    renderRelated(data.related);
-    const grid = $("results");
-    for (const item of data.results) {
-      grid.appendChild(
-        card(item.media, `${item.similarity}%`, () => loadRecommendations(item.media.id))
-      );
-    }
-    setStatus(data.results.length ? "" : "No recommendations pass the active filters.");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const data = await api(`/recommend/${mediaId}`, recommendParams());
+    renderRecommendations(data);
   } catch (err) {
     setStatus(err.message);
   }
+}
+
+async function loadMix() {
+  if (!state.mix.length) return;
+  if (state.mix.length === 1) {
+    loadRecommendations(state.mix[0].id);
+    return;
+  }
+  state.mode = { type: "mix" };
+  clearResults();
+  setStatus("Blending seeds...");
+  try {
+    const data = await api("/recommend", {
+      ids: state.mix.map((m) => m.id),
+      ...recommendParams(),
+    });
+    renderRecommendations(data);
+  } catch (err) {
+    setStatus(err.message);
+  }
+}
+
+function renderMix() {
+  const wrap = $("mixChips");
+  wrap.innerHTML = "";
+  for (const entry of state.mix) {
+    const chip = document.createElement("span");
+    chip.className = "chip inc";
+    chip.textContent = `${entry.title} (remove)`;
+    chip.addEventListener("click", () => {
+      state.mix = state.mix.filter((m) => m.id !== entry.id);
+      renderMix();
+    });
+    wrap.appendChild(chip);
+  }
+  $("mixBlock").hidden = state.mix.length === 0;
+}
+
+function addToMix(media) {
+  if (state.mix.some((m) => m.id === media.id)) return;
+  if (state.mix.length >= MAX_MIX) {
+    setStatus(`Seed mix is full (max ${MAX_MIX}).`);
+    return;
+  }
+  state.mix.push({ id: media.id, title: mediaTitle(media) });
+  renderMix();
 }
 
 async function surprise() {
@@ -248,14 +406,56 @@ function populateFormats() {
   $("formatWrap").style.display = state.medium === "anime" ? "" : "none";
 }
 
+function renderGenreChips() {
+  const wrap = $("genreChips");
+  wrap.innerHTML = "";
+  for (const genre of GENRES) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    const mode = state.genreState[genre];
+    if (mode === "inc") chip.classList.add("inc");
+    if (mode === "exc") chip.classList.add("exc");
+    chip.textContent = genre;
+    chip.addEventListener("click", () => {
+      if (state.genreState[genre] === "inc") state.genreState[genre] = "exc";
+      else if (state.genreState[genre] === "exc") delete state.genreState[genre];
+      else state.genreState[genre] = "inc";
+      renderGenreChips();
+      rerunActive();
+    });
+    wrap.appendChild(chip);
+  }
+}
+
+function rerunActive() {
+  if (!state.mode) return;
+  if (state.mode.type === "single") loadRecommendations(state.mode.id, { updateHash: false });
+  else if (state.mode.type === "mix") loadMix();
+}
+
+function setMedium(medium) {
+  if (state.medium === medium) return;
+  state.medium = medium;
+  for (const button of document.querySelectorAll("#tabs button")) {
+    button.classList.toggle("active", button.dataset.medium === medium);
+  }
+  populateFormats();
+}
+
+function applyHash() {
+  const match = location.hash.match(/^#\/rec\/(anime|manga|light_novel|one_shot)\/(\d+)$/);
+  if (!match) return false;
+  setMedium(match[1]);
+  loadRecommendations(Number(match[2]), { updateHash: false });
+  return true;
+}
+
 function bindEvents() {
   for (const button of document.querySelectorAll("#tabs button")) {
     button.addEventListener("click", () => {
-      document.querySelector("#tabs button.active").classList.remove("active");
-      button.classList.add("active");
-      state.medium = button.dataset.medium;
-      populateFormats();
-      state.seed = null;
+      setMedium(button.dataset.medium);
+      state.mode = null;
+      if (location.hash) history.replaceState(null, "", location.pathname);
       runSearch($("search").value);
     });
   }
@@ -270,21 +470,27 @@ function bindEvents() {
     $(slider).addEventListener("input", () => {
       $(label).textContent = $(slider).value;
     });
-    $(slider).addEventListener("change", () => {
-      if (state.seed) loadRecommendations(state.seed);
-    });
+    $(slider).addEventListener("change", rerunActive);
   }
 
   for (const id of ["adult", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
-                    "minScore", "country", "status", "format", "malExclude"]) {
-    $(id).addEventListener("change", () => {
-      if (state.seed) loadRecommendations(state.seed);
-    });
+                    "minScore", "country", "status", "format", "maxPop", "malExclude"]) {
+    $(id).addEventListener("change", rerunActive);
   }
 
   $("surprise").addEventListener("click", surprise);
   $("malRefresh").addEventListener("click", refreshMal);
+  $("mixGo").addEventListener("click", loadMix);
+  window.addEventListener("hashchange", () => {
+    if (state.mode && state.mode.type === "single") {
+      const current = `#/rec/${state.medium}/${state.mode.id}`;
+      if (location.hash === current) return;
+    }
+    applyHash();
+  });
 }
 
 populateFormats();
+renderGenreChips();
 bindEvents();
+applyHash();

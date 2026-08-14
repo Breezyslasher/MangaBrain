@@ -109,6 +109,7 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | -------- | ----------- |
 | `GET /search?q=...&medium=anime` | Trigram-ranked title search within a medium group |
 | `GET /recommend/{id}` | Ranked similar titles with similarity percentage and per-component scores |
+| `GET /recommend?ids=1&ids=2` | Multi-seed blend (up to 5 titles): averaged embedding and tag profile, unioned genres |
 | `GET /random?medium=manga` | A random title passing the active filters |
 | `POST /mal/{username}/refresh` | Fetch and cache the user's MAL anime + manga lists via Jikan (synchronous: a large list holds the request open for a while at Jikan's rate limit, so avoid aggressive proxy timeouts in front of it) |
 | `GET /mal/{username}` | Cached list status |
@@ -125,9 +126,17 @@ manhwa/manhua), `light_novel`, `one_shot`.
   only, off by default)
 - `format` (repeatable), `year_min`, `year_max`, `min_score`, `country`
   (repeatable), `status` (repeatable)
+- `genre_in` / `genre_ex` (repeatable) — require or exclude genres;
+  `tag_in` / `tag_ex` (repeatable) — same for AniList tags
+- `max_popularity=<n>` — obscurity cap: only titles with at most n members
+  (a filter the user opts into; popularity still never enters ranking)
 - `adult=true` — include adult entries (excluded at the SQL level by default)
 - `mal_user=<username>` — exclude everything on the cached MAL anime + manga
   lists (any status)
+
+Displayed similarity percentages are calibrated (monotonic, order-preserving)
+so top matches read on an Anibrain-like scale; raw per-component scores are
+returned alongside each result.
 
 ## Configuration
 
