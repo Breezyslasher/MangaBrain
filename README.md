@@ -119,7 +119,8 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | `GET /foryou?medium=anime&anilist_user=...` | Personal discovery feed: blends a fresh random sample of the user's list into one multi-seed recommendation, excluding everything already on it |
 | `POST /exclusions/{name}` | Replace a generic named exclusion list: body `{"anilist_ids": [], "mal_anime_ids": [], "mal_manga_ids": []}`; exclude with `exclude_list={name}` (GET for status, DELETE to remove) |
 | `POST /yamtrack/refresh` | Pull the configured Yamtrack instance's anime + manga lists into the `yamtrack` exclusion list (configure via the Accounts panel or `YAMTRACK_URL`/`YAMTRACK_TOKEN`) |
-| `GET` / `PUT /settings` | Account settings (AniList/MAL usernames, Yamtrack endpoint and token) persisted server-side; the token is write-only |
+| `POST /kitsu/refresh` | Pull the configured Kitsu user's public anime + manga library into the `kitsu` exclusion list via Kitsu's MAL/AniList id mappings (set the Kitsu username in the Accounts panel; no token needed) |
+| `GET` / `PUT /settings` | Account settings (AniList/MAL/Kitsu usernames, Yamtrack endpoint and token) persisted server-side; the token is write-only |
 | `GET /healthz` | Liveness check |
 
 Medium groups match Anibrain's recommenders: `anime`, `manga` (includes
@@ -144,10 +145,11 @@ manhwa/manhua), `light_novel`, `one_shot`.
   lists (any status)
 - `anilist_user=<username>` — same, for a cached AniList list (matched by
   AniList id directly)
-- `exclude_list=<name>` — exclude everything on a generic named exclusion
-  list (see `POST /exclusions/{name}`; any tracker that can export AniList
-  or MAL ids can feed one, and the Yamtrack integration fills the
-  `yamtrack` list)
+- `exclude_list=<name>` (repeatable) — exclude everything on the named
+  generic exclusion lists, combined (see `POST /exclusions/{name}`; any
+  tracker that can export AniList or MAL ids can feed one, the Yamtrack
+  integration fills the `yamtrack` list, and the Kitsu integration fills
+  the `kitsu` list)
 
 Search also matches alternate titles (AniList synonyms) once entries carry
 them; synonyms arrive via the nightly incremental sync, or immediately for

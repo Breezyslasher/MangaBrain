@@ -39,7 +39,9 @@ class RateLimitedClient:
         headers = {"User-Agent": user_agent, "Accept": "application/json"}
         if extra_headers:
             headers.update(extra_headers)
-        self._client = httpx.Client(timeout=timeout, headers=headers)
+        # follow_redirects: Kitsu moved from kitsu.io to kitsu.app and
+        # redirects old URLs; other APIs redirect on trailing slashes.
+        self._client = httpx.Client(timeout=timeout, headers=headers, follow_redirects=True)
 
     def request(
         self,

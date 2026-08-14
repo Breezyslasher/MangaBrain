@@ -21,7 +21,7 @@ def build_filters(
     max_chapters: int | None = None,
     mal_user: str | None = None,
     anilist_user: str | None = None,
-    exclude_list: str | None = None,
+    exclude_lists: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Return (sql_fragment, params). The fragment is a chain of ' AND ...'
     clauses safe to append to a WHERE clause that already has a condition.
@@ -99,17 +99,19 @@ def build_filters(
             " WHERE al.username = %(f_anilist_user)s AND al.media_id = m.id)"
         )
         params["f_anilist_user"] = anilist_user.strip().lower()
-    if exclude_list:
-        # Generic named exclusion list (see /exclusions endpoints): AniList
-        # ids match the row id directly, MAL ids by kind-typed id_mal join.
+    names = [n.strip().lower() for n in (exclude_lists or []) if n.strip()]
+    if names:
+        # Generic named exclusion lists (see /exclusions endpoints), combined:
+        # a row on ANY of the named lists is excluded. AniList ids match the
+        # row id directly, MAL ids by kind-typed id_mal join.
         clauses.append(
             "NOT EXISTS (SELECT 1 FROM custom_exclusion_entries ce"
-            " WHERE ce.list_name = %(f_excl_list)s"
+            " WHERE ce.list_name = ANY(%(f_excl_lists)s)"
             " AND ((ce.kind = 'anilist' AND ce.ext_id = m.id)"
             " OR (ce.kind = 'mal_anime' AND m.media_type = 'ANIME' AND ce.ext_id = m.id_mal)"
             " OR (ce.kind = 'mal_manga' AND m.media_type = 'MANGA' AND ce.ext_id = m.id_mal)))"
         )
-        params["f_excl_list"] = exclude_list.strip().lower()
+        params["f_excl_lists"] = names
 
     sql = "".join(f" AND {clause}" for clause in clauses)
     return sql, params
