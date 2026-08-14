@@ -57,8 +57,17 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+        # Replace the asset in place instead of deleting and recreating the
+        # release: delete-then-create leaves a minutes-long window where the
+        # dataset-latest download URL 404s and fresh installs fall back to a
+        # slow full sync. --clobber shrinks that window to the upload itself.
         run: |
-          gh release delete dataset-latest --cleanup-tag --yes || true
-          gh release create dataset-latest mangabrain-dataset.dump \
-            --title "Catalog snapshot $(date -u +%F)" \
-            --notes "Weekly catalog snapshot: media, relations, embeddings, and sync checkpoints. Restore with pipeline.restore or set SEED_SNAPSHOT_URL; the nightly incremental sync continues from this snapshot's checkpoint. Data sourced from the AniList API."
+          NOTES="Weekly catalog snapshot: media, relations, embeddings, and sync checkpoints. Restore with pipeline.restore or set SEED_SNAPSHOT_URL; the nightly incremental sync continues from this snapshot's checkpoint. Data sourced from the AniList API."
+          if gh release view dataset-latest > /dev/null 2>&1; then
+            gh release upload dataset-latest mangabrain-dataset.dump --clobber
+            gh release edit dataset-latest \
+              --title "Catalog snapshot $(date -u +%F)" --notes "$NOTES"
+          else
+            gh release create dataset-latest mangabrain-dataset.dump \
+              --title "Catalog snapshot $(date -u +%F)" --notes "$NOTES"
+          fi
