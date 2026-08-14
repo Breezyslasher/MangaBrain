@@ -504,8 +504,10 @@ async function refreshKitsu() {
 async function loadForYou() {
   const anilistName = $("alUser").value.trim();
   const malName = $("malUser").value.trim();
-  if (!anilistName && !malName) {
-    setStatus("Enter an AniList or MAL username (and refresh lists) first.");
+  const hasListSource = isChecked("kitsuExclude") || isChecked("ytExclude");
+  if (!anilistName && !malName && !hasListSource) {
+    setStatus("Enter an AniList or MAL username, or sync Kitsu/Yamtrack and"
+      + " tick its exclude box, then try again.");
     return;
   }
   state.mode = { type: "foryou" };

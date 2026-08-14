@@ -1,5 +1,6 @@
 """Personal discovery feed: blends a random sample of titles from the user's
-cached AniList or MAL list into one multi-seed recommendation, always
+cached list (AniList or MAL username, or a synced tracker exclusion list
+such as Kitsu or Yamtrack) into one multi-seed recommendation, always
 excluding everything already on the list. Each request samples fresh seeds,
 so the feed changes on every visit.
 
@@ -41,6 +42,21 @@ MAL_SEEDS_SQL = """
     LIMIT %(n)s
 """
 
+# Seeds from generic exclusion lists (Kitsu, Yamtrack, hand-posted): the same
+# id-mapping join the exclusion filter uses. Lets For-you work for users who
+# only sync a tracker list, without an AniList or MAL username.
+LIST_SEEDS_SQL = """
+    SELECT m.id AS id
+    FROM custom_exclusion_entries ce
+    JOIN media m ON ((ce.kind = 'anilist' AND m.id = ce.ext_id)
+        OR (ce.kind = 'mal_anime' AND m.media_type = 'ANIME' AND m.id_mal = ce.ext_id)
+        OR (ce.kind = 'mal_manga' AND m.media_type = 'MANGA' AND m.id_mal = ce.ext_id))
+    JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
+    WHERE ce.list_name = ANY(%(lists)s) AND m.medium = ANY(%(mediums)s)
+    ORDER BY random()
+    LIMIT %(n)s
+"""
+
 
 @router.get("/foryou", response_model=RecommendResponse)
 def foryou(
@@ -70,10 +86,20 @@ def foryou(
     exclude_list: list[str] | None = Query(None),
     keep_planned: bool = False,
 ) -> RecommendResponse:
-    if not anilist_user and not mal_user:
-        raise HTTPException(status_code=422, detail="provide anilist_user or mal_user")
+    list_names = [n.strip().lower() for n in (exclude_list or []) if n.strip()]
+    if not anilist_user and not mal_user and not list_names:
+        raise HTTPException(
+            status_code=422,
+            detail="provide anilist_user, mal_user, or exclude_list"
+            " (a synced tracker list can seed the feed)",
+        )
 
-    seeds_sql = ANILIST_SEEDS_SQL if anilist_user else MAL_SEEDS_SQL
+    if anilist_user:
+        seeds_sql = ANILIST_SEEDS_SQL
+    elif mal_user:
+        seeds_sql = MAL_SEEDS_SQL
+    else:
+        seeds_sql = LIST_SEEDS_SQL
     username = (anilist_user or mal_user or "").strip().lower()
     mediums = MEDIUM_GROUPS[medium]
 
@@ -84,6 +110,7 @@ def foryou(
         params = {
             "model": model_row["embed_model"],
             "username": username,
+            "lists": list_names,
             "mediums": mediums,
             "n": seeds,
         }
