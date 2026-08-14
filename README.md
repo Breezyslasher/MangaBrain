@@ -16,7 +16,7 @@ function.
   entries) is synced from the AniList GraphQL API into one `media` table with
   a `medium` discriminator (`anime | manga | manhwa | manhua | light_novel |
   one_shot`) derived from AniList format + country of origin.
-- Each title is embedded with `sentence-transformers/all-MiniLM-L6-v2`
+- Each title is embedded with `BAAI/bge-small-en-v1.5`
   (384-dim, CPU-friendly) over its genres, top ranked tags, and synopsis
   (title strings are embedded only for rows without a synopsis, to avoid
   subword title leakage), into a single vector space shared across all
@@ -156,7 +156,7 @@ All settings come from environment variables (see `.env.example`):
 | variable | default | purpose |
 | -------- | ------- | ------- |
 | `DATABASE_URL` | `postgresql://mangabrain:mangabrain@localhost:5432/mangabrain` | Postgres connection |
-| `EMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | embedding model; changing it re-embeds via `pipeline.embed` |
+| `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | embedding model (must be 384-dim); changing it re-embeds via `pipeline.embed` |
 | `HTTP_CACHE_DIR` | empty | on-disk response cache for pipeline scripts (dev) |
 | `ANILIST_MIN_INTERVAL` | `2.0` | seconds between AniList requests |
 | `JIKAN_MIN_INTERVAL` | `0.5` | seconds between Jikan requests |

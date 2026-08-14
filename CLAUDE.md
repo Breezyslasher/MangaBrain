@@ -34,7 +34,7 @@ services:
 ```
 
 - One `media` table with a `medium` discriminator (anime | manga | manhwa | manhua | light_novel | one_shot), derived from AniList format + countryOfOrigin. One embedding space shared across media — this is what makes cross-media similarity free.
-- Embeddings: `sentence-transformers` with `all-MiniLM-L6-v2` (384-dim, CPU-friendly) over `title + cleaned description`. Strip HTML from AniList descriptions before embedding.
+- Embeddings: `sentence-transformers` with `BAAI/bge-small-en-v1.5` (384-dim, CPU-friendly; upgraded from `all-MiniLM-L6-v2`) over genres, ranked tags, and the cleaned description (titles only when no synopsis exists). Strip HTML and spoiler markup from AniList descriptions before embedding.
 - Genre/tag similarity: weighted Jaccard over genres; cosine over a tag vector weighted by AniList tag rank.
 - Final score: `w1 * semantic_cos + w2 * tag_sim + w3 * genre_sim`, weights normalized from slider values, defaults 0.5 / 0.3 / 0.2.
 - pgvector HNSW index on the embedding column; candidate retrieval by semantic ANN (top 500, filtered to the requested medium unless cross-media is on), then re-rank with the full weighted score and apply filters. Exclude direct adaptations of the seed title from recommendation results (they go in "related").

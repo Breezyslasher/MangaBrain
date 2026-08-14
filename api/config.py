@@ -5,7 +5,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_url: str = "postgresql://mangabrain:mangabrain@localhost:5432/mangabrain"
-    embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # 384-dim, CPU-friendly, and a large retrieval-quality step over the
+    # earlier all-MiniLM-L6-v2 (also 384-dim, so the vector column fits both).
+    # Our similarity is symmetric (title text vs title text), so bge's query
+    # instruction prefix is deliberately not used.
+    embed_model: str = "BAAI/bge-small-en-v1.5"
     candidate_pool: int = 500
     http_cache_dir: str = ""
     anilist_min_interval: float = 2.0
