@@ -116,6 +116,7 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | `POST /anilist/{username}/refresh` | Fetch and cache the user's AniList anime + manga lists (a few chunked GraphQL queries, no API key) |
 | `GET /anilist/{username}` | Cached AniList list status |
 | `GET /tags` | Distinct tag vocabulary (for filter autocomplete) |
+| `GET /foryou?medium=anime&anilist_user=...` | Personal discovery feed: blends a fresh random sample of the user's list into one multi-seed recommendation, excluding everything already on it |
 | `GET /healthz` | Liveness check |
 
 Medium groups match Anibrain's recommenders: `anime`, `manga` (includes

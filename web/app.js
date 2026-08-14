@@ -299,6 +299,24 @@ function renderSeedCard(seed) {
 function renderSeeds(seeds) {
   const wrap = $("seed");
   wrap.innerHTML = "";
+  if (seeds.length > 3) {
+    // Feed mode: many seeds render as a compact chip row, not full cards.
+    const hint = document.createElement("div");
+    hint.className = "chips-hint";
+    hint.textContent = "Based on these titles from your list:";
+    wrap.appendChild(hint);
+    const box = document.createElement("div");
+    box.className = "chips";
+    for (const seed of seeds) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = mediaTitle(seed);
+      chip.addEventListener("click", () => loadRecommendations(seed.id));
+      box.appendChild(chip);
+    }
+    wrap.appendChild(box);
+    return;
+  }
   for (const seed of seeds) {
     wrap.appendChild(renderSeedCard(seed));
   }
@@ -386,6 +404,27 @@ function addToMix(media) {
   }
   state.mix.push({ id: media.id, title: mediaTitle(media) });
   renderMix();
+}
+
+async function loadForYou() {
+  const anilistName = $("alUser").value.trim();
+  const malName = $("malUser").value.trim();
+  if (!anilistName && !malName) {
+    setStatus("Enter an AniList or MAL username (and refresh lists) first.");
+    return;
+  }
+  state.mode = { type: "foryou" };
+  clearResults();
+  setStatus("Sampling your list...");
+  try {
+    const params = { ...recommendParams(), medium: state.medium };
+    if (anilistName) params.anilist_user = anilistName;
+    else params.mal_user = malName;
+    const data = await api("/foryou", params);
+    renderRecommendations(data);
+  } catch (err) {
+    setStatus(err.message);
+  }
 }
 
 async function surprise() {
@@ -520,6 +559,7 @@ function rerunActive() {
   if (!state.mode) return;
   if (state.mode.type === "single") loadRecommendations(state.mode.id, { updateHash: false });
   else if (state.mode.type === "mix") loadMix();
+  else if (state.mode.type === "foryou") loadForYou();
 }
 
 function setMedium(medium) {
@@ -580,6 +620,7 @@ function bindEvents() {
     else if ($("search").value.trim()) runSearch($("search").value);
   });
 
+  $("forYou").addEventListener("click", loadForYou);
   $("surprise").addEventListener("click", surprise);
   $("malRefresh").addEventListener("click", refreshMal);
   $("mixGo").addEventListener("click", loadMix);
