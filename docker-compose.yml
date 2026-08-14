@@ -4,13 +4,15 @@ services:
     platform: linux/amd64
     environment:
       POSTGRES_USER: mangabrain
-      POSTGRES_PASSWORD: mangabrain
+      POSTGRES_PASSWORD: ${MANGABRAIN_DB_PASSWORD:-mangabrain}
       POSTGRES_DB: mangabrain
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    # Bound to localhost only (for host-side dev tools); the api and worker
+    # containers reach the db over the compose network, not this mapping.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mangabrain -d mangabrain"]
       interval: 5s
@@ -25,7 +27,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://mangabrain:mangabrain@db:5432/mangabrain
+      DATABASE_URL: postgresql://mangabrain:${MANGABRAIN_DB_PASSWORD:-mangabrain}@db:5432/mangabrain
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -42,7 +44,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://mangabrain:mangabrain@db:5432/mangabrain
+      DATABASE_URL: postgresql://mangabrain:${MANGABRAIN_DB_PASSWORD:-mangabrain}@db:5432/mangabrain
       SYNC_INTERVAL_HOURS: "24"
     volumes:
       - hf_cache:/root/.cache/huggingface

@@ -3,7 +3,9 @@
 All external API calls (AniList, Jikan) go through this wrapper. The cache is
 keyed on the full request (method, url, params, body) and is meant for
 development so repeated syncs do not re-hit AniList; leave cache_dir empty in
-production paths that need fresh data (e.g. MAL list refresh).
+production paths that need fresh data (e.g. MAL list refresh). Cached
+responses expire after cache_ttl seconds (default 24h) so a re-run long after
+the original sync fetches fresh data instead of silently replaying old pages.
 """
 
 import hashlib
@@ -15,6 +17,7 @@ from typing import Any
 import httpx
 
 MAX_RATE_SLEEP = 120.0
+DEFAULT_CACHE_TTL = 86400.0
 
 
 class RateLimitedClient:
@@ -22,12 +25,14 @@ class RateLimitedClient:
         self,
         min_interval: float = 1.0,
         cache_dir: str = "",
+        cache_ttl: float = DEFAULT_CACHE_TTL,
         max_retries: int = 5,
         timeout: float = 30.0,
         user_agent: str = "MangaBrain/0.1 (self-hosted recommendation engine)",
     ) -> None:
         self.min_interval = min_interval
         self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.cache_ttl = cache_ttl
         self.max_retries = max_retries
         self._next_allowed = 0.0
         self._client = httpx.Client(
@@ -45,7 +50,9 @@ class RateLimitedClient:
     ) -> Any:
         cache_path = self._cache_path(method, url, params, json_body)
         if cache_path is not None and cache_path.exists():
-            return json.loads(cache_path.read_text())
+            age = time.time() - cache_path.stat().st_mtime
+            if age < self.cache_ttl:
+                return json.loads(cache_path.read_text())
         data = self._request_live(method, url, params, json_body)
         if cache_path is not None:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
