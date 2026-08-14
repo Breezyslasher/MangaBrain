@@ -95,6 +95,16 @@ RELATED_SQL = f"""
 """
 
 
+def _embedding_array(value: Any) -> np.ndarray:
+    """pgvector returns embeddings as np.ndarray in some versions and as a
+    Vector object (with to_numpy) in others; np.asarray(dtype=float) chokes
+    on the latter. Normalize both to a float32 array."""
+    to_numpy = getattr(value, "to_numpy", None)
+    if to_numpy is not None:
+        return np.asarray(to_numpy(), dtype=np.float32)
+    return np.asarray(value, dtype=np.float32)
+
+
 def _recommend_for_seeds(
     seed_ids: list[int],
     *,
@@ -128,7 +138,7 @@ def _recommend_for_seeds(
             )
         embed_model = models.pop()
 
-        vectors = np.array([np.asarray(s["embedding"], dtype=float) for s in seeds])
+        vectors = np.array([_embedding_array(s["embedding"]) for s in seeds])
         seed_vec = vectors.mean(axis=0)
         norm = np.linalg.norm(seed_vec)
         if norm > 0:
