@@ -22,6 +22,7 @@ def build_filters(
     mal_user: str | None = None,
     anilist_user: str | None = None,
     exclude_lists: list[str] | None = None,
+    keep_planned: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     """Return (sql_fragment, params). The fragment is a chain of ' AND ...'
     clauses safe to append to a WHERE clause that already has a condition.
@@ -81,22 +82,30 @@ def build_filters(
     if max_chapters is not None:
         clauses.append("(m.chapters IS NULL OR m.chapters <= %(f_max_chapters)s)")
         params["f_max_chapters"] = max_chapters
+    # keep_planned: plan-to-watch/plan-to-read entries stop excluding, so
+    # planned titles can still be recommended; started and finished entries
+    # (watching/reading, completed, on hold, dropped) always exclude.
     if mal_user:
         # MAL anime and manga ids are separate id spaces (anime #1 and manga #1
         # are different titles), so a list entry only excludes rows of the
         # matching media type: list_type anime <-> media_type ANIME, manga <->
         # MANGA (which covers manhwa, manhua, light novels, and one-shots).
+        # MAL list status codes (via Jikan): 1 watching/reading, 2 completed,
+        # 3 on hold, 4 dropped, 6 plan to watch/read; unknown stays excluded.
+        planned_guard = " AND l.status <> '6'" if keep_planned else ""
         clauses.append(
             "NOT EXISTS (SELECT 1 FROM mal_list_entries l"
             " WHERE l.username = %(f_mal_user)s AND l.id_mal = m.id_mal"
-            " AND l.list_type = lower(m.media_type))"
+            f" AND l.list_type = lower(m.media_type){planned_guard})"
         )
         params["f_mal_user"] = mal_user.strip().lower()
     if anilist_user:
-        # AniList exclusion matches the AniList media id directly.
+        # AniList exclusion matches the AniList media id directly. Status is
+        # the MediaListStatus enum; PLANNING is its only not-started value.
+        planned_guard = " AND al.status <> 'PLANNING'" if keep_planned else ""
         clauses.append(
             "NOT EXISTS (SELECT 1 FROM anilist_list_entries al"
-            " WHERE al.username = %(f_anilist_user)s AND al.media_id = m.id)"
+            f" WHERE al.username = %(f_anilist_user)s AND al.media_id = m.id{planned_guard})"
         )
         params["f_anilist_user"] = anilist_user.strip().lower()
     names = [n.strip().lower() for n in (exclude_lists or []) if n.strip()]
@@ -104,12 +113,14 @@ def build_filters(
         # Generic named exclusion lists (see /exclusions endpoints), combined:
         # a row on ANY of the named lists is excluded. AniList ids match the
         # row id directly, MAL ids by kind-typed id_mal join.
+        planned_guard = " AND NOT ce.planned" if keep_planned else ""
         clauses.append(
             "NOT EXISTS (SELECT 1 FROM custom_exclusion_entries ce"
             " WHERE ce.list_name = ANY(%(f_excl_lists)s)"
             " AND ((ce.kind = 'anilist' AND ce.ext_id = m.id)"
             " OR (ce.kind = 'mal_anime' AND m.media_type = 'ANIME' AND ce.ext_id = m.id_mal)"
-            " OR (ce.kind = 'mal_manga' AND m.media_type = 'MANGA' AND ce.ext_id = m.id_mal)))"
+            " OR (ce.kind = 'mal_manga' AND m.media_type = 'MANGA' AND ce.ext_id = m.id_mal))"
+            f"{planned_guard})"
         )
         params["f_excl_lists"] = names
 

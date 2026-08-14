@@ -261,6 +261,7 @@ def recommend_multi(
     mal_user: str | None = None,
     anilist_user: str | None = None,
     exclude_list: list[str] | None = Query(None),
+    keep_planned: bool = False,
 ) -> RecommendResponse:
     unique_ids = list(dict.fromkeys(ids))
     return _recommend_for_seeds(
@@ -287,6 +288,7 @@ def recommend_multi(
             "mal_user": mal_user,
             "anilist_user": anilist_user,
             "exclude_lists": exclude_list,
+            "keep_planned": keep_planned,
         },
     )
 
@@ -317,6 +319,7 @@ def recommend(
     mal_user: str | None = None,
     anilist_user: str | None = None,
     exclude_list: list[str] | None = Query(None),
+    keep_planned: bool = False,
 ) -> RecommendResponse:
     return _recommend_for_seeds(
         [media_id],
@@ -342,5 +345,6 @@ def recommend(
             "mal_user": mal_user,
             "anilist_user": anilist_user,
             "exclude_lists": exclude_list,
+            "keep_planned": keep_planned,
         },
     )

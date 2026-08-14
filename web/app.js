@@ -86,6 +86,7 @@ function filterParams() {
   if ($("kitsuExclude").checked) excludeLists.push("kitsu");
   if ($("ytExclude").checked) excludeLists.push("yamtrack");
   if (excludeLists.length) params.exclude_list = excludeLists;
+  if ($("keepPlanned").checked) params.keep_planned = "true";
   return params;
 }
 
@@ -682,7 +683,7 @@ function bindEvents() {
 
   for (const id of ["adult", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
                     "minScore", "country", "status", "format", "maxPop", "maxLen",
-                    "malExclude", "alExclude", "kitsuExclude", "ytExclude"]) {
+                    "malExclude", "alExclude", "kitsuExclude", "ytExclude", "keepPlanned"]) {
     $(id).addEventListener("change", rerunActive);
   }
 

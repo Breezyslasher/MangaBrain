@@ -150,6 +150,12 @@ manhwa/manhua), `light_novel`, `one_shot`.
   tracker that can export AniList or MAL ids can feed one, the Yamtrack
   integration fills the `yamtrack` list, and the Kitsu integration fills
   the `kitsu` list)
+- `keep_planned=true` — plan-to-watch/plan-to-read entries stop excluding
+  (so planned titles can still be recommended); started and finished
+  entries (watching/reading, completed, on hold, dropped) always exclude.
+  Applies to all list sources; ids posted manually to a generic list carry
+  no status and always exclude. Kitsu/Yamtrack lists synced before this
+  feature need one re-sync to pick up the planned flags.
 
 Search also matches alternate titles (AniList synonyms) once entries carry
 them; synonyms arrive via the nightly incremental sync, or immediately for
