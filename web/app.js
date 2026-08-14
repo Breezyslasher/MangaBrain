@@ -186,7 +186,7 @@ async function loadRecommendations(mediaId) {
       ...weightParams(),
       ...filterParams(),
       cross_media: $("crossMedia").checked ? "true" : "",
-      exclude_franchise: $("excludeFranchise").checked ? "true" : "",
+      exclude_franchise: $("excludeFranchise").checked ? "true" : "false",
       limit: 60,
     });
     renderSeed(data.seed);
