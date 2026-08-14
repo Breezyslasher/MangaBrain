@@ -12,6 +12,11 @@ def build_filters(
     min_score: int | None = None,
     countries: list[str] | None = None,
     statuses: list[str] | None = None,
+    genres_include: list[str] | None = None,
+    genres_exclude: list[str] | None = None,
+    tags_include: list[str] | None = None,
+    tags_exclude: list[str] | None = None,
+    max_popularity: int | None = None,
     mal_user: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Return (sql_fragment, params). The fragment is a chain of ' AND ...'
@@ -40,6 +45,31 @@ def build_filters(
     if statuses:
         clauses.append("m.status = ANY(%(f_statuses)s)")
         params["f_statuses"] = [s.upper() for s in statuses]
+    if genres_include:
+        # Every listed genre must be present.
+        clauses.append("m.genres @> %(f_genres_inc)s::text[]")
+        params["f_genres_inc"] = genres_include
+    if genres_exclude:
+        clauses.append("NOT (m.genres && %(f_genres_exc)s::text[])")
+        params["f_genres_exc"] = genres_exclude
+    if tags_include:
+        clauses.append(
+            "COALESCE((SELECT array_agg(t->>'name') FROM jsonb_array_elements(m.tags) t), '{}')"
+            " @> %(f_tags_inc)s::text[]"
+        )
+        params["f_tags_inc"] = tags_include
+    if tags_exclude:
+        clauses.append(
+            "NOT (COALESCE((SELECT array_agg(t->>'name')"
+            " FROM jsonb_array_elements(m.tags) t), '{}') && %(f_tags_exc)s::text[])"
+        )
+        params["f_tags_exc"] = tags_exclude
+    if max_popularity is not None:
+        # Obscurity cap: popularity is a FILTER the user opts into, never a
+        # ranking input (the spec forbids it in scoring only). Entries with
+        # unknown popularity count as obscure.
+        clauses.append("(m.popularity IS NULL OR m.popularity <= %(f_max_pop)s)")
+        params["f_max_pop"] = max_popularity
     if mal_user:
         # MAL anime and manga ids are separate id spaces (anime #1 and manga #1
         # are different titles), so a list entry only excludes rows of the

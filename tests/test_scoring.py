@@ -5,7 +5,15 @@ so an audience-size signal cannot sneak into scoring."""
 import inspect
 
 import api.scoring as scoring
-from api.scoring import Weights, final_score, genre_similarity, tag_similarity, tag_weight_map
+from api.scoring import (
+    Weights,
+    display_similarity,
+    final_score,
+    genre_similarity,
+    merge_tag_maps,
+    tag_similarity,
+    tag_weight_map,
+)
 
 FORBIDDEN_INPUTS = {
     "popularity",
@@ -87,3 +95,22 @@ def test_tag_weight_map_scales_rank_and_defaults():
 def test_final_score_clamps_semantic():
     assert final_score(1.5, 0.0, 0.0, Weights(1.0, 0.0, 0.0)) == 1.0
     assert final_score(-0.5, 0.0, 0.0, Weights(1.0, 0.0, 0.0)) == 0.0
+
+
+def test_display_similarity_is_monotonic_and_bounded():
+    # Calibration must never change ranking order, only the displayed scale.
+    scores = [i / 100 for i in range(101)]
+    displayed = [display_similarity(s) for s in scores]
+    assert displayed == sorted(displayed)
+    assert displayed[0] == 0.0
+    assert displayed[-1] == 100.0
+    # A strong blended score reads Anibrain-high.
+    assert display_similarity(0.75) > 90.0
+
+
+def test_merge_tag_maps_averages_profiles():
+    merged = merge_tag_maps([{"a": 0.8, "b": 0.4}, {"a": 0.4}])
+    assert merged == {"a": 0.6000000000000001, "b": 0.2} or (
+        abs(merged["a"] - 0.6) < 1e-9 and abs(merged["b"] - 0.2) < 1e-9
+    )
+    assert merge_tag_maps([]) == {}

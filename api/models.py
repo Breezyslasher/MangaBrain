@@ -49,6 +49,8 @@ class RelatedItem(BaseModel):
 
 class RecommendResponse(BaseModel):
     seed: MediaOut
+    # All seeds for multi-seed requests; a single-element list otherwise.
+    seeds: list[MediaOut] = []
     weights: ScoreComponents
     results: list[RecommendationItem]
     related: list[RelatedItem]
