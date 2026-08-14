@@ -38,7 +38,7 @@ services:
     environment:
       DATABASE_URL: postgresql://mangabrain:${MANGABRAIN_DB_PASSWORD:-mangabrain}@db:5432/mangabrain
     ports:
-      - "8000:8000"
+      - "8009:8000"
     restart: unless-stopped
 
   worker:
