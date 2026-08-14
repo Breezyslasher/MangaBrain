@@ -5,15 +5,17 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# postgresql-client 16 (pgdg repo; bookworm ships 15, which refuses to talk
-# to the pg16 server) for pipeline.snapshot / pipeline.restore.
+# postgresql-client 16 from the pgdg repo, pinned to match the pg16 server
+# (Debian's own client version varies by release and pg_dump refuses newer
+# servers). The suite is derived from the base image's codename so base
+# image bumps (bookworm -> trixie) do not break the install.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && install -d /usr/share/postgresql-common/pgdg \
     && curl -fsSo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
         https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc]" \
-        "http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+    && . /etc/os-release \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] http://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
         > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client-16 \
