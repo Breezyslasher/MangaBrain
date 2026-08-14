@@ -59,6 +59,47 @@ FRANCHISE_RELATIONS = (
     "CONTAINS",
 )
 
+# Outgoing franchise relations of the candidate rows, for collapsing
+# same-franchise duplicates WITHIN the results (three seasons of one series
+# stacking three top-10 slots). Related ids outside the candidate set still
+# matter: two seasons often link only through their shared parent entry, so
+# the parent acts as the connecting node even when it is not a candidate.
+CANDIDATE_EDGES_SQL = """
+    SELECT r.media_id, r.related_id
+    FROM media_relations r
+    WHERE r.media_id = ANY(%(ids)s::int[]) AND r.relation_type = ANY(%(ftypes)s)
+"""
+
+
+def collapse_franchises(ordered_ids: list[int], edges: list[tuple[int, int]]) -> list[int]:
+    """Keep only the best-ranked entry per franchise component.
+
+    ordered_ids come sorted by score; edges are franchise relations from
+    those ids (targets may be off-list connector nodes). Union-find groups
+    connected entries and the first id seen per group survives.
+    """
+    parent: dict[int, int] = {}
+
+    def find(x: int) -> int:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for a, b in edges:
+        parent[find(a)] = find(b)
+
+    kept = []
+    seen_roots: set[int] = set()
+    for media_id in ordered_ids:
+        root = find(media_id)
+        if root not in seen_roots:
+            seen_roots.add(root)
+            kept.append(media_id)
+    return kept
+
+
 # Franchises are chains (season 1 -> season 2 -> movie), so one hop from the
 # seed misses most of them; walk the relation graph transitively. UNION
 # dedups visited rows and the depth cap bounds cycles.
@@ -331,6 +372,14 @@ def _recommend_for_seeds(
             candidate_params["taste_vec"] = taste_vec
         candidates = conn.execute(candidate_sql, candidate_params).fetchall()
 
+        franchise_edges: list[tuple[int, int]] = []
+        if exclude_franchise and candidates:
+            edge_rows = conn.execute(
+                CANDIDATE_EDGES_SQL,
+                {"ids": [c["id"] for c in candidates], "ftypes": list(FRANCHISE_RELATIONS)},
+            ).fetchall()
+            franchise_edges = [(r["media_id"], r["related_id"]) for r in edge_rows]
+
     seed_tags = merge_tag_maps([tag_weight_map(s["tags"]) for s in seeds])
     seed_genres = sorted({g for s in seeds for g in (s["genres"] or [])})
 
@@ -343,6 +392,12 @@ def _recommend_for_seeds(
         total = final_score(semantic, tag_sim, genre_sim, weights, taste_sim)
         scored.append((total, semantic, tag_sim, genre_sim, taste_sim, cand))
     scored.sort(key=lambda item: item[0], reverse=True)
+
+    if exclude_franchise and scored:
+        # One entry per franchise in the results: without this, several
+        # seasons of the same series stack multiple top-10 slots.
+        keep = set(collapse_franchises([item[5]["id"] for item in scored], franchise_edges))
+        scored = [item for item in scored if item[5]["id"] in keep]
 
     results = [
         RecommendationItem(
@@ -380,7 +435,9 @@ def _recommend_for_seeds(
 
 @router.get("/recommend", response_model=RecommendResponse)
 def recommend_multi(
-    ids: list[int] = Query(..., min_length=1, max_length=5),
+    # Up to 20: the For-you feed re-runs slider changes through this endpoint
+    # with its sampled seeds (max 20) pinned, so the feed stays stable.
+    ids: list[int] = Query(..., min_length=1, max_length=20),
     w_semantic: float = Query(0.5, ge=0),
     w_tags: float = Query(0.3, ge=0),
     w_genres: float = Query(0.2, ge=0),
