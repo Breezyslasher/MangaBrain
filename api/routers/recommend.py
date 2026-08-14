@@ -59,6 +59,47 @@ FRANCHISE_RELATIONS = (
     "CONTAINS",
 )
 
+# Outgoing franchise relations of the candidate rows, for collapsing
+# same-franchise duplicates WITHIN the results (three seasons of one series
+# stacking three top-10 slots). Related ids outside the candidate set still
+# matter: two seasons often link only through their shared parent entry, so
+# the parent acts as the connecting node even when it is not a candidate.
+CANDIDATE_EDGES_SQL = """
+    SELECT r.media_id, r.related_id
+    FROM media_relations r
+    WHERE r.media_id = ANY(%(ids)s::int[]) AND r.relation_type = ANY(%(ftypes)s)
+"""
+
+
+def collapse_franchises(ordered_ids: list[int], edges: list[tuple[int, int]]) -> list[int]:
+    """Keep only the best-ranked entry per franchise component.
+
+    ordered_ids come sorted by score; edges are franchise relations from
+    those ids (targets may be off-list connector nodes). Union-find groups
+    connected entries and the first id seen per group survives.
+    """
+    parent: dict[int, int] = {}
+
+    def find(x: int) -> int:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for a, b in edges:
+        parent[find(a)] = find(b)
+
+    kept = []
+    seen_roots: set[int] = set()
+    for media_id in ordered_ids:
+        root = find(media_id)
+        if root not in seen_roots:
+            seen_roots.add(root)
+            kept.append(media_id)
+    return kept
+
+
 # Franchises are chains (season 1 -> season 2 -> movie), so one hop from the
 # seed misses most of them; walk the relation graph transitively. UNION
 # dedups visited rows and the depth cap bounds cycles.
@@ -93,6 +134,86 @@ RELATED_SQL = f"""
     WHERE r.media_id = ANY(%(ids)s::int[]) AND r.relation_type = ANY(%(relation_types)s)
     ORDER BY m.id
 """
+
+# Embeddings and scores of the user's own list, for the optional taste term
+# (w_taste): the profile is the rating-weighted mean of these vectors. The
+# random cap bounds work on very large lists without biasing any title kind.
+TASTE_ANILIST_SQL = """
+    SELECT e.embedding, al.score
+    FROM anilist_list_entries al
+    JOIN embeddings e ON e.media_id = al.media_id AND e.embed_model = %(model)s
+    WHERE al.username = %(username)s
+    ORDER BY random()
+    LIMIT 2000
+"""
+
+TASTE_MAL_SQL = """
+    SELECT e.embedding, l.score
+    FROM mal_list_entries l
+    JOIN media m ON m.id_mal = l.id_mal AND l.list_type = lower(m.media_type)
+    JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
+    WHERE l.username = %(username)s
+    ORDER BY random()
+    LIMIT 2000
+"""
+
+TASTE_LIST_SQL = """
+    SELECT e.embedding, ce.score
+    FROM custom_exclusion_entries ce
+    JOIN media m ON ((ce.kind = 'anilist' AND m.id = ce.ext_id)
+        OR (ce.kind = 'mal_anime' AND m.media_type = 'ANIME' AND m.id_mal = ce.ext_id)
+        OR (ce.kind = 'mal_manga' AND m.media_type = 'MANGA' AND m.id_mal = ce.ext_id))
+    JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
+    WHERE ce.list_name = ANY(%(lists)s)
+    ORDER BY random()
+    LIMIT 2000
+"""
+
+
+def taste_weights(scores: list[float | None]) -> np.ndarray:
+    """Per-title weights for the taste profile, from percentile rank among
+    the user's own rated titles (same scheme as For-you sampling: effective
+    score 40-100 from the percentile, unrated neutral at 70, then squared).
+    """
+    rated = sorted(s for s in scores if s is not None)
+    weights = np.empty(len(scores))
+    for i, score in enumerate(scores):
+        if score is None or len(rated) <= 1:
+            eff = 70.0
+        else:
+            pct = sum(1 for r in rated if r < score) / (len(rated) - 1)
+            eff = 40.0 + 60.0 * min(pct, 1.0)
+        weights[i] = (eff / 100.0) ** 2
+    return weights
+
+
+def _taste_profile(
+    conn: Any,
+    embed_model: str,
+    *,
+    anilist_user: str | None,
+    mal_user: str | None,
+    exclude_lists: list[str] | None,
+) -> np.ndarray | None:
+    """Rating-weighted mean of the user's list embeddings (L2-normalized),
+    or None when no list source is configured or nothing is embedded."""
+    names = [n.strip().lower() for n in (exclude_lists or []) if n.strip()]
+    if anilist_user:
+        sql, params = TASTE_ANILIST_SQL, {"username": anilist_user.strip().lower()}
+    elif mal_user:
+        sql, params = TASTE_MAL_SQL, {"username": mal_user.strip().lower()}
+    elif names:
+        sql, params = TASTE_LIST_SQL, {"lists": names}
+    else:
+        return None
+    rows = conn.execute(sql, {**params, "model": embed_model}).fetchall()
+    if not rows:
+        return None
+    vectors = np.array([_embedding_array(row["embedding"]) for row in rows])
+    weights = taste_weights([row["score"] for row in rows])
+    profile = (vectors * weights[:, np.newaxis]).sum(axis=0) / weights.sum()
+    norm = np.linalg.norm(profile)
+    return profile / norm if norm > 0 else None
 
 
 def _choose_embed_model(
@@ -182,6 +303,20 @@ def _recommend_for_seeds(
         if norm > 0:
             seed_vec = seed_vec / norm
 
+        taste_vec = None
+        if weights.taste > 0:
+            taste_vec = _taste_profile(
+                conn,
+                embed_model,
+                anilist_user=filter_kwargs.get("anilist_user"),
+                mal_user=filter_kwargs.get("mal_user"),
+                exclude_lists=filter_kwargs.get("exclude_lists"),
+            )
+            if taste_vec is None:
+                # No usable list source: drop the taste weight so the other
+                # components reclaim it instead of silently shrinking scores.
+                weights = Weights(weights.semantic, weights.tags, weights.genres).normalized()
+
         related_rows = conn.execute(
             RELATED_SQL, {"ids": seed_ids, "relation_types": list(ADAPTATION_RELATIONS)}
         ).fetchall()
@@ -210,9 +345,13 @@ def _recommend_for_seeds(
         if hnsw_supports_iterative_scan(conn):
             conn.execute("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)")
 
+        taste_select = (
+            ", 1 - (e.embedding <=> %(taste_vec)s) AS taste" if taste_vec is not None else ""
+        )
         candidate_sql = f"""
             SELECT {MEDIA_COLS},
                    1 - (e.embedding <=> %(seed_vec)s) AS semantic
+                   {taste_select}
             FROM media m
             JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
             WHERE m.medium = ANY(%(mediums)s)
@@ -221,17 +360,25 @@ def _recommend_for_seeds(
             ORDER BY e.embedding <=> %(seed_vec)s
             LIMIT %(pool_size)s
         """
-        candidates = conn.execute(
-            candidate_sql,
-            {
-                "seed_vec": seed_vec,
-                "model": embed_model,
-                "mediums": mediums,
-                "exclude_ids": exclude_ids,
-                "pool_size": settings.candidate_pool,
-                **filter_params,
-            },
-        ).fetchall()
+        candidate_params = {
+            "seed_vec": seed_vec,
+            "model": embed_model,
+            "mediums": mediums,
+            "exclude_ids": exclude_ids,
+            "pool_size": settings.candidate_pool,
+            **filter_params,
+        }
+        if taste_vec is not None:
+            candidate_params["taste_vec"] = taste_vec
+        candidates = conn.execute(candidate_sql, candidate_params).fetchall()
+
+        franchise_edges: list[tuple[int, int]] = []
+        if exclude_franchise and candidates:
+            edge_rows = conn.execute(
+                CANDIDATE_EDGES_SQL,
+                {"ids": [c["id"] for c in candidates], "ftypes": list(FRANCHISE_RELATIONS)},
+            ).fetchall()
+            franchise_edges = [(r["media_id"], r["related_id"]) for r in edge_rows]
 
     seed_tags = merge_tag_maps([tag_weight_map(s["tags"]) for s in seeds])
     seed_genres = sorted({g for s in seeds for g in (s["genres"] or [])})
@@ -241,19 +388,29 @@ def _recommend_for_seeds(
         semantic = min(max(float(cand["semantic"]), 0.0), 1.0)
         tag_sim = tag_similarity(seed_tags, tag_weight_map(cand["tags"]))
         genre_sim = genre_similarity(seed_genres, cand["genres"] or [])
-        total = final_score(semantic, tag_sim, genre_sim, weights)
-        scored.append((total, semantic, tag_sim, genre_sim, cand))
+        taste_sim = min(max(float(cand["taste"]), 0.0), 1.0) if taste_vec is not None else 0.0
+        total = final_score(semantic, tag_sim, genre_sim, weights, taste_sim)
+        scored.append((total, semantic, tag_sim, genre_sim, taste_sim, cand))
     scored.sort(key=lambda item: item[0], reverse=True)
+
+    if exclude_franchise and scored:
+        # One entry per franchise in the results: without this, several
+        # seasons of the same series stack multiple top-10 slots.
+        keep = set(collapse_franchises([item[5]["id"] for item in scored], franchise_edges))
+        scored = [item for item in scored if item[5]["id"] in keep]
 
     results = [
         RecommendationItem(
             media=media_from_row(cand),
             similarity=display_similarity(total),
             components=ScoreComponents(
-                semantic=round(semantic, 4), tags=round(tag_sim, 4), genres=round(genre_sim, 4)
+                semantic=round(semantic, 4),
+                tags=round(tag_sim, 4),
+                genres=round(genre_sim, 4),
+                taste=round(taste_sim, 4) if taste_vec is not None else None,
             ),
         )
-        for total, semantic, tag_sim, genre_sim, cand in scored[:limit]
+        for total, semantic, tag_sim, genre_sim, taste_sim, cand in scored[:limit]
     ]
     seen_related: set[int] = set()
     related = []
@@ -266,7 +423,10 @@ def _recommend_for_seeds(
         seed=media_from_row(seeds[0]),
         seeds=[media_from_row(s) for s in seeds],
         weights=ScoreComponents(
-            semantic=weights.semantic, tags=weights.tags, genres=weights.genres
+            semantic=weights.semantic,
+            tags=weights.tags,
+            genres=weights.genres,
+            taste=weights.taste or None,
         ),
         results=results,
         related=related,
@@ -275,10 +435,13 @@ def _recommend_for_seeds(
 
 @router.get("/recommend", response_model=RecommendResponse)
 def recommend_multi(
-    ids: list[int] = Query(..., min_length=1, max_length=5),
+    # Up to 20: the For-you feed re-runs slider changes through this endpoint
+    # with its sampled seeds (max 20) pinned, so the feed stays stable.
+    ids: list[int] = Query(..., min_length=1, max_length=20),
     w_semantic: float = Query(0.5, ge=0),
     w_tags: float = Query(0.3, ge=0),
     w_genres: float = Query(0.2, ge=0),
+    w_taste: float = Query(0.0, ge=0),
     cross_media: bool = False,
     exclude_franchise: bool = True,
     limit: int = Query(50, ge=1, le=200),
@@ -304,7 +467,7 @@ def recommend_multi(
     unique_ids = list(dict.fromkeys(ids))
     return _recommend_for_seeds(
         unique_ids,
-        weights=Weights(w_semantic, w_tags, w_genres).normalized(),
+        weights=Weights(w_semantic, w_tags, w_genres, w_taste).normalized(),
         cross_media=cross_media,
         exclude_franchise=exclude_franchise,
         limit=limit,
@@ -337,6 +500,7 @@ def recommend(
     w_semantic: float = Query(0.5, ge=0),
     w_tags: float = Query(0.3, ge=0),
     w_genres: float = Query(0.2, ge=0),
+    w_taste: float = Query(0.0, ge=0),
     cross_media: bool = False,
     exclude_franchise: bool = True,
     limit: int = Query(50, ge=1, le=200),
@@ -361,7 +525,7 @@ def recommend(
 ) -> RecommendResponse:
     return _recommend_for_seeds(
         [media_id],
-        weights=Weights(w_semantic, w_tags, w_genres).normalized(),
+        weights=Weights(w_semantic, w_tags, w_genres, w_taste).normalized(),
         cross_media=cross_media,
         exclude_franchise=exclude_franchise,
         limit=limit,

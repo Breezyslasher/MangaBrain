@@ -74,6 +74,14 @@ python -m pipeline.sync_anilist                  # full catalog, both types in o
 python -m pipeline.embed                         # generate/update embeddings
 python -m pipeline.backfill_jikan                # optional: fill missing synopses from MAL
 
+# quality benchmark: AniList's human-voted recommendation pairs as ground
+# truth (evaluation only - the pairs never enter scoring). fetch once, then
+# compare embedding models by recall@10/@50 and MRR before committing to a
+# full re-embed:
+python -m pipeline.benchmark fetch --out benchmark_pairs.json
+python -m pipeline.benchmark run --pairs-file benchmark_pairs.json \
+    --model BAAI/bge-small-en-v1.5 --model avsolatorio/GIST-small-Embedding-v0
+
 uvicorn api.main:app --reload                    # dev server + SPA at http://localhost:8000
 ```
 
@@ -116,7 +124,7 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | `POST /anilist/{username}/refresh` | Fetch and cache the user's AniList anime + manga lists (a few chunked GraphQL queries, no API key) |
 | `GET /anilist/{username}` | Cached AniList list status |
 | `GET /tags` | Distinct tag vocabulary (for filter autocomplete) |
-| `GET /foryou?medium=anime&anilist_user=...` | Personal discovery feed: blends a fresh sample of the user's list into one multi-seed recommendation, excluding everything already on it; seeds come from `anilist_user`, `mal_user`, or `exclude_list` (a synced Kitsu/Yamtrack list), sampled weighted by the user's own ratings (`seeds=N` controls the sample size, fewer = more specific) |
+| `GET /foryou?medium=anime&anilist_user=...` | Personal discovery feed: blends a fresh sample of the user's list into one multi-seed recommendation, excluding everything already on it; seeds come from `anilist_user`, `mal_user`, or `exclude_list` (a synced Kitsu/Yamtrack list), sampled weighted by each title's percentile among the user's own ratings (`use_ratings=false` for uniform sampling; `seeds=N` controls the sample size, fewer = more specific) |
 | `POST /exclusions/{name}` | Replace a generic named exclusion list: body `{"anilist_ids": [], "mal_anime_ids": [], "mal_manga_ids": []}`; exclude with `exclude_list={name}` (GET for status, DELETE to remove) |
 | `POST /yamtrack/refresh` | Pull the configured Yamtrack instance's anime + manga lists into the `yamtrack` exclusion list (configure via the Accounts panel or `YAMTRACK_URL`/`YAMTRACK_TOKEN`) |
 | `POST /kitsu/refresh` | Pull the configured Kitsu user's public anime + manga library into the `kitsu` exclusion list via Kitsu's MAL/AniList id mappings (set the Kitsu username in the Accounts panel; no token needed) |
@@ -130,6 +138,12 @@ manhwa/manhua), `light_novel`, `one_shot`.
 
 - `w_semantic`, `w_tags`, `w_genres` — slider weights, normalized server-side
   (recommend only)
+- `w_taste` — optional fourth weight (default 0): boosts candidates similar
+  to the user's own rating-weighted taste profile, built from the list
+  named by `anilist_user`, `mal_user`, or `exclude_list`. Rating weights
+  use each title's percentile among the user's own rated entries (with a
+  floor), so the boost works the same whether someone rates 70-90 or 1-10.
+  The user's own ratings only - never anyone else's, never popularity
 - `cross_media=true` — include all mediums in the candidate pool (recommend
   only, off by default)
 - `format` (repeatable), `year_min`, `year_max`, `min_score`, `country`

@@ -105,11 +105,14 @@ function filterParams() {
 }
 
 function weightParams() {
-  return {
+  const params = {
     w_semantic: $("wSemantic").value / 100,
     w_tags: $("wTags").value / 100,
     w_genres: $("wGenres").value / 100,
   };
+  const taste = $("wTaste");
+  if (taste && taste.value > 0) params.w_taste = taste.value / 100;
+  return params;
 }
 
 function recommendParams() {
@@ -519,7 +522,35 @@ async function loadForYou() {
     else if (malName) params.mal_user = malName;
     const seedsEl = $("forYouSeeds");
     if (seedsEl && seedsEl.value) params.seeds = seedsEl.value;
+    if (!isChecked("useRatings")) params.use_ratings = "false";
     const data = await api("/foryou", params);
+    // Pin the sampled seeds: slider and filter changes re-rank this same
+    // feed via rerunForYou; only pressing the button samples fresh seeds.
+    state.mode = { type: "foryou", ids: (data.seeds || []).map((s) => s.id) };
+    renderRecommendations(data);
+  } catch (err) {
+    setStatus(err.message);
+  }
+}
+
+async function rerunForYou() {
+  const ids = state.mode && state.mode.ids;
+  if (!ids || !ids.length) {
+    loadForYou();
+    return;
+  }
+  clearResults();
+  setStatus("Updating your feed...");
+  try {
+    const params = { ...recommendParams(), ids };
+    // Keep the feed's list exclusion even when no exclude box is ticked,
+    // matching what /foryou applies when it samples.
+    const anilistName = $("alUser").value.trim();
+    const malName = $("malUser").value.trim();
+    if (anilistName) params.anilist_user = anilistName;
+    else if (malName) params.mal_user = malName;
+    const data = await api("/recommend", params);
+    state.mode = { type: "foryou", ids };
     renderRecommendations(data);
   } catch (err) {
     setStatus(err.message);
@@ -658,7 +689,7 @@ function rerunActive() {
   if (!state.mode) return;
   if (state.mode.type === "single") loadRecommendations(state.mode.id, { updateHash: false });
   else if (state.mode.type === "mix") loadMix();
-  else if (state.mode.type === "foryou") loadForYou();
+  else if (state.mode.type === "foryou") rerunForYou();
 }
 
 function setMedium(medium) {
@@ -694,6 +725,7 @@ function bindEvents() {
     ["wSemantic", "wSemanticVal"],
     ["wTags", "wTagsVal"],
     ["wGenres", "wGenresVal"],
+    ["wTaste", "wTasteVal"],
   ]) {
     on(slider, "input", () => {
       $(label).textContent = $(slider).value;
@@ -724,6 +756,11 @@ function bindEvents() {
   });
 
   on("forYou", "click", loadForYou);
+  // Sampling-mode change needs a fresh sample; re-ranking pinned seeds
+  // would not reflect it.
+  on("useRatings", "change", () => {
+    if (state.mode && state.mode.type === "foryou") loadForYou();
+  });
   on("surprise", "click", surprise);
   on("malRefresh", "click", refreshMal);
   on("mixGo", "click", loadMix);

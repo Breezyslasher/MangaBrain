@@ -30,6 +30,10 @@
         <label>Genres <span id="wGenresVal">20</span>
           <input type="range" id="wGenres" min="0" max="100" value="20">
         </label>
+        <label>My taste <span id="wTasteVal">0</span>
+          <input type="range" id="wTaste" min="0" max="100" value="0">
+        </label>
+        <div class="chips-hint">My taste boosts titles resembling your rated list; needs a synced list with its exclude box ticked (or a username entered)</div>
       </section>
 
       <section class="panel-block">
@@ -135,6 +139,7 @@
       <label>For-you seed count (fewer = more specific feed)
         <input type="number" id="forYouSeeds" min="1" max="20" placeholder="8">
       </label>
+      <label class="check"><input type="checkbox" id="useRatings" checked> Weight For you by my ratings</label>
       <button id="forYou">For you</button>
       <button id="surprise">Surprise me</button>
     </aside>

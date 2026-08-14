@@ -114,3 +114,21 @@ def test_merge_tag_maps_averages_profiles():
         abs(merged["a"] - 0.6) < 1e-9 and abs(merged["b"] - 0.2) < 1e-9
     )
     assert merge_tag_maps([]) == {}
+
+
+def test_taste_weight_participates_when_set():
+    w = Weights(0.5, 0.0, 0.0, 0.5)
+    assert final_score(1.0, 0.0, 0.0, w, taste_sim=1.0) == 1.0
+    assert final_score(1.0, 0.0, 0.0, w, taste_sim=0.0) == 0.5
+
+
+def test_taste_defaults_to_off():
+    # Default weights: taste contributes nothing even if a value is passed.
+    assert final_score(1.0, 1.0, 1.0, Weights(), taste_sim=1.0) == final_score(
+        1.0, 1.0, 1.0, Weights()
+    )
+
+
+def test_normalization_includes_taste():
+    w = Weights(1.0, 1.0, 1.0, 1.0).normalized()
+    assert w.semantic == w.tags == w.genres == w.taste == 0.25

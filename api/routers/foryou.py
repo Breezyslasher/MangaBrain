@@ -3,7 +3,8 @@ cached list (AniList or MAL username, or a synced tracker exclusion list
 such as Kitsu or Yamtrack) into one multi-seed recommendation, always
 excluding everything already on the list. Each request samples fresh seeds,
 so the feed changes on every visit; sampling is weighted by the user's own
-ratings, so loved titles anchor the feed more often than ones merely logged.
+ratings (loved titles anchor the feed more often than ones merely logged)
+unless use_ratings=false requests uniform sampling.
 
 Seeds are restricted to the dominant embedding version so the feed keeps
 working mid-way through a re-embed migration.
@@ -24,52 +25,81 @@ DOMINANT_MODEL_SQL = """
 """
 
 
-def weighted_order(score_col: str) -> str:
+def weighted_order(pct_col: str) -> str:
     """Rating-weighted sampling without replacement (Efraimidis-Spirakis
-    A-Res): each row gets key u^(1/w) for u = random() and weight
-    w = (score/100)^2; the top-n keys are the sample. Squaring makes loved
-    titles meaningfully likelier without ever excluding low-rated ones:
-    a 90 weighs 0.81, a 60 weighs 0.36, a 30 still weighs 0.09. Unrated
-    entries (NULL) get a neutral 60; the floor of 10 avoids 1/w blowing up.
+    A-Res): each row gets key u^(1/w) for u = random(), and the top-n keys
+    are the sample. The weight comes from the entry's PERCENTILE among the
+    user's own rated entries, not the absolute score: most people compress
+    their ratings into a narrow band (say 70-90), and within one list only
+    the ordering matters, so percentile gives every user the same effective
+    spread regardless of rating habits. The percentile maps to an effective
+    score of 40-100 (w = (eff/100)^2): the floor keeps a bottom-percentile
+    title sampleable at 0.16 vs 1.0 for the top, and protects users who
+    sincerely rate everything high from a manufactured spread. Unrated
+    entries (NULL percentile) sit mid-range at 70.
     """
-    return (
-        f"ORDER BY POWER(random(), 10000.0 /"
-        f" POWER(GREATEST(COALESCE({score_col}, 60), 10), 2)) DESC"
+    return f"ORDER BY POWER(random(), 10000.0 / POWER(40 + 60 * COALESCE({pct_col}, 0.5), 2)) DESC"
+
+
+ANILIST_SEEDS_SQL = """
+    WITH list AS (
+        SELECT al.media_id, al.score
+        FROM anilist_list_entries al
+        WHERE al.username = %(username)s
+    ), ranked AS (
+        SELECT media_id, PERCENT_RANK() OVER (ORDER BY score) AS pct
+        FROM list WHERE score IS NOT NULL
     )
-
-
-ANILIST_SEEDS_SQL = f"""
     SELECT m.id AS id
-    FROM anilist_list_entries al
-    JOIN media m ON m.id = al.media_id
+    FROM list l
+    LEFT JOIN ranked r ON r.media_id = l.media_id
+    JOIN media m ON m.id = l.media_id
     JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
-    WHERE al.username = %(username)s AND m.medium = ANY(%(mediums)s)
-    {weighted_order("al.score")}
+    WHERE m.medium = ANY(%(mediums)s)
+    {order}
     LIMIT %(n)s
 """
 
-MAL_SEEDS_SQL = f"""
+MAL_SEEDS_SQL = """
+    WITH list AS (
+        SELECT l.id_mal, l.list_type, l.score
+        FROM mal_list_entries l
+        WHERE l.username = %(username)s
+    ), ranked AS (
+        SELECT id_mal, list_type, PERCENT_RANK() OVER (ORDER BY score) AS pct
+        FROM list WHERE score IS NOT NULL
+    )
     SELECT m.id AS id
-    FROM mal_list_entries l
+    FROM list l
+    LEFT JOIN ranked r ON r.id_mal = l.id_mal AND r.list_type = l.list_type
     JOIN media m ON m.id_mal = l.id_mal AND l.list_type = lower(m.media_type)
     JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
-    WHERE l.username = %(username)s AND m.medium = ANY(%(mediums)s)
-    {weighted_order("l.score")}
+    WHERE m.medium = ANY(%(mediums)s)
+    {order}
     LIMIT %(n)s
 """
 
 # Seeds from generic exclusion lists (Kitsu, Yamtrack, hand-posted): the same
 # id-mapping join the exclusion filter uses. Lets For-you work for users who
 # only sync a tracker list, without an AniList or MAL username.
-LIST_SEEDS_SQL = f"""
+LIST_SEEDS_SQL = """
+    WITH list AS (
+        SELECT ce.kind, ce.ext_id, ce.score
+        FROM custom_exclusion_entries ce
+        WHERE ce.list_name = ANY(%(lists)s)
+    ), ranked AS (
+        SELECT kind, ext_id, PERCENT_RANK() OVER (ORDER BY score) AS pct
+        FROM list WHERE score IS NOT NULL
+    )
     SELECT m.id AS id
-    FROM custom_exclusion_entries ce
-    JOIN media m ON ((ce.kind = 'anilist' AND m.id = ce.ext_id)
-        OR (ce.kind = 'mal_anime' AND m.media_type = 'ANIME' AND m.id_mal = ce.ext_id)
-        OR (ce.kind = 'mal_manga' AND m.media_type = 'MANGA' AND m.id_mal = ce.ext_id))
+    FROM list l
+    LEFT JOIN ranked r ON r.kind = l.kind AND r.ext_id = l.ext_id
+    JOIN media m ON ((l.kind = 'anilist' AND m.id = l.ext_id)
+        OR (l.kind = 'mal_anime' AND m.media_type = 'ANIME' AND m.id_mal = l.ext_id)
+        OR (l.kind = 'mal_manga' AND m.media_type = 'MANGA' AND m.id_mal = l.ext_id))
     JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
-    WHERE ce.list_name = ANY(%(lists)s) AND m.medium = ANY(%(mediums)s)
-    {weighted_order("ce.score")}
+    WHERE m.medium = ANY(%(mediums)s)
+    {order}
     LIMIT %(n)s
 """
 
@@ -101,6 +131,7 @@ def foryou(
     max_chapters: int | None = Query(None, ge=1),
     exclude_list: list[str] | None = Query(None),
     keep_planned: bool = False,
+    use_ratings: bool = True,
 ) -> RecommendResponse:
     list_names = [n.strip().lower() for n in (exclude_list or []) if n.strip()]
     if not anilist_user and not mal_user and not list_names:
@@ -111,11 +142,15 @@ def foryou(
         )
 
     if anilist_user:
-        seeds_sql = ANILIST_SEEDS_SQL
+        template = ANILIST_SEEDS_SQL
     elif mal_user:
-        seeds_sql = MAL_SEEDS_SQL
+        template = MAL_SEEDS_SQL
     else:
-        seeds_sql = LIST_SEEDS_SQL
+        template = LIST_SEEDS_SQL
+    # use_ratings=false reverts to uniform sampling: every list entry has
+    # the same chance of anchoring the feed, ratings ignored entirely.
+    order = weighted_order("r.pct") if use_ratings else "ORDER BY random()"
+    seeds_sql = template.format(order=order)
     username = (anilist_user or mal_user or "").strip().lower()
     mediums = MEDIUM_GROUPS[medium]
 
