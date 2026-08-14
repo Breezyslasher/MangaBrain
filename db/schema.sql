@@ -148,6 +148,14 @@ CREATE TABLE IF NOT EXISTS jikan_backfill_state (
     last_attempt TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Single-user application settings (account usernames, tracker endpoints),
+-- editable from the web UI and read with env-variable fallback.
+CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Generic key/value store for pipeline checkpoints (resumable sync).
 CREATE TABLE IF NOT EXISTS sync_state (
     key        TEXT PRIMARY KEY,

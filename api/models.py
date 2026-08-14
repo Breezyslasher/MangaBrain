@@ -89,3 +89,20 @@ class ExclusionStatus(BaseModel):
     entry_count: int
     updated_at: datetime
     skipped: int | None = None
+
+
+class AppSettingsIn(BaseModel):
+    """Partial update: omitted fields stay unchanged, empty strings clear."""
+
+    anilist_username: str | None = None
+    mal_username: str | None = None
+    yamtrack_url: str | None = None
+    yamtrack_token: str | None = None
+
+
+class AppSettingsOut(BaseModel):
+    anilist_username: str = ""
+    mal_username: str = ""
+    yamtrack_url: str = ""
+    # The token itself is never returned, only whether one is configured.
+    yamtrack_token_set: bool = False

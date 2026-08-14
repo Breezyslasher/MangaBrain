@@ -107,26 +107,23 @@
       </section>
 
       <section class="panel-block">
-        <h2>AniList</h2>
-        <label>Username <input type="text" id="alUser" placeholder="AniList username"></label>
-        <button id="alRefresh" class="secondary">Refresh lists</button>
-        <label class="check"><input type="checkbox" id="alExclude"> Exclude my list from results</label>
+        <h2>Accounts</h2>
+        <label>AniList username <input type="text" id="alUser" placeholder="AniList username"></label>
+        <label>MAL username <input type="text" id="malUser" placeholder="MAL username"></label>
+        <label>Yamtrack URL <input type="text" id="ytUrl" placeholder="http://host:port"></label>
+        <label>Yamtrack token <input type="password" id="ytToken" placeholder="from Yamtrack profile"></label>
+        <button id="acctSave" class="secondary">Save accounts</button>
+        <div id="acctStatus" class="chips-hint"></div>
+        <div class="row">
+          <button id="alRefresh" class="secondary">Sync AniList</button>
+          <button id="malRefresh" class="secondary">Sync MAL</button>
+          <button id="ytRefresh" class="secondary">Sync Yamtrack</button>
+        </div>
+        <label class="check"><input type="checkbox" id="alExclude"> Exclude AniList list</label>
+        <label class="check"><input type="checkbox" id="malExclude"> Exclude MAL list</label>
+        <label class="check"><input type="checkbox" id="ytExclude"> Exclude Yamtrack list</label>
         <div id="alStatus" class="chips-hint"></div>
-      </section>
-
-      <section class="panel-block">
-        <h2>MyAnimeList</h2>
-        <label>Username <input type="text" id="malUser" placeholder="MAL username"></label>
-        <button id="malRefresh" class="secondary">Refresh lists</button>
-        <label class="check"><input type="checkbox" id="malExclude"> Exclude my list from results</label>
-        <div id="malStatus" class="muted"></div>
-      </section>
-
-      <section class="panel-block">
-        <h2>Yamtrack</h2>
-        <div class="chips-hint">Uses the server-configured Yamtrack instance</div>
-        <button id="ytRefresh" class="secondary">Refresh lists</button>
-        <label class="check"><input type="checkbox" id="ytExclude"> Exclude my Yamtrack list</label>
+        <div id="malStatus" class="chips-hint"></div>
         <div id="ytStatus" class="chips-hint"></div>
       </section>
 

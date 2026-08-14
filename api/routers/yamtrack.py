@@ -14,8 +14,8 @@ Configure YAMTRACK_URL (e.g. http://192.168.1.5:8000) and YAMTRACK_TOKEN
 import httpx
 from fastapi import APIRouter, HTTPException
 
-from api.config import settings
 from api.models import ExclusionStatus
+from api.routers.app_settings import effective_yamtrack_config
 from api.routers.exclusions import get_status, store_exclusion_list
 from pipeline.client import RateLimitedClient
 
@@ -45,15 +45,16 @@ def _fetch_media(client: RateLimitedClient, base: str, media_type: str) -> list[
 
 @router.post("/yamtrack/refresh", response_model=ExclusionStatus)
 def refresh_yamtrack() -> ExclusionStatus:
-    if not settings.yamtrack_url or not settings.yamtrack_token:
+    url, token = effective_yamtrack_config()
+    if not url or not token:
         raise HTTPException(
             status_code=422,
-            detail="set YAMTRACK_URL and YAMTRACK_TOKEN in the environment first",
+            detail="configure the Yamtrack URL and token in settings first",
         )
-    base = settings.yamtrack_url.rstrip("/")
+    base = url.rstrip("/")
     client = RateLimitedClient(
         min_interval=0.05,
-        extra_headers={"Authorization": f"Bearer {settings.yamtrack_token}"},
+        extra_headers={"Authorization": f"Bearer {token}"},
     )
     entries: set[tuple[str, int]] = set()
     skipped = 0
