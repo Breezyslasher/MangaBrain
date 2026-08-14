@@ -138,6 +138,12 @@ CREATE INDEX IF NOT EXISTS idx_custom_exclusion_lookup
 ALTER TABLE custom_exclusion_entries
     ADD COLUMN IF NOT EXISTS planned BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- User scores normalized to 0-100 (NULL = unrated), used to weight the
+-- For-you feed's seed sampling toward loved titles. Filled by tracker syncs.
+ALTER TABLE custom_exclusion_entries ADD COLUMN IF NOT EXISTS score SMALLINT;
+ALTER TABLE mal_list_entries ADD COLUMN IF NOT EXISTS score SMALLINT;
+ALTER TABLE anilist_list_entries ADD COLUMN IF NOT EXISTS score SMALLINT;
+
 CREATE TABLE IF NOT EXISTS custom_exclusion_state (
     list_name   TEXT PRIMARY KEY,
     entry_count INTEGER NOT NULL DEFAULT 0,

@@ -56,7 +56,7 @@ def refresh_yamtrack() -> ExclusionStatus:
         min_interval=0.05,
         extra_headers={"Authorization": f"Bearer {token}"},
     )
-    entries: dict[tuple[str, int], bool] = {}
+    entries: dict[tuple[str, int], tuple[bool, int | None]] = {}
     skipped = 0
     try:
         for media_type, kind in MEDIA_TYPES:
@@ -80,10 +80,15 @@ def refresh_yamtrack() -> ExclusionStatus:
                 # Yamtrack's API serializes status numerically (its
                 # MEDIA_STATUS_MAP): 0 Planning, 1 In progress, 2 Paused,
                 # 3 Completed, 4 Dropped. Only Planning counts as planned;
-                # if an id appears both planned and started, started wins.
+                # if an id appears both planned and started, started wins,
+                # and the higher score (0-10, normalized to 0-100) is kept.
                 planned = row.get("status") == 0
+                raw = row.get("score")
+                score = int(round(float(raw) * 10)) if isinstance(raw, (int, float)) else None
                 key = (kind, int(media_id))
-                entries[key] = entries.get(key, True) and planned
+                prev_planned, prev_score = entries.get(key, (True, None))
+                scores = [s for s in (prev_score, score) if s is not None]
+                entries[key] = (prev_planned and planned, max(scores) if scores else None)
     finally:
         client.close()
 

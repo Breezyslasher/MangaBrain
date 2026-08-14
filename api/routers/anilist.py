@@ -24,15 +24,16 @@ LIST_QUERY = """
 query ($userName: String!, $type: MediaType!, $chunk: Int!, $perChunk: Int!) {
   MediaListCollection(userName: $userName, type: $type, chunk: $chunk, perChunk: $perChunk) {
     hasNextChunk
-    lists { entries { status media { id } } }
+    lists { entries { status score(format: POINT_100) media { id } } }
   }
 }
 """
 
 INSERT_ENTRY_SQL = """
-    INSERT INTO anilist_list_entries (username, list_type, media_id, status)
-    VALUES (%s, %s, %s, %s)
-    ON CONFLICT (username, list_type, media_id) DO UPDATE SET status = EXCLUDED.status
+    INSERT INTO anilist_list_entries (username, list_type, media_id, status, score)
+    VALUES (%s, %s, %s, %s, %s)
+    ON CONFLICT (username, list_type, media_id)
+    DO UPDATE SET status = EXCLUDED.status, score = EXCLUDED.score
 """
 
 UPSERT_STATE_SQL = """
@@ -43,9 +44,16 @@ UPSERT_STATE_SQL = """
 """
 
 
-def _fetch_list(client: RateLimitedClient, username: str, media_type: str) -> dict[int, str]:
-    """Chunk through a user's MediaListCollection and return {media_id: status}."""
-    entries: dict[int, str] = {}
+def _fetch_list(
+    client: RateLimitedClient, username: str, media_type: str
+) -> dict[int, tuple[str, int | None]]:
+    """Chunk through a user's MediaListCollection: {media_id: (status, score)}.
+
+    score(format: POINT_100) normalizes every user's scoring system (5-star,
+    10-point, 100-point) to 0-100; AniList reports 0 for unrated, stored as
+    NULL so unrated entries keep a neutral weight in For-you sampling.
+    """
+    entries: dict[int, tuple[str, int | None]] = {}
     chunk = 1
     while True:
         try:
@@ -86,7 +94,11 @@ def _fetch_list(client: RateLimitedClient, username: str, media_type: str) -> di
             for entry in lst.get("entries") or []:
                 media = entry.get("media") or {}
                 if media.get("id"):
-                    entries[int(media["id"])] = str(entry.get("status") or "")
+                    score = entry.get("score")
+                    entries[int(media["id"])] = (
+                        str(entry.get("status") or ""),
+                        int(round(score)) if score else None,
+                    )
         if not collection.get("hasNextChunk"):
             break
         chunk += 1
@@ -115,7 +127,10 @@ def refresh_anilist_lists(username: str) -> UserListsStatus:
                 with conn.cursor() as cur:
                     cur.executemany(
                         INSERT_ENTRY_SQL,
-                        [(stored, list_type, mid, st) for mid, st in entries.items()],
+                        [
+                            (stored, list_type, mid, st, score)
+                            for mid, (st, score) in entries.items()
+                        ],
                     )
             conn.execute(UPSERT_STATE_SQL, (stored, list_type, len(entries)))
     return get_anilist_status(stored)

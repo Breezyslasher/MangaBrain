@@ -8,12 +8,14 @@ relationships[kind].data, media and their mappings arrive in `included`.
 from api.routers.kitsu import harvest_entries
 
 
-def _entry(kind: str, media_id: str | None, status: str = "completed") -> dict:
+def _entry(
+    kind: str, media_id: str | None, status: str = "completed", rating: int | None = None
+) -> dict:
     data = {"type": kind, "id": media_id} if media_id else None
     return {
         "id": f"entry-{media_id or 'hidden'}",
         "type": "libraryEntries",
-        "attributes": {"status": status},
+        "attributes": {"status": status, "ratingTwenty": rating},
         "relationships": {kind: {"data": data}},
     }
 
@@ -45,7 +47,7 @@ def test_harvests_mal_and_anilist_mappings():
         _mapping("102", "thetvdb/series", "80644"),
     ]
     harvested, skipped = harvest_entries("anime", entries, included)
-    assert harvested == {("mal_anime", 1): False, ("anilist", 5): False}
+    assert harvested == {("mal_anime", 1): (False, None), ("anilist", 5): (False, None)}
     assert skipped == 0
 
 
@@ -56,7 +58,7 @@ def test_manga_kind_maps_to_mal_manga():
         _mapping("200", "myanimelist/manga", "7"),
     ]
     harvested, skipped = harvest_entries("manga", entries, included)
-    assert harvested == {("mal_manga", 7): False}
+    assert harvested == {("mal_manga", 7): (False, None)}
     assert skipped == 0
 
 
@@ -67,7 +69,7 @@ def test_planned_status_sets_planned_flag():
         _mapping("100", "myanimelist/anime", "1"),
     ]
     harvested, skipped = harvest_entries("anime", entries, included)
-    assert harvested == {("mal_anime", 1): True}
+    assert harvested == {("mal_anime", 1): (True, None)}
     assert skipped == 0
 
 
@@ -85,7 +87,7 @@ def test_started_entry_wins_over_planned_duplicate():
         _mapping("501", "myanimelist/anime", "42"),
     ]
     harvested, skipped = harvest_entries("anime", entries, included)
-    assert harvested == {("mal_anime", 42): False}
+    assert harvested == {("mal_anime", 42): (False, None)}
     assert skipped == 0
 
 
@@ -120,3 +122,28 @@ def test_wrong_kind_mapping_is_ignored():
     harvested, skipped = harvest_entries("anime", entries, included)
     assert harvested == {}
     assert skipped == 1
+
+
+def test_rating_twenty_normalizes_to_score():
+    entries = [_entry("anime", "60", rating=18)]
+    included = [
+        _media("anime", "60", ["600"]),
+        _mapping("600", "myanimelist/anime", "11"),
+    ]
+    harvested, _ = harvest_entries("anime", entries, included)
+    assert harvested == {("mal_anime", 11): (False, 90)}
+
+
+def test_duplicate_entries_keep_higher_score():
+    entries = [
+        _entry("anime", "70", rating=10),
+        _entry("anime", "71", rating=16),
+    ]
+    included = [
+        _media("anime", "70", ["700"]),
+        _media("anime", "71", ["701"]),
+        _mapping("700", "myanimelist/anime", "12"),
+        _mapping("701", "myanimelist/anime", "12"),
+    ]
+    harvested, _ = harvest_entries("anime", entries, included)
+    assert harvested == {("mal_anime", 12): (False, 80)}
