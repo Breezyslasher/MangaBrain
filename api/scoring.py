@@ -1,8 +1,10 @@
 """Content-based similarity scoring.
 
-The ranking function takes exactly three content signals: semantic cosine
-similarity over synopsis embeddings, cosine similarity over rank-weighted
-tag vectors, and Jaccard similarity over genre sets. Nothing here may read
+The ranking function takes only content signals: semantic cosine similarity
+over synopsis embeddings, cosine similarity over rank-weighted tag vectors,
+Jaccard similarity over genre sets, and (optional, default off) cosine
+similarity to the user's own rating-weighted taste profile - the user's own
+scores over content embeddings, never anyone else's. Nothing here may read
 any audience-size signal; tests/test_scoring.py asserts this against the
 module source, so those signals cannot even be named in this file.
 """
@@ -16,17 +18,22 @@ DEFAULT_TAG_RANK = 0.5
 
 @dataclass(frozen=True)
 class Weights:
-    """Slider weights for the three similarity components."""
+    """Slider weights for the similarity components. taste weighs similarity
+    to the user's own rating-weighted list profile (their ratings of titles
+    they chose to score; still a content signal, defaults to off)."""
 
     semantic: float = 0.5
     tags: float = 0.3
     genres: float = 0.2
+    taste: float = 0.0
 
     def normalized(self) -> "Weights":
-        total = self.semantic + self.tags + self.genres
+        total = self.semantic + self.tags + self.genres + self.taste
         if total <= 0:
             return Weights()
-        return Weights(self.semantic / total, self.tags / total, self.genres / total)
+        return Weights(
+            self.semantic / total, self.tags / total, self.genres / total, self.taste / total
+        )
 
 
 def genre_similarity(genres_a: Iterable[str], genres_b: Iterable[str]) -> float:
@@ -62,12 +69,19 @@ def tag_weight_map(tags: Iterable[Mapping]) -> dict[str, float]:
 
 
 def final_score(
-    semantic: float, tag_sim: float, genre_sim: float, weights: Weights = Weights()
+    semantic: float,
+    tag_sim: float,
+    genre_sim: float,
+    weights: Weights = Weights(),
+    taste_sim: float = 0.0,
 ) -> float:
-    """Weighted blend of the three content similarities, each in [0, 1]."""
+    """Weighted blend of the content similarities, each in [0, 1]. taste_sim
+    is cosine similarity to the user's own taste-profile vector; with the
+    default taste weight of zero it does not participate."""
     w = weights.normalized()
     semantic = min(max(semantic, 0.0), 1.0)
-    return w.semantic * semantic + w.tags * tag_sim + w.genres * genre_sim
+    taste_sim = min(max(taste_sim, 0.0), 1.0)
+    return w.semantic * semantic + w.tags * tag_sim + w.genres * genre_sim + w.taste * taste_sim
 
 
 def merge_tag_maps(maps: Iterable[Mapping[str, float]]) -> dict[str, float]:

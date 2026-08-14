@@ -34,6 +34,9 @@ class ScoreComponents(BaseModel):
     semantic: float
     tags: float
     genres: float
+    # Similarity to the user's own rating-weighted taste profile; present
+    # only when the optional taste weight is active.
+    taste: float | None = None
 
 
 class RecommendationItem(BaseModel):

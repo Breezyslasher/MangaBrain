@@ -105,11 +105,14 @@ function filterParams() {
 }
 
 function weightParams() {
-  return {
+  const params = {
     w_semantic: $("wSemantic").value / 100,
     w_tags: $("wTags").value / 100,
     w_genres: $("wGenres").value / 100,
   };
+  const taste = $("wTaste");
+  if (taste && taste.value > 0) params.w_taste = taste.value / 100;
+  return params;
 }
 
 function recommendParams() {
@@ -694,6 +697,7 @@ function bindEvents() {
     ["wSemantic", "wSemanticVal"],
     ["wTags", "wTagsVal"],
     ["wGenres", "wGenresVal"],
+    ["wTaste", "wTasteVal"],
   ]) {
     on(slider, "input", () => {
       $(label).textContent = $(slider).value;
