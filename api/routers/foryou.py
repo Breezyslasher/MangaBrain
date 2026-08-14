@@ -2,7 +2,8 @@
 cached list (AniList or MAL username, or a synced tracker exclusion list
 such as Kitsu or Yamtrack) into one multi-seed recommendation, always
 excluding everything already on the list. Each request samples fresh seeds,
-so the feed changes on every visit.
+so the feed changes on every visit; sampling is weighted by the user's own
+ratings, so loved titles anchor the feed more often than ones merely logged.
 
 Seeds are restricted to the dominant embedding version so the feed keeps
 working mid-way through a re-embed migration.
@@ -22,30 +23,45 @@ DOMINANT_MODEL_SQL = """
     SELECT embed_model FROM embeddings GROUP BY embed_model ORDER BY count(*) DESC LIMIT 1
 """
 
-ANILIST_SEEDS_SQL = """
+
+def weighted_order(score_col: str) -> str:
+    """Rating-weighted sampling without replacement (Efraimidis-Spirakis
+    A-Res): each row gets key u^(1/w) for u = random() and weight
+    w = (score/100)^2; the top-n keys are the sample. Squaring makes loved
+    titles meaningfully likelier without ever excluding low-rated ones:
+    a 90 weighs 0.81, a 60 weighs 0.36, a 30 still weighs 0.09. Unrated
+    entries (NULL) get a neutral 60; the floor of 10 avoids 1/w blowing up.
+    """
+    return (
+        f"ORDER BY POWER(random(), 10000.0 /"
+        f" POWER(GREATEST(COALESCE({score_col}, 60), 10), 2)) DESC"
+    )
+
+
+ANILIST_SEEDS_SQL = f"""
     SELECT m.id AS id
     FROM anilist_list_entries al
     JOIN media m ON m.id = al.media_id
     JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
     WHERE al.username = %(username)s AND m.medium = ANY(%(mediums)s)
-    ORDER BY random()
+    {weighted_order("al.score")}
     LIMIT %(n)s
 """
 
-MAL_SEEDS_SQL = """
+MAL_SEEDS_SQL = f"""
     SELECT m.id AS id
     FROM mal_list_entries l
     JOIN media m ON m.id_mal = l.id_mal AND l.list_type = lower(m.media_type)
     JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
     WHERE l.username = %(username)s AND m.medium = ANY(%(mediums)s)
-    ORDER BY random()
+    {weighted_order("l.score")}
     LIMIT %(n)s
 """
 
 # Seeds from generic exclusion lists (Kitsu, Yamtrack, hand-posted): the same
 # id-mapping join the exclusion filter uses. Lets For-you work for users who
 # only sync a tracker list, without an AniList or MAL username.
-LIST_SEEDS_SQL = """
+LIST_SEEDS_SQL = f"""
     SELECT m.id AS id
     FROM custom_exclusion_entries ce
     JOIN media m ON ((ce.kind = 'anilist' AND m.id = ce.ext_id)
@@ -53,7 +69,7 @@ LIST_SEEDS_SQL = """
         OR (ce.kind = 'mal_manga' AND m.media_type = 'MANGA' AND m.id_mal = ce.ext_id))
     JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
     WHERE ce.list_name = ANY(%(lists)s) AND m.medium = ANY(%(mediums)s)
-    ORDER BY random()
+    {weighted_order("ce.score")}
     LIMIT %(n)s
 """
 

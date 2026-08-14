@@ -18,9 +18,10 @@ JIKAN_BASE = "https://api.jikan.moe/v4"
 LIST_TYPES = ("anime", "manga")
 
 INSERT_ENTRY_SQL = """
-    INSERT INTO mal_list_entries (username, list_type, id_mal, status)
-    VALUES (%s, %s, %s, %s)
-    ON CONFLICT (username, list_type, id_mal) DO UPDATE SET status = EXCLUDED.status
+    INSERT INTO mal_list_entries (username, list_type, id_mal, status, score)
+    VALUES (%s, %s, %s, %s, %s)
+    ON CONFLICT (username, list_type, id_mal)
+    DO UPDATE SET status = EXCLUDED.status, score = EXCLUDED.score
 """
 
 UPSERT_STATE_SQL = """
@@ -31,9 +32,15 @@ UPSERT_STATE_SQL = """
 """
 
 
-def _fetch_list(client: RateLimitedClient, username: str, list_type: str) -> dict[int, str]:
-    """Page through a Jikan user list and return {mal_id: status}."""
-    entries: dict[int, str] = {}
+def _fetch_list(
+    client: RateLimitedClient, username: str, list_type: str
+) -> dict[int, tuple[str, int | None]]:
+    """Page through a Jikan user list and return {mal_id: (status, score)}.
+
+    MAL user scores are 1-10 (0 = unrated), stored normalized to 0-100 with
+    unrated as NULL so those entries keep a neutral For-you sampling weight.
+    """
+    entries: dict[int, tuple[str, int | None]] = {}
     page = 1
     while True:
         try:
@@ -58,7 +65,9 @@ def _fetch_list(client: RateLimitedClient, username: str, list_type: str) -> dic
             mal_id = node.get("mal_id")
             if mal_id:
                 status = item.get("watching_status") or item.get("reading_status") or ""
-                entries[int(mal_id)] = str(status)
+                raw_score = item.get("score")
+                score = int(raw_score) * 10 if isinstance(raw_score, (int, float)) else 0
+                entries[int(mal_id)] = (str(status), score if score else None)
         if not data.get("pagination", {}).get("has_next_page"):
             break
         page += 1
@@ -86,7 +95,10 @@ def refresh_mal_lists(username: str) -> UserListsStatus:
                 with conn.cursor() as cur:
                     cur.executemany(
                         INSERT_ENTRY_SQL,
-                        [(username, list_type, mal_id, st) for mal_id, st in entries.items()],
+                        [
+                            (username, list_type, mal_id, st, score)
+                            for mal_id, (st, score) in entries.items()
+                        ],
                     )
             conn.execute(UPSERT_STATE_SQL, (username, list_type, len(entries)))
     return get_mal_status(username)

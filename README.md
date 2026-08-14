@@ -116,7 +116,7 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | `POST /anilist/{username}/refresh` | Fetch and cache the user's AniList anime + manga lists (a few chunked GraphQL queries, no API key) |
 | `GET /anilist/{username}` | Cached AniList list status |
 | `GET /tags` | Distinct tag vocabulary (for filter autocomplete) |
-| `GET /foryou?medium=anime&anilist_user=...` | Personal discovery feed: blends a fresh random sample of the user's list into one multi-seed recommendation, excluding everything already on it; seeds come from `anilist_user`, `mal_user`, or `exclude_list` (a synced Kitsu/Yamtrack list) |
+| `GET /foryou?medium=anime&anilist_user=...` | Personal discovery feed: blends a fresh sample of the user's list into one multi-seed recommendation, excluding everything already on it; seeds come from `anilist_user`, `mal_user`, or `exclude_list` (a synced Kitsu/Yamtrack list), sampled weighted by the user's own ratings (`seeds=N` controls the sample size, fewer = more specific) |
 | `POST /exclusions/{name}` | Replace a generic named exclusion list: body `{"anilist_ids": [], "mal_anime_ids": [], "mal_manga_ids": []}`; exclude with `exclude_list={name}` (GET for status, DELETE to remove) |
 | `POST /yamtrack/refresh` | Pull the configured Yamtrack instance's anime + manga lists into the `yamtrack` exclusion list (configure via the Accounts panel or `YAMTRACK_URL`/`YAMTRACK_TOKEN`) |
 | `POST /kitsu/refresh` | Pull the configured Kitsu user's public anime + manga library into the `kitsu` exclusion list via Kitsu's MAL/AniList id mappings (set the Kitsu username in the Accounts panel; no token needed) |

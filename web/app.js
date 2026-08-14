@@ -516,7 +516,9 @@ async function loadForYou() {
   try {
     const params = { ...recommendParams(), medium: state.medium };
     if (anilistName) params.anilist_user = anilistName;
-    else params.mal_user = malName;
+    else if (malName) params.mal_user = malName;
+    const seedsEl = $("forYouSeeds");
+    if (seedsEl && seedsEl.value) params.seeds = seedsEl.value;
     const data = await api("/foryou", params);
     renderRecommendations(data);
   } catch (err) {
