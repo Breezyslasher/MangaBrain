@@ -1,0 +1,203 @@
+:root {
+  --bg: #12141a;
+  --panel: #1a1e27;
+  --card: #202634;
+  --text: #e6e9f0;
+  --muted: #8b93a7;
+  --accent: #5b8def;
+  --accent-2: #37c9a5;
+  --border: #2b3245;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  min-height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand { font-size: 1.25rem; font-weight: 700; color: var(--accent); }
+
+#tabs { display: flex; gap: 0.25rem; }
+
+#tabs button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 0.5rem 0.9rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+#tabs button.active { color: var(--text); background: var(--card); }
+
+main {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+#panel { display: flex; flex-direction: column; gap: 1rem; align-self: start; }
+
+.panel-block {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.panel-block h2 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+label { font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.25rem; }
+label.check { flex-direction: row; align-items: center; gap: 0.5rem; }
+.row { display: flex; gap: 0.5rem; }
+.row label { flex: 1; }
+
+input[type="text"], input[type="number"], input[type="search"], select {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  width: 100%;
+}
+
+input[type="range"] { accent-color: var(--accent); }
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+button.secondary { background: var(--card); border: 1px solid var(--border); }
+button:hover { filter: brightness(1.1); }
+
+.searchbar input {
+  font-size: 1.05rem;
+  padding: 0.7rem 1rem;
+}
+
+#seed { margin-top: 1rem; }
+
+.seed-card {
+  display: flex;
+  gap: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.seed-card img { width: 110px; border-radius: 8px; object-fit: cover; }
+.seed-card h3 { margin-bottom: 0.35rem; }
+.seed-card p {
+  font-size: 0.85rem;
+  color: var(--muted);
+  max-height: 7.5em;
+  overflow: hidden;
+}
+
+#related { margin-top: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.related-chip {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.related-chip:hover { color: var(--text); }
+
+.grid {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.9rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.1s ease;
+}
+
+.card:hover { transform: translateY(-2px); }
+
+.card .cover {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  display: block;
+  background: var(--panel);
+}
+
+.card .info { padding: 0.5rem 0.6rem 0.7rem; }
+
+.card .title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card .meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.25rem; }
+
+.badge {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  background: var(--accent-2);
+  color: #06281f;
+  font-weight: 700;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  padding: 0.15rem 0.45rem;
+}
+
+.muted { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; }
+
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; }
+}

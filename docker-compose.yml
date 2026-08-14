@@ -1,0 +1,55 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: mangabrain
+      POSTGRES_PASSWORD: ${MANGABRAIN_DB_PASSWORD:-mangabrain}
+      POSTGRES_DB: mangabrain
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    # Bound to localhost only (for host-side dev tools); the api and worker
+    # containers reach the db over the compose network, not this mapping.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mangabrain -d mangabrain"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build: .
+    platform: linux/amd64
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://mangabrain:${MANGABRAIN_DB_PASSWORD:-mangabrain}@db:5432/mangabrain
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  # Same image as the API. Runs the nightly incremental AniList sync followed
+  # by an embedding pass for anything new. One-off jobs (full sync, backfill)
+  # are run through this service, e.g.:
+  #   docker compose run --rm worker python -m pipeline.sync_anilist --type anime
+  worker:
+    build: .
+    platform: linux/amd64
+    command: python -m pipeline.nightly
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://mangabrain:${MANGABRAIN_DB_PASSWORD:-mangabrain}@db:5432/mangabrain
+      SYNC_INTERVAL_HOURS: "24"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  hf_cache:

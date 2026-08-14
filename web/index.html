@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MangaBrain</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">MangaBrain</div>
+    <nav id="tabs">
+      <button data-medium="anime" class="active">Anime</button>
+      <button data-medium="manga">Manga</button>
+      <button data-medium="light_novel">Light Novels</button>
+      <button data-medium="one_shot">One-Shots</button>
+    </nav>
+  </header>
+
+  <main>
+    <aside id="panel">
+      <section class="panel-block">
+        <h2>Weights</h2>
+        <label>Synopsis <span id="wSemanticVal">50</span>
+          <input type="range" id="wSemantic" min="0" max="100" value="50">
+        </label>
+        <label>Tags <span id="wTagsVal">30</span>
+          <input type="range" id="wTags" min="0" max="100" value="30">
+        </label>
+        <label>Genres <span id="wGenresVal">20</span>
+          <input type="range" id="wGenres" min="0" max="100" value="20">
+        </label>
+      </section>
+
+      <section class="panel-block">
+        <h2>Filters</h2>
+        <div class="row">
+          <label>Year from <input type="number" id="yearMin" placeholder="1980"></label>
+          <label>to <input type="number" id="yearMax" placeholder="2026"></label>
+        </div>
+        <label>Minimum score (0-100) <input type="number" id="minScore" min="0" max="100" placeholder="e.g. 70"></label>
+        <label id="formatWrap">Format
+          <select id="format">
+            <option value="">Any</option>
+          </select>
+        </label>
+        <label>Origin
+          <select id="country">
+            <option value="">Any</option>
+            <option value="JP">Japan</option>
+            <option value="KR">Korea</option>
+            <option value="CN">China</option>
+            <option value="TW">Taiwan</option>
+          </select>
+        </label>
+        <label>Status
+          <select id="status">
+            <option value="">Any</option>
+            <option value="FINISHED">Finished</option>
+            <option value="RELEASING">Releasing</option>
+            <option value="NOT_YET_RELEASED">Not yet released</option>
+            <option value="HIATUS">Hiatus</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="adult"> Include adult content</label>
+        <label class="check"><input type="checkbox" id="crossMedia"> Cross-media suggestions</label>
+        <label class="check"><input type="checkbox" id="excludeFranchise" checked> Hide sequels and spin-offs</label>
+      </section>
+
+      <section class="panel-block">
+        <h2>MyAnimeList</h2>
+        <label>Username <input type="text" id="malUser" placeholder="MAL username"></label>
+        <button id="malRefresh" class="secondary">Refresh lists</button>
+        <label class="check"><input type="checkbox" id="malExclude"> Exclude my list from results</label>
+        <div id="malStatus" class="muted"></div>
+      </section>
+
+      <button id="surprise">Surprise me</button>
+    </aside>
+
+    <section id="content">
+      <div class="searchbar">
+        <input id="search" type="search" placeholder="Search titles..." autocomplete="off">
+      </div>
+      <div id="seed"></div>
+      <div id="related"></div>
+      <div id="results" class="grid"></div>
+      <div id="status" class="muted"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
