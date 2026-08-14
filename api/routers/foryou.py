@@ -3,7 +3,8 @@ cached list (AniList or MAL username, or a synced tracker exclusion list
 such as Kitsu or Yamtrack) into one multi-seed recommendation, always
 excluding everything already on the list. Each request samples fresh seeds,
 so the feed changes on every visit; sampling is weighted by the user's own
-ratings, so loved titles anchor the feed more often than ones merely logged.
+ratings (loved titles anchor the feed more often than ones merely logged)
+unless use_ratings=false requests uniform sampling.
 
 Seeds are restricted to the dominant embedding version so the feed keeps
 working mid-way through a re-embed migration.
@@ -40,7 +41,7 @@ def weighted_order(pct_col: str) -> str:
     return f"ORDER BY POWER(random(), 10000.0 / POWER(40 + 60 * COALESCE({pct_col}, 0.5), 2)) DESC"
 
 
-ANILIST_SEEDS_SQL = f"""
+ANILIST_SEEDS_SQL = """
     WITH list AS (
         SELECT al.media_id, al.score
         FROM anilist_list_entries al
@@ -55,11 +56,11 @@ ANILIST_SEEDS_SQL = f"""
     JOIN media m ON m.id = l.media_id
     JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
     WHERE m.medium = ANY(%(mediums)s)
-    {weighted_order("r.pct")}
+    {order}
     LIMIT %(n)s
 """
 
-MAL_SEEDS_SQL = f"""
+MAL_SEEDS_SQL = """
     WITH list AS (
         SELECT l.id_mal, l.list_type, l.score
         FROM mal_list_entries l
@@ -74,14 +75,14 @@ MAL_SEEDS_SQL = f"""
     JOIN media m ON m.id_mal = l.id_mal AND l.list_type = lower(m.media_type)
     JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
     WHERE m.medium = ANY(%(mediums)s)
-    {weighted_order("r.pct")}
+    {order}
     LIMIT %(n)s
 """
 
 # Seeds from generic exclusion lists (Kitsu, Yamtrack, hand-posted): the same
 # id-mapping join the exclusion filter uses. Lets For-you work for users who
 # only sync a tracker list, without an AniList or MAL username.
-LIST_SEEDS_SQL = f"""
+LIST_SEEDS_SQL = """
     WITH list AS (
         SELECT ce.kind, ce.ext_id, ce.score
         FROM custom_exclusion_entries ce
@@ -98,7 +99,7 @@ LIST_SEEDS_SQL = f"""
         OR (l.kind = 'mal_manga' AND m.media_type = 'MANGA' AND m.id_mal = l.ext_id))
     JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
     WHERE m.medium = ANY(%(mediums)s)
-    {weighted_order("r.pct")}
+    {order}
     LIMIT %(n)s
 """
 
@@ -130,6 +131,7 @@ def foryou(
     max_chapters: int | None = Query(None, ge=1),
     exclude_list: list[str] | None = Query(None),
     keep_planned: bool = False,
+    use_ratings: bool = True,
 ) -> RecommendResponse:
     list_names = [n.strip().lower() for n in (exclude_list or []) if n.strip()]
     if not anilist_user and not mal_user and not list_names:
@@ -140,11 +142,15 @@ def foryou(
         )
 
     if anilist_user:
-        seeds_sql = ANILIST_SEEDS_SQL
+        template = ANILIST_SEEDS_SQL
     elif mal_user:
-        seeds_sql = MAL_SEEDS_SQL
+        template = MAL_SEEDS_SQL
     else:
-        seeds_sql = LIST_SEEDS_SQL
+        template = LIST_SEEDS_SQL
+    # use_ratings=false reverts to uniform sampling: every list entry has
+    # the same chance of anchoring the feed, ratings ignored entirely.
+    order = weighted_order("r.pct") if use_ratings else "ORDER BY random()"
+    seeds_sql = template.format(order=order)
     username = (anilist_user or mal_user or "").strip().lower()
     mediums = MEDIUM_GROUPS[medium]
 

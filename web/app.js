@@ -522,6 +522,7 @@ async function loadForYou() {
     else if (malName) params.mal_user = malName;
     const seedsEl = $("forYouSeeds");
     if (seedsEl && seedsEl.value) params.seeds = seedsEl.value;
+    if (!isChecked("useRatings")) params.use_ratings = "false";
     const data = await api("/foryou", params);
     // Pin the sampled seeds: slider and filter changes re-rank this same
     // feed via rerunForYou; only pressing the button samples fresh seeds.
@@ -755,6 +756,11 @@ function bindEvents() {
   });
 
   on("forYou", "click", loadForYou);
+  // Sampling-mode change needs a fresh sample; re-ranking pinned seeds
+  // would not reflect it.
+  on("useRatings", "change", () => {
+    if (state.mode && state.mode.type === "foryou") loadForYou();
+  });
   on("surprise", "click", surprise);
   on("malRefresh", "click", refreshMal);
   on("mixGo", "click", loadMix);

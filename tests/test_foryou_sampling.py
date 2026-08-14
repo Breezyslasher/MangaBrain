@@ -26,11 +26,20 @@ def test_weighted_order_uses_percentile_with_floor():
 
 
 def test_all_three_seed_sources_rank_within_the_users_own_list():
-    for sql in (ANILIST_SEEDS_SQL, MAL_SEEDS_SQL, LIST_SEEDS_SQL):
-        assert "PERCENT_RANK() OVER (ORDER BY score)" in sql
-        assert "WHERE score IS NOT NULL" in sql  # unrated stay out of ranking
-        assert weighted_order("r.pct") in sql
-        assert "ORDER BY random()\n" not in sql
+    for template in (ANILIST_SEEDS_SQL, MAL_SEEDS_SQL, LIST_SEEDS_SQL):
+        assert "PERCENT_RANK() OVER (ORDER BY score)" in template
+        assert "WHERE score IS NOT NULL" in template  # unrated stay out of ranking
+        weighted = template.format(order=weighted_order("r.pct"))
+        assert weighted_order("r.pct") in weighted
+        assert "ORDER BY random()\n" not in weighted
+
+
+def test_use_ratings_off_gives_uniform_sampling():
+    # The use_ratings=false opt-out: plain ORDER BY random(), no weights.
+    for template in (ANILIST_SEEDS_SQL, MAL_SEEDS_SQL, LIST_SEEDS_SQL):
+        uniform = template.format(order="ORDER BY random()")
+        assert "ORDER BY random()" in uniform
+        assert "POWER(random()" not in uniform
 
 
 def _key(rng: random.Random, pct: float) -> float:
