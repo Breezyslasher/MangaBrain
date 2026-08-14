@@ -21,6 +21,20 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="MangaBrain", version="0.1.0", lifespan=lifespan)
 
+
+# Without Cache-Control, browsers heuristically cache the SPA assets and keep
+# showing a stale UI after deployments until the user clears site data.
+# no-cache means "store, but revalidate": unchanged files answer with a cheap
+# 304 via ETag, changed files arrive immediately.
+@app.middleware("http")
+async def static_no_cache(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.endswith((".html", ".js", ".css")):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 app.include_router(search.router)
 app.include_router(recommend.router)
 app.include_router(random_pick.router)
