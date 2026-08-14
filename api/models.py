@@ -73,3 +73,19 @@ class UserListsStatus(BaseModel):
 
 class TagsResponse(BaseModel):
     tags: list[str]
+
+
+class ExclusionListIn(BaseModel):
+    """A generic exclusion list: AniList ids match directly; MAL ids are
+    typed because MAL anime and manga ids are separate id spaces."""
+
+    anilist_ids: list[int] = []
+    mal_anime_ids: list[int] = []
+    mal_manga_ids: list[int] = []
+
+
+class ExclusionStatus(BaseModel):
+    name: str
+    entry_count: int
+    updated_at: datetime
+    skipped: int | None = None

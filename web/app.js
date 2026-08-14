@@ -81,6 +81,9 @@ function filterParams() {
   if ($("alExclude").checked && $("alUser").value.trim()) {
     params.anilist_user = $("alUser").value.trim();
   }
+  if ($("ytExclude").checked) {
+    params.exclude_list = "yamtrack";
+  }
   return params;
 }
 
@@ -406,6 +409,23 @@ function addToMix(media) {
   renderMix();
 }
 
+async function refreshYamtrack() {
+  $("ytStatus").textContent = "Fetching from Yamtrack...";
+  try {
+    const resp = await fetch("/yamtrack/refresh", { method: "POST" });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body.detail || `Refresh failed (${resp.status})`);
+    }
+    const data = await resp.json();
+    let text = `${data.entry_count} entries cached`;
+    if (data.skipped) text += ` (${data.skipped} non-MAL entries skipped)`;
+    $("ytStatus").textContent = text;
+  } catch (err) {
+    $("ytStatus").textContent = err.message;
+  }
+}
+
 async function loadForYou() {
   const anilistName = $("alUser").value.trim();
   const malName = $("malUser").value.trim();
@@ -604,9 +624,11 @@ function bindEvents() {
 
   for (const id of ["adult", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
                     "minScore", "country", "status", "format", "maxPop", "maxLen",
-                    "malExclude", "alExclude"]) {
+                    "malExclude", "alExclude", "ytExclude"]) {
     $(id).addEventListener("change", rerunActive);
   }
+
+  $("ytRefresh").addEventListener("click", refreshYamtrack);
 
   $("tagReq").addEventListener("click", () => addTagFilter("inc"));
   $("tagExc").addEventListener("click", () => addTagFilter("exc"));

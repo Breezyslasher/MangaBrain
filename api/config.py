@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # pipeline.restore). Best-effort: on failure the worker falls back to a
     # normal full sync.
     seed_snapshot_url: str = ""
+    # Optional self-hosted Yamtrack instance for list exclusion (see
+    # api/routers/yamtrack.py). Token comes from the Yamtrack profile page.
+    yamtrack_url: str = ""
+    yamtrack_token: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

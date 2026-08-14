@@ -29,16 +29,17 @@ class RateLimitedClient:
         max_retries: int = 5,
         timeout: float = 30.0,
         user_agent: str = "MangaBrain/0.1 (self-hosted recommendation engine)",
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         self.min_interval = min_interval
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.cache_ttl = cache_ttl
         self.max_retries = max_retries
         self._next_allowed = 0.0
-        self._client = httpx.Client(
-            timeout=timeout,
-            headers={"User-Agent": user_agent, "Accept": "application/json"},
-        )
+        headers = {"User-Agent": user_agent, "Accept": "application/json"}
+        if extra_headers:
+            headers.update(extra_headers)
+        self._client = httpx.Client(timeout=timeout, headers=headers)
 
     def request(
         self,
