@@ -90,8 +90,10 @@ function recommendParams() {
   };
 }
 
+// The status filter select is id="status"; the message area must use a
+// different id or getElementById would return the select and wipe its options.
 function setStatus(text) {
-  $("status").textContent = text || "";
+  $("statusMsg").textContent = text || "";
 }
 
 function mediaTitle(media) {
