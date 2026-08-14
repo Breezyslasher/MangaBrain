@@ -37,19 +37,26 @@ function.
 ## Run from the prebuilt image (no clone needed)
 
 Every merge to main publishes `ghcr.io/breezyslasher/mangabrain:latest`
-(linux/amd64) via GitHub Actions. To run without building anything, copy the
-single file [`docker-compose.prebuilt.yml`](docker-compose.prebuilt.yml)
+(linux/amd64) via GitHub Actions, and a weekly workflow publishes a catalog
+snapshot (media, relations, embeddings, sync checkpoints) as the
+`dataset-latest` release. To run without building or syncing anything, copy
+the single file [`docker-compose.prebuilt.yml`](docker-compose.prebuilt.yml)
 anywhere and:
 
 ```
 docker compose -f docker-compose.prebuilt.yml up -d
-docker compose -f docker-compose.prebuilt.yml run --rm worker python -m pipeline.sync_anilist
-docker compose -f docker-compose.prebuilt.yml run --rm worker python -m pipeline.embed
 ```
 
-The services apply the database schema themselves on first start, so no
-repository checkout or schema mount is required. The web UI is at
-`http://<host>:8000`.
+The services apply the database schema themselves, and on first start the
+worker downloads the snapshot and restores it in minutes; the nightly
+incremental sync then continues from the snapshot's checkpoint. If the
+snapshot is unavailable, the worker falls back to a full AniList sync and
+embedding pass on its own. Manual snapshot commands:
+
+```
+python -m pipeline.restore --url <snapshot url>    # seed or (with --force) replace the catalog
+python -m pipeline.snapshot --out my-snapshot.dump # dump your own catalog
+```
 
 ## Quick start (development)
 

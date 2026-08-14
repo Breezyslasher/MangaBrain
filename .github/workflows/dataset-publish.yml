@@ -1,0 +1,64 @@
+name: dataset-publish
+
+on:
+  schedule:
+    - cron: "30 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-dataset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: mangabrain
+          POSTGRES_PASSWORD: mangabrain
+          POSTGRES_DB: mangabrain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mangabrain -d mangabrain"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://mangabrain:mangabrain@localhost:5432/mangabrain
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install postgresql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
+
+      - name: Install project (CPU torch)
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install .
+
+      - name: Full AniList sync
+        run: python -m pipeline.sync_anilist
+
+      - name: Generate embeddings
+        run: python -m pipeline.embed
+
+      - name: Dump snapshot
+        run: python -m pipeline.snapshot --out mangabrain-dataset.dump
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete dataset-latest --cleanup-tag --yes || true
+          gh release create dataset-latest mangabrain-dataset.dump \
+            --title "Catalog snapshot $(date -u +%F)" \
+            --notes "Weekly catalog snapshot: media, relations, embeddings, and sync checkpoints. Restore with pipeline.restore or set SEED_SNAPSHOT_URL; the nightly incremental sync continues from this snapshot's checkpoint. Data sourced from the AniList API."

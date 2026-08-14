@@ -31,6 +31,14 @@ FAILURE_RETRY_SECONDS = 3600.0
 def run_once(client: RateLimitedClient) -> None:
     capped: list[str] = []
     with psycopg.connect(settings.database_url) as conn:
+        empty = conn.execute("SELECT 1 FROM media LIMIT 1").fetchone() is None
+        if empty:
+            # Fresh database and no snapshot seeded it: a 7-day incremental
+            # would leave the catalog nearly empty, so run the full scan.
+            print("[nightly] catalog is empty; running the full sync")
+            full_sync(client, conn, None)
+            embed_missing()
+            return
         for media_type in ("ANIME", "MANGA"):
             key = f"anilist_last_sync_{media_type.lower()}"
             state = get_state(conn, key) or {}
@@ -59,6 +67,14 @@ def main() -> None:
     from api.db import ensure_schema
 
     ensure_schema()
+    if settings.seed_snapshot_url:
+        from pipeline.restore import seed_if_empty
+
+        try:
+            seed_if_empty(settings.seed_snapshot_url)
+        except Exception:
+            traceback.print_exc()
+            print("[nightly] snapshot seed failed; continuing with a normal sync")
     client = RateLimitedClient(min_interval=settings.anilist_min_interval)
     interval = settings.sync_interval_hours * 3600
     while True:
