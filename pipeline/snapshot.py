@@ -2,10 +2,12 @@
 format). The snapshot contains media, relations, embeddings, and the sync
 checkpoints, so a restored instance resumes incremental syncing from the
 snapshot's timestamp instead of starting over. User-specific tables (MAL and
-similar list caches) are excluded.
+AniList list caches, backfill state) are excluded by default; pass --all to
+include them for personal backups.
 
 Usage:
     python -m pipeline.snapshot --out mangabrain-dataset.dump
+    python -m pipeline.snapshot --all --out backup.dump   # full personal backup
 """
 
 import argparse
@@ -15,9 +17,16 @@ from pathlib import Path
 from api.config import settings
 
 DATA_TABLES = ("media", "media_relations", "embeddings", "sync_state")
+USER_TABLES = (
+    "mal_list_entries",
+    "mal_list_state",
+    "anilist_list_entries",
+    "anilist_list_state",
+    "jikan_backfill_state",
+)
 
 
-def create_snapshot(out_path: str) -> None:
+def create_snapshot(out_path: str, include_user_tables: bool = False) -> None:
     cmd = [
         "pg_dump",
         "--dbname",
@@ -27,7 +36,8 @@ def create_snapshot(out_path: str) -> None:
         "--no-owner",
         "--no-privileges",
     ]
-    for table in DATA_TABLES:
+    tables = DATA_TABLES + (USER_TABLES if include_user_tables else ())
+    for table in tables:
         cmd += ["--table", table]
     cmd += ["--file", out_path]
     subprocess.run(cmd, check=True)
@@ -38,8 +48,13 @@ def create_snapshot(out_path: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dump catalog tables to a snapshot")
     parser.add_argument("--out", default="mangabrain-dataset.dump")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="include user tables (MAL/AniList lists, backfill state) for personal backups",
+    )
     args = parser.parse_args()
-    create_snapshot(args.out)
+    create_snapshot(args.out, include_user_tables=args.all)
 
 
 if __name__ == "__main__":

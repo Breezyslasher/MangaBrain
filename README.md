@@ -162,6 +162,24 @@ All settings come from environment variables (see `.env.example`):
 | `JIKAN_MIN_INTERVAL` | `0.5` | seconds between Jikan requests |
 | `SYNC_INTERVAL_HOURS` | `24` | worker pass interval |
 
+## Backups
+
+The weekly published dataset covers the catalog, but not your personal data
+(MAL/AniList list caches). For full backups, `backup.sh` dumps everything
+(catalog, embeddings, user lists) to a timestamped file and keeps the newest
+eight:
+
+```
+./backup.sh /path/to/backup/dir
+```
+
+Schedule it weekly (OpenMediaVault: Services, Scheduled Jobs). Restore with:
+
+```
+docker cp <file> mangabrain-worker-1:/tmp/restore.dump
+docker exec mangabrain-worker-1 python -m pipeline.restore --file /tmp/restore.dump --force
+```
+
 ## Tests and linting
 
 ```
