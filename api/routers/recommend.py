@@ -246,7 +246,10 @@ def recommend_multi(
     tags_include: list[str] | None = Query(None, alias="tag_in"),
     tags_exclude: list[str] | None = Query(None, alias="tag_ex"),
     max_popularity: int | None = Query(None, ge=0),
+    max_episodes: int | None = Query(None, ge=1),
+    max_chapters: int | None = Query(None, ge=1),
     mal_user: str | None = None,
+    anilist_user: str | None = None,
 ) -> RecommendResponse:
     unique_ids = list(dict.fromkeys(ids))
     return _recommend_for_seeds(
@@ -268,7 +271,10 @@ def recommend_multi(
             "tags_include": tags_include,
             "tags_exclude": tags_exclude,
             "max_popularity": max_popularity,
+            "max_episodes": max_episodes,
+            "max_chapters": max_chapters,
             "mal_user": mal_user,
+            "anilist_user": anilist_user,
         },
     )
 
@@ -294,7 +300,10 @@ def recommend(
     tags_include: list[str] | None = Query(None, alias="tag_in"),
     tags_exclude: list[str] | None = Query(None, alias="tag_ex"),
     max_popularity: int | None = Query(None, ge=0),
+    max_episodes: int | None = Query(None, ge=1),
+    max_chapters: int | None = Query(None, ge=1),
     mal_user: str | None = None,
+    anilist_user: str | None = None,
 ) -> RecommendResponse:
     return _recommend_for_seeds(
         [media_id],
@@ -315,6 +324,9 @@ def recommend(
             "tags_include": tags_include,
             "tags_exclude": tags_exclude,
             "max_popularity": max_popularity,
+            "max_episodes": max_episodes,
+            "max_chapters": max_chapters,
             "mal_user": mal_user,
+            "anilist_user": anilist_user,
         },
     )

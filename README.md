@@ -112,7 +112,10 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | `GET /recommend?ids=1&ids=2` | Multi-seed blend (up to 5 titles): averaged embedding and tag profile, unioned genres |
 | `GET /random?medium=manga` | A random title passing the active filters |
 | `POST /mal/{username}/refresh` | Fetch and cache the user's MAL anime + manga lists via Jikan (synchronous: a large list holds the request open for a while at Jikan's rate limit, so avoid aggressive proxy timeouts in front of it) |
-| `GET /mal/{username}` | Cached list status |
+| `GET /mal/{username}` | Cached MAL list status |
+| `POST /anilist/{username}/refresh` | Fetch and cache the user's AniList anime + manga lists (a few chunked GraphQL queries, no API key) |
+| `GET /anilist/{username}` | Cached AniList list status |
+| `GET /tags` | Distinct tag vocabulary (for filter autocomplete) |
 | `GET /healthz` | Liveness check |
 
 Medium groups match Anibrain's recommenders: `anime`, `manga` (includes
@@ -130,9 +133,17 @@ manhwa/manhua), `light_novel`, `one_shot`.
   `tag_in` / `tag_ex` (repeatable) — same for AniList tags
 - `max_popularity=<n>` — obscurity cap: only titles with at most n members
   (a filter the user opts into; popularity still never enters ranking)
+- `max_episodes=<n>` / `max_chapters=<n>` — length caps (unknown lengths stay
+  included)
 - `adult=true` — include adult entries (excluded at the SQL level by default)
 - `mal_user=<username>` — exclude everything on the cached MAL anime + manga
   lists (any status)
+- `anilist_user=<username>` — same, for a cached AniList list (matched by
+  AniList id directly)
+
+Search also matches alternate titles (AniList synonyms) once entries carry
+them; synonyms arrive via the nightly incremental sync, or immediately for
+the whole catalog by re-running the full sync.
 
 Displayed similarity percentages are calibrated (monotonic, order-preserving)
 so top matches read on an Anibrain-like scale; raw per-component scores are

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from api.db import close_pool, ensure_schema, get_pool
-from api.routers import mal, random_pick, recommend, search
+from api.routers import anilist, mal, random_pick, recommend, search
 
 
 @asynccontextmanager
@@ -39,6 +39,7 @@ app.include_router(search.router)
 app.include_router(recommend.router)
 app.include_router(random_pick.router)
 app.include_router(mal.router)
+app.include_router(anilist.router)
 
 
 @app.get("/healthz")

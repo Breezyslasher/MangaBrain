@@ -63,6 +63,21 @@ def test_max_popularity_is_a_filter_and_treats_unknown_as_obscure():
     assert params["f_max_pop"] == 10000
 
 
+def test_anilist_exclusion_matches_media_id_directly():
+    sql, params = build_filters(anilist_user="  SomeUser ")
+    assert "anilist_list_entries" in sql
+    assert "al.media_id = m.id" in sql
+    assert params["f_anilist_user"] == "someuser"
+
+
+def test_length_filters_include_unknown_lengths():
+    sql, params = build_filters(max_episodes=26, max_chapters=100)
+    assert "(m.episodes IS NULL OR m.episodes <= %(f_max_episodes)s)" in sql
+    assert "(m.chapters IS NULL OR m.chapters <= %(f_max_chapters)s)" in sql
+    assert params["f_max_episodes"] == 26
+    assert params["f_max_chapters"] == 100
+
+
 def test_mal_exclusion_pairs_list_type_with_media_type():
     # MAL anime and manga ids are separate id spaces: anime #1 on the user's
     # list must not exclude manga #1. The clause has to pair list_type with

@@ -78,9 +78,22 @@
             <option value="2000">Under 2k members</option>
           </select>
         </label>
+        <label>Max length (episodes or chapters)
+          <input type="number" id="maxLen" min="1" placeholder="e.g. 26">
+        </label>
         <div class="genre-filter">
           <div class="chips-hint">Genres: click to require, click again to exclude</div>
           <div id="genreChips" class="chips"></div>
+        </div>
+        <div class="genre-filter">
+          <div class="chips-hint">Tags: pick one, then require or exclude it</div>
+          <input type="text" id="tagInput" list="tagList" placeholder="e.g. Time Travel">
+          <datalist id="tagList"></datalist>
+          <div class="row">
+            <button id="tagReq" class="secondary" type="button">Require</button>
+            <button id="tagExc" class="secondary" type="button">Exclude</button>
+          </div>
+          <div id="tagChips" class="chips"></div>
         </div>
         <label class="check"><input type="checkbox" id="adult"> Include adult content</label>
         <label class="check"><input type="checkbox" id="crossMedia"> Cross-media suggestions</label>
@@ -91,6 +104,14 @@
         <h2>Seed mix</h2>
         <div id="mixChips" class="chips"></div>
         <button id="mixGo">Recommend from mix</button>
+      </section>
+
+      <section class="panel-block">
+        <h2>AniList</h2>
+        <label>Username <input type="text" id="alUser" placeholder="AniList username"></label>
+        <button id="alRefresh" class="secondary">Refresh lists</button>
+        <label class="check"><input type="checkbox" id="alExclude"> Exclude my list from results</label>
+        <div id="alStatus" class="chips-hint"></div>
       </section>
 
       <section class="panel-block">
