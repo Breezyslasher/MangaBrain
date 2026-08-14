@@ -1,9 +1,11 @@
 """Dump the catalog data tables to a portable snapshot (pg_dump custom
 format). The snapshot contains media, relations, embeddings, and the sync
 checkpoints, so a restored instance resumes incremental syncing from the
-snapshot's timestamp instead of starting over. User-specific tables (MAL and
-AniList list caches, backfill state) are excluded by default; pass --all to
-include them for personal backups.
+snapshot's timestamp instead of starting over. User-specific tables (tracker
+list caches, exclusion lists, account settings, backfill state) are excluded
+by default and MUST stay out of DATA_TABLES: the public weekly dataset is
+built without --all, and app_settings holds the Yamtrack token. Pass --all
+to include them for personal backups.
 
 Usage:
     python -m pipeline.snapshot --out mangabrain-dataset.dump
@@ -23,6 +25,9 @@ USER_TABLES = (
     "anilist_list_entries",
     "anilist_list_state",
     "jikan_backfill_state",
+    "custom_exclusion_entries",
+    "custom_exclusion_state",
+    "app_settings",
 )
 
 
@@ -51,7 +56,8 @@ def main() -> None:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="include user tables (MAL/AniList lists, backfill state) for personal backups",
+        help="include user tables (tracker lists, exclusion lists, settings,"
+        " backfill state) for personal backups",
     )
     args = parser.parse_args()
     create_snapshot(args.out, include_user_tables=args.all)
