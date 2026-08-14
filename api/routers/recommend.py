@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 
-from api.config import settings
+from api.config import embed_model_id, settings
 from api.db import MEDIA_COLS, get_pool, hnsw_supports_iterative_scan, media_from_row
 from api.filters import build_filters
 from api.media_groups import ALL_MEDIUMS, group_for_medium
@@ -95,6 +95,28 @@ RELATED_SQL = f"""
 """
 
 
+def _choose_embed_model(
+    models_per_seed: list[set[str]], counts_by_model: dict[str, int], preferred: str
+) -> str | None:
+    """Pick the embedding version to score with, deterministically.
+
+    Mid-way through a re-embed migration a seed can carry vectors from two
+    embedding spaces. The candidate pool is limited to entries embedded with
+    the chosen version, so pick the version with the most catalog coverage
+    among those every seed has. The configured model wins once its coverage
+    is within 1% of the best: old-version rows linger after a migration, and
+    a few permanently failed re-embeds must not pin scoring to the old space
+    forever. Returns None when the seeds share no version.
+    """
+    common = set.intersection(*models_per_seed) if models_per_seed else set()
+    if not common:
+        return None
+    best = max(counts_by_model.get(m, 0) for m in common)
+    if preferred in common and counts_by_model.get(preferred, 0) >= 0.99 * best:
+        return preferred
+    return max(common, key=lambda m: (counts_by_model.get(m, 0), m))
+
+
 def _embedding_array(value: Any) -> np.ndarray:
     """pgvector returns embeddings as np.ndarray in some versions and as a
     Vector object (with to_numpy) in others; np.asarray(dtype=float) chokes
@@ -115,30 +137,46 @@ def _recommend_for_seeds(
     filter_kwargs: dict[str, Any],
 ) -> RecommendResponse:
     with get_pool().connection() as conn:
+        # The join returns one row per (seed, embedding version): during a
+        # re-embed migration a seed can have vectors in two embedding spaces.
         rows = conn.execute(SEEDS_SQL, {"ids": seed_ids}).fetchall()
-        by_id = {row["id"]: row for row in rows}
+        by_id: dict[int, Any] = {}
+        vectors_by_id: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            by_id[row["id"]] = row
+            if row["embed_model"] is not None:
+                vectors_by_id.setdefault(row["id"], {})[row["embed_model"]] = row["embedding"]
         missing = [i for i in seed_ids if i not in by_id]
         if missing:
             raise HTTPException(status_code=404, detail=f"unknown media id(s): {missing}")
         seeds = [by_id[i] for i in seed_ids]
 
-        not_embedded = [s["id"] for s in seeds if s["embedding"] is None]
+        not_embedded = [i for i in seed_ids if not vectors_by_id.get(i)]
         if not_embedded:
             raise HTTPException(
                 status_code=409,
                 detail=f"media {not_embedded} have no embedding yet;"
                 " run `python -m pipeline.embed`",
             )
-        models = {s["embed_model"] for s in seeds}
-        if len(models) > 1:
+        model_sets = [set(vectors_by_id[i]) for i in seed_ids]
+        counts: dict[str, int] = {}
+        if any(len(s) > 1 for s in model_sets):
+            # Only mid-migration: coverage decides which version to score in.
+            counts = {
+                r["embed_model"]: r["n"]
+                for r in conn.execute(
+                    "SELECT embed_model, count(*) AS n FROM embeddings GROUP BY embed_model"
+                ).fetchall()
+            }
+        embed_model = _choose_embed_model(model_sets, counts, embed_model_id())
+        if embed_model is None:
             raise HTTPException(
                 status_code=409,
                 detail="seeds span different embedding versions"
                 " (a re-embed is in progress); try again later",
             )
-        embed_model = models.pop()
 
-        vectors = np.array([_embedding_array(s["embedding"]) for s in seeds])
+        vectors = np.array([_embedding_array(vectors_by_id[i][embed_model]) for i in seed_ids])
         seed_vec = vectors.mean(axis=0)
         norm = np.linalg.norm(seed_vec)
         if norm > 0:

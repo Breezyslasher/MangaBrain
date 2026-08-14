@@ -8,10 +8,18 @@ on:
 permissions:
   contents: write
 
+# Budget: the first full run measured sync 272 min + embed 67 min, so a
+# from-scratch build barely fits the 6 h job limit. Every run therefore
+# checkpoints its database state to the actions cache (even on failure), and
+# a rerun restores it: a timed-out sync resumes mid-scan via sync_state, a
+# completed sync within 24 h is skipped entirely (--skip-if-fresh), and the
+# embed step only processes entries the restored checkpoint is missing. The
+# step timeouts keep the worst case inside the job limit so the
+# checkpoint-save step always gets to run.
 jobs:
   build-dataset:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 358
     services:
       db:
         image: pgvector/pgvector:pg16
@@ -45,11 +53,43 @@ jobs:
           pip install --index-url https://download.pytorch.org/whl/cpu torch
           pip install .
 
+      - name: Restore checkpoint from a previous run
+        id: checkpoint
+        uses: actions/cache/restore@v4
+        with:
+          path: checkpoint.dump
+          key: dataset-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dataset-checkpoint-
+
+      - name: Load checkpoint into database
+        if: steps.checkpoint.outputs.cache-matched-key != ''
+        run: |
+          pg_restore --dbname "$DATABASE_URL" --clean --if-exists \
+            --no-owner --no-privileges checkpoint.dump
+          rm checkpoint.dump
+
       - name: Full AniList sync
-        run: python -m pipeline.sync_anilist
+        timeout-minutes: 280
+        run: python -m pipeline.sync_anilist --skip-if-fresh 24
 
       - name: Generate embeddings
+        timeout-minutes: 70
         run: python -m pipeline.embed
+
+      # Runs even when sync or embed failed or timed out, so the next
+      # trigger resumes instead of restarting. The key is unique per attempt
+      # (same-key saves are rejected); restore-keys picks the newest.
+      - name: Save checkpoint
+        if: always()
+        run: python -m pipeline.snapshot --out checkpoint.dump
+
+      - name: Upload checkpoint to cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: checkpoint.dump
+          key: dataset-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Dump snapshot
         run: python -m pipeline.snapshot --out mangabrain-dataset.dump
