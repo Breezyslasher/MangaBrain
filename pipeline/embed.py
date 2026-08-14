@@ -21,9 +21,9 @@ MAX_TAGS = 15
 
 # Transformer attention memory scales with the square of sequence length, and
 # bge-class models take 512-token inputs (twice MiniLM's 256), so encoding at
-# batch 64 OOM-kills small hosts (observed as a worker crash loop dying after
-# the first written batch). 16 keeps peak memory modest at minor throughput
-# cost; raise via --encode-batch-size on beefier machines.
+# batch 64 risks OOM on small hosts that share memory with the database and
+# sync jobs. 16 keeps peak memory modest at minor throughput cost; raise via
+# --encode-batch-size on beefier machines.
 ENCODE_BATCH_SIZE = 16
 
 SELECT_MISSING_SQL = """

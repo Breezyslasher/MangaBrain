@@ -11,8 +11,35 @@ from api.models import SearchResponse, TagsResponse
 
 router = APIRouter()
 
-SEARCH_SQL = f"""
-    SELECT {MEDIA_COLS},
+# All searchable title text for one row, so multi-word queries can match with
+# words in any order and across title variants ("titan attack" finds Attack
+# on Titan). Not indexable, but a filtered scan over the catalog stays well
+# inside interactive latency for a single-user instance.
+HAYSTACK_SQL = (
+    "(coalesce(m.title_romaji, '') || ' ' || coalesce(m.title_english, '') || ' ' ||"
+    " coalesce(m.title_native, '') || ' ' || array_to_string(m.synonyms, ' '))"
+)
+
+MAX_QUERY_WORDS = 8
+
+
+def word_filter(q: str) -> tuple[str, dict[str, str]]:
+    """AND-of-ILIKE clauses requiring every query word to appear somewhere in
+    the row's combined title text, in any order."""
+    words = [w for w in q.split() if w][:MAX_QUERY_WORDS]
+    if not words:
+        return "TRUE", {}
+    clauses = []
+    params: dict[str, str] = {}
+    for i, word in enumerate(words):
+        key = f"word_{i}"
+        clauses.append(f"{HAYSTACK_SQL} ILIKE %({key})s")
+        params[key] = f"%{word}%"
+    return " AND ".join(clauses), params
+
+
+SEARCH_SQL_TEMPLATE = """
+    SELECT {cols},
            GREATEST(
                word_similarity(%(q)s, m.title_romaji),
                word_similarity(%(q)s, coalesce(m.title_english, '')),
@@ -21,10 +48,7 @@ SEARCH_SQL = f"""
            ) AS match_rank
     FROM media m
     WHERE m.medium = ANY(%(mediums)s)
-      AND (m.title_romaji ILIKE %(pattern)s
-           OR m.title_english ILIKE %(pattern)s
-           OR m.title_native ILIKE %(pattern)s
-           OR EXISTS (SELECT 1 FROM unnest(m.synonyms) syn WHERE syn ILIKE %(pattern)s))
+      AND ({word_sql})
       AND (%(adult)s OR m.is_adult = FALSE)
     ORDER BY match_rank DESC, m.id
     LIMIT %(limit)s
@@ -49,15 +73,17 @@ def search(
     limit: int = Query(20, ge=1, le=100),
 ) -> SearchResponse:
     mediums = MEDIUM_GROUPS[medium] if medium else ALL_MEDIUMS
+    word_sql, word_params = word_filter(q)
+    sql = SEARCH_SQL_TEMPLATE.format(cols=MEDIA_COLS, word_sql=word_sql)
     with get_pool().connection() as conn:
         rows = conn.execute(
-            SEARCH_SQL,
+            sql,
             {
                 "q": q,
-                "pattern": f"%{q}%",
                 "mediums": mediums,
                 "adult": adult,
                 "limit": limit,
+                **word_params,
             },
         ).fetchall()
     return SearchResponse(results=[media_from_row(row) for row in rows])
