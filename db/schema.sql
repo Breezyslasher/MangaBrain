@@ -93,6 +93,16 @@ CREATE TABLE IF NOT EXISTS mal_list_state (
     PRIMARY KEY (username, list_type)
 );
 
+-- Per-entry state for the Jikan synopsis backfill: entries that repeatedly
+-- fail, 404, or have no synopsis on MAL are not retried on later runs.
+-- Also created by pipeline/backfill_jikan.py itself for existing installs.
+CREATE TABLE IF NOT EXISTS jikan_backfill_state (
+    media_id     INTEGER PRIMARY KEY,
+    attempts     INTEGER NOT NULL DEFAULT 0,
+    last_status  TEXT,
+    last_attempt TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Generic key/value store for pipeline checkpoints (resumable sync).
 CREATE TABLE IF NOT EXISTS sync_state (
     key        TEXT PRIMARY KEY,
