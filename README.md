@@ -51,7 +51,10 @@ The services apply the database schema themselves, and on first start the
 worker downloads the snapshot and restores it in minutes; the nightly
 incremental sync then continues from the snapshot's checkpoint. If the
 snapshot is unavailable, the worker falls back to a full AniList sync and
-embedding pass on its own. Manual snapshot commands:
+embedding pass on its own. While the first-boot restore is running, API
+queries can return transient errors for a few minutes (the restore drops
+and recreates the catalog tables); this resolves itself when the restore
+completes. Manual snapshot commands:
 
 ```
 python -m pipeline.restore --url <snapshot url>    # seed or (with --force) replace the catalog

@@ -10,6 +10,10 @@
 # the worker falls back to a full AniList sync automatically. Web UI at
 # http://<host>:8009 (change the left side of the api port mapping if taken).
 
+# Pinned project name so volumes stay stable (mangabrain_db_data etc.)
+# no matter which directory or UI the file is deployed from.
+name: mangabrain
+
 services:
   db:
     image: pgvector/pgvector:pg16
