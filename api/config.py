@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     # api/routers/yamtrack.py). Token comes from the Yamtrack profile page.
     yamtrack_url: str = ""
     yamtrack_token: str = ""
+    # Public-exposure hardening (e.g. behind a Cloudflare Tunnel). AUTH_TOKEN
+    # set = every API request must carry Authorization: Bearer <token> (the
+    # SPA prompts once and remembers it); unset = open, for LAN-only use.
+    # RATE_LIMIT_PER_MINUTE > 0 = per-client-IP cap on API requests.
+    auth_token: str = ""
+    rate_limit_per_minute: int = 0
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

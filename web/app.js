@@ -51,6 +51,35 @@ function debounce(fn, ms) {
   };
 }
 
+// When the server runs with AUTH_TOKEN set (public exposure, e.g. through a
+// Cloudflare Tunnel), every API call must carry the token. It is asked for
+// once on the first 401 and remembered locally.
+function authHeaders() {
+  const token = localStorage.getItem("mb_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function authFetch(url, options = {}) {
+  const withAuth = () => fetch(url, {
+    ...options,
+    headers: { ...(options.headers || {}), ...authHeaders() },
+  });
+  const used = localStorage.getItem("mb_token") || "";
+  let resp = await withAuth();
+  if (resp.status === 401) {
+    // Parallel 401s (the app fires several requests on load) must not stack
+    // one dialog per request: only ask when the stored token is still the
+    // one this request failed with; otherwise another caller already asked
+    // (window.prompt blocks the thread, serializing the continuations).
+    if ((localStorage.getItem("mb_token") || "") === used) {
+      const token = window.prompt("This MangaBrain server requires an access token:");
+      if (token && token.trim()) localStorage.setItem("mb_token", token.trim());
+    }
+    if ((localStorage.getItem("mb_token") || "") !== used) resp = await withAuth();
+  }
+  return resp;
+}
+
 async function api(path, params = {}) {
   const url = new URL(path, window.location.origin);
   for (const [key, value] of Object.entries(params)) {
@@ -61,7 +90,7 @@ async function api(path, params = {}) {
       url.searchParams.set(key, value);
     }
   }
-  const resp = await fetch(url);
+  const resp = await authFetch(url);
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({}));
     throw new Error(body.detail ? JSON.stringify(body.detail) : `Request failed (${resp.status})`);
@@ -455,7 +484,7 @@ async function saveAccountSettings() {
   if ($("ytToken").value.trim()) body.yamtrack_token = $("ytToken").value.trim();
   $("acctStatus").textContent = "Saving...";
   try {
-    const resp = await fetch("/settings", {
+    const resp = await authFetch("/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -473,7 +502,7 @@ async function saveAccountSettings() {
 async function refreshYamtrack() {
   $("ytStatus").textContent = "Fetching from Yamtrack...";
   try {
-    const resp = await fetch("/yamtrack/refresh", { method: "POST" });
+    const resp = await authFetch("/yamtrack/refresh", { method: "POST" });
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({}));
       throw new Error(body.detail || `Refresh failed (${resp.status})`);
@@ -490,7 +519,7 @@ async function refreshYamtrack() {
 async function refreshKitsu() {
   $("kitsuStatus").textContent = "Fetching from Kitsu...";
   try {
-    const resp = await fetch("/kitsu/refresh", { method: "POST" });
+    const resp = await authFetch("/kitsu/refresh", { method: "POST" });
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({}));
       throw new Error(body.detail || `Refresh failed (${resp.status})`);
@@ -575,7 +604,7 @@ async function refreshMal() {
   }
   $("malStatus").textContent = "Fetching lists (this can take a minute)...";
   try {
-    const resp = await fetch(`/mal/${encodeURIComponent(username)}/refresh`, { method: "POST" });
+    const resp = await authFetch(`/mal/${encodeURIComponent(username)}/refresh`, { method: "POST" });
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({}));
       throw new Error(body.detail || `Refresh failed (${resp.status})`);
@@ -669,7 +698,7 @@ async function refreshAnilist() {
   }
   $("alStatus").textContent = "Fetching lists...";
   try {
-    const resp = await fetch(`/anilist/${encodeURIComponent(username)}/refresh`, {
+    const resp = await authFetch(`/anilist/${encodeURIComponent(username)}/refresh`, {
       method: "POST",
     });
     if (!resp.ok) {
@@ -779,3 +808,7 @@ bindEvents();
 loadTagVocabulary();
 loadAccountSettings();
 applyHash();
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}

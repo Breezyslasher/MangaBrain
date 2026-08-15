@@ -1,12 +1,17 @@
 """MangaBrain API entry point. Serves the SPA and the JSON API."""
 
+import hmac
 import os
+import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from api.config import settings
 from api.db import close_pool, ensure_schema, get_pool
 from api.routers import (
     anilist,
@@ -43,6 +48,86 @@ async def static_no_cache(request, call_next):
     path = request.url.path
     if path == "/" or path.endswith((".html", ".js", ".css")):
         response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+# Everything under these prefixes is the JSON API; anything else is a static
+# SPA asset. /healthz stays open for liveness probes and uptime monitors.
+API_PREFIXES = (
+    "/search",
+    "/recommend",
+    "/random",
+    "/mal",
+    "/anilist",
+    "/foryou",
+    "/exclusions",
+    "/yamtrack",
+    "/kitsu",
+    "/settings",
+    "/tags",
+)
+
+# Cover images load from the AniList CDN, hence img-src https:. No inline
+# scripts or styles exist in the SPA; JS-assigned element.style is CSSOM and
+# not restricted by style-src.
+CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self';"
+    " img-src 'self' https: data:; connect-src 'self'; worker-src 'self';"
+    " frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+)
+
+# Per-IP sliding request windows for the optional rate limit. In-process
+# state: with several uvicorn workers each holds its own window, so the
+# effective cap is limit * workers - fine for its abuse-damping purpose.
+_rate_windows: dict[str, deque] = {}
+_RATE_MAX_CLIENTS = 10_000
+
+
+def _client_ip(request) -> str:
+    # Behind a Cloudflare Tunnel every TCP peer is cloudflared on localhost;
+    # CF-Connecting-IP carries the real client. Direct LAN requests lack it.
+    return request.headers.get("CF-Connecting-IP") or (
+        request.client.host if request.client else "unknown"
+    )
+
+
+def _rate_limited(ip: str, limit: int) -> bool:
+    now = time.monotonic()
+    window = _rate_windows.get(ip)
+    if window is None:
+        if len(_rate_windows) >= _RATE_MAX_CLIENTS:
+            _rate_windows.clear()
+        window = _rate_windows[ip] = deque()
+    while window and now - window[0] > 60.0:
+        window.popleft()
+    if len(window) >= limit:
+        return True
+    window.append(now)
+    return False
+
+
+@app.middleware("http")
+async def security(request, call_next):
+    path = request.url.path
+    is_api = path.startswith(API_PREFIXES)
+
+    if is_api and settings.rate_limit_per_minute > 0:
+        if _rate_limited(_client_ip(request), settings.rate_limit_per_minute):
+            return JSONResponse({"detail": "rate limit exceeded"}, status_code=429)
+
+    if is_api and settings.auth_token:
+        header = request.headers.get("Authorization", "")
+        supplied = header.removeprefix("Bearer ").strip() if header else ""
+        if not hmac.compare_digest(supplied, settings.auth_token):
+            return JSONResponse({"detail": "missing or invalid access token"}, status_code=401)
+
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if path == "/" or path.endswith(".html"):
+        response.headers.setdefault("Content-Security-Policy", CSP)
     return response
 
 

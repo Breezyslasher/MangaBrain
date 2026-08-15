@@ -42,6 +42,10 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://mangabrain:${MANGABRAIN_DB_PASSWORD:-mangabrain}@db:5432/mangabrain
+      # Set MANGABRAIN_AUTH_TOKEN before exposing the app publicly (e.g.
+      # through a Cloudflare Tunnel); empty keeps the LAN-only open behavior.
+      AUTH_TOKEN: ${MANGABRAIN_AUTH_TOKEN:-}
+      RATE_LIMIT_PER_MINUTE: ${MANGABRAIN_RATE_LIMIT:-0}
     ports:
       - "8009:8000"
     restart: unless-stopped

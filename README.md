@@ -191,6 +191,51 @@ All settings come from environment variables (see `.env.example`):
 | `ANILIST_MIN_INTERVAL` | `2.0` | seconds between AniList requests |
 | `JIKAN_MIN_INTERVAL` | `0.5` | seconds between Jikan requests |
 | `SYNC_INTERVAL_HOURS` | `24` | worker pass interval |
+| `AUTH_TOKEN` | empty | when set, every API request must carry `Authorization: Bearer <token>`; the web app asks once and remembers it. Set this before exposing the app publicly |
+| `RATE_LIMIT_PER_MINUTE` | `0` (off) | per-client-IP cap on API requests (reads `CF-Connecting-IP` behind Cloudflare) |
+
+## Android and phone use
+
+The web app is an installable PWA: open it in Chrome on Android (or Safari
+on iOS), choose "Add to Home Screen" / "Install app", and it runs as a
+standalone full-screen app with its own icon. There is no separate native
+client to install or update - the app on your phone is always exactly as
+current as your server.
+
+## Exposing publicly (Cloudflare Tunnel)
+
+The stack is designed for LAN use; before pointing a tunnel at it, harden:
+
+1. **Set an access token**: `MANGABRAIN_AUTH_TOKEN=<long random string>` in
+   `.env` (e.g. `openssl rand -hex 32`), then `docker compose up -d`. Every
+   API request now requires the token; the web app prompts for it once on
+   first use and stores it in the browser. Without this, anyone with the
+   URL can read your lists, rewrite your settings (including pointing the
+   Yamtrack URL at arbitrary hosts), and delete your exclusion lists.
+2. **Rate limit**: `MANGABRAIN_RATE_LIMIT=120` caps API requests per client
+   IP per minute (recommend/foryou queries are the expensive ones). Real
+   client IPs are read from `CF-Connecting-IP`.
+3. **Tunnel only the API port**: point `cloudflared` at
+   `http://localhost:8009`. Postgres stays bound to `127.0.0.1` and must
+   never be tunneled.
+4. **Prefer Cloudflare Access on top**: a free Zero Trust policy (email
+   OTP) in front of the tunnel keeps unauthenticated traffic off your box
+   entirely; the app token then acts as defense in depth. In the Cloudflare
+   dashboard: Zero Trust > Access > Applications > add your hostname.
+5. The app also sends hardening headers (CSP restricting scripts to the
+   app itself, nosniff, frame denial) on every response, and adult content
+   remains excluded unless explicitly toggled per request.
+
+Minimal `cloudflared` config:
+
+```
+tunnel: <tunnel-id>
+credentials-file: /root/.cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: mangabrain.example.com
+    service: http://localhost:8009
+  - service: http_status:404
+```
 
 ## Backups
 
