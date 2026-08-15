@@ -232,7 +232,11 @@ def run_bench(pairs_file: str, models: list[str], negatives: int, encode_batch_s
     results = {}
     for model_name in models:
         print(f"[benchmark] embedding pool with {model_name}...")
-        model = SentenceTransformer(model_name)
+        try:
+            model = SentenceTransformer(model_name)
+        except Exception as exc:  # noqa: BLE001 - one broken model must not kill the run
+            print(f"[benchmark] SKIPPED {model_name}: failed to load ({exc})")
+            continue
         vectors = model.encode(texts, batch_size=encode_batch_size, normalize_embeddings=True)
         vectors = np.asarray(vectors)
 
