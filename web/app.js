@@ -830,6 +830,18 @@ function rerunActive() {
   else if (state.mode.type === "foryou") rerunForYou();
 }
 
+// Per-medium deep links, matching Anibrain's structure: /anime, /manga,
+// /light-novel, /one-shot all serve the SPA; the path picks the tab.
+const PATH_TO_MEDIUM = {
+  "/anime": "anime",
+  "/manga": "manga",
+  "/light-novel": "light_novel",
+  "/one-shot": "one_shot",
+};
+const MEDIUM_TO_PATH = Object.fromEntries(
+  Object.entries(PATH_TO_MEDIUM).map(([path, medium]) => [medium, path])
+);
+
 function setMedium(medium) {
   if (state.medium === medium) return;
   state.medium = medium;
@@ -852,7 +864,8 @@ function bindEvents() {
     button.addEventListener("click", () => {
       setMedium(button.dataset.medium);
       state.mode = null;
-      if (location.hash) history.replaceState(null, "", location.pathname);
+      // Keep the URL shareable: the medium lives in the path, hash cleared.
+      history.replaceState(null, "", MEDIUM_TO_PATH[button.dataset.medium] || "/");
       runSearch($("search").value);
     });
   }
@@ -920,6 +933,10 @@ function bindEvents() {
 populateFormats();
 renderGenreChips();
 bindEvents();
+{
+  const pathMedium = PATH_TO_MEDIUM[location.pathname];
+  if (pathMedium) setMedium(pathMedium);
+}
 loadTagVocabulary();
 loadAccountSettings();
 applyHash();
