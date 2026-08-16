@@ -211,6 +211,28 @@ button:hover { filter: brightness(1.1); }
   font-size: 0.8rem;
 }
 
+.suggest-wrap { position: relative; }
+.suggest-wrap input { width: 100%; }
+.suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 2px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 30;
+}
+.suggest div {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.suggest div.active, .suggest div:hover { background: var(--panel); color: var(--text); }
+
 .chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
 .chips-hint { font-size: 0.72rem; color: var(--muted); margin-bottom: 0.35rem; }
