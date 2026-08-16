@@ -250,6 +250,9 @@ button:hover { filter: brightness(1.1); }
 .chip.inc { background: #1d3b2a; border-color: var(--accent-2); color: var(--accent-2); }
 .chip.exc { background: #3b1d22; border-color: #e05c6e; color: #e05c6e; }
 
+.seed-chips { margin: 0.45rem 0 0.2rem; }
+.seed-chips .chip.tag { border-style: dashed; color: var(--muted); }
+
 .add-mix {
   position: absolute;
   top: 0.4rem;

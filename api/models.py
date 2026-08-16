@@ -14,6 +14,8 @@ class MediaOut(BaseModel):
     title_native: str | None = None
     description: str | None = None
     genres: list[str] = []
+    # Tag names ordered by AniList rank (strongest first), for display.
+    tags: list[str] = []
     format: str | None = None
     episodes: int | None = None
     chapters: int | None = None

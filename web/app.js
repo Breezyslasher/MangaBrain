@@ -319,9 +319,35 @@ function renderSeedCard(seed) {
   h3.textContent = mediaTitle(seed);
   const meta = document.createElement("div");
   meta.className = "meta muted";
-  meta.textContent = [mediaMeta(seed), (seed.genres || []).join(", ")]
-    .filter(Boolean)
-    .join(" — ");
+  meta.textContent = mediaMeta(seed);
+
+  // Genres and top tags as chips; clicking one adds it as a require filter.
+  const chips = document.createElement("div");
+  chips.className = "chips seed-chips";
+  for (const genre of seed.genres || []) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = genre;
+    chip.title = "Require this genre";
+    chip.addEventListener("click", () => {
+      state.genreState[genre] = "inc";
+      renderGenreChips();
+      rerunActive();
+    });
+    chips.appendChild(chip);
+  }
+  for (const tag of (seed.tags || []).slice(0, 10)) {
+    const chip = document.createElement("span");
+    chip.className = "chip tag";
+    chip.textContent = tag;
+    chip.title = "Require this tag";
+    chip.addEventListener("click", () => {
+      state.tagState[tag] = "inc";
+      renderTagChips();
+      rerunActive();
+    });
+    chips.appendChild(chip);
+  }
   const links = document.createElement("div");
   links.className = "ext-links";
   const al = document.createElement("a");
@@ -343,6 +369,7 @@ function renderSeedCard(seed) {
   desc.textContent = seed.description || "";
   body.appendChild(h3);
   body.appendChild(meta);
+  body.appendChild(chips);
   body.appendChild(links);
   body.appendChild(desc);
   el.appendChild(img);

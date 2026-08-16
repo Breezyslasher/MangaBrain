@@ -117,6 +117,11 @@ def media_from_row(row: dict[str, Any]) -> MediaOut:
         title_native=row["title_native"],
         description=row["description"],
         genres=row["genres"] or [],
+        tags=[
+            t["name"]
+            for t in sorted(row["tags"] or [], key=lambda t: t.get("rank") or 0, reverse=True)
+            if t.get("name")
+        ][:15],
         format=row["format"],
         episodes=row["episodes"],
         chapters=row["chapters"],
