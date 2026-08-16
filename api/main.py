@@ -46,7 +46,14 @@ app = FastAPI(title="MangaBrain", version="0.1.0", lifespan=lifespan)
 async def static_no_cache(request, call_next):
     response = await call_next(request)
     path = request.url.path
-    if path == "/" or path in MEDIUM_PATHS or path.endswith((".html", ".js", ".css")):
+    # .png and manifest.json matter here too: without revalidation headers
+    # the browser heuristically caches app icons for a long time, so an icon
+    # change keeps showing the old artwork until site data is cleared.
+    if (
+        path == "/"
+        or path in MEDIUM_PATHS
+        or path.endswith((".html", ".js", ".css", ".png", ".json"))
+    ):
         response.headers["Cache-Control"] = "no-cache"
     return response
 

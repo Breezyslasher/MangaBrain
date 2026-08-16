@@ -76,3 +76,12 @@ def test_medium_deep_links_serve_the_spa(client, monkeypatch):
         assert "MangaBrain" in resp.text
         assert resp.headers["Cache-Control"] == "no-cache"
         assert "Content-Security-Policy" in resp.headers
+
+
+def test_icons_and_manifest_revalidate(client):
+    # Icon changes must reach browsers: without no-cache, the old app icon
+    # sticks in the favicon/manifest cache until site data is cleared.
+    for path in ("/icon-192.png", "/icon-512.png", "/manifest.json"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert resp.headers["Cache-Control"] == "no-cache"
