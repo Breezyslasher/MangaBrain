@@ -280,3 +280,8 @@ signals (popularity, favourites, members, trending).
 - Multi-user accounts, ratings, or collaborative filtering.
 - Streaming/reading links or any scraping; official/public APIs only.
 - Character/people/studio similarity (title-level only).
+
+## Credits
+
+- App icon: [Psychology icon](https://www.flaticon.com/free-icon/psychology_9566463)
+  from Flaticon, used under the Flaticon Free License (attribution required).
