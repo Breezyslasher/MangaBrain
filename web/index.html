@@ -95,8 +95,10 @@
         </div>
         <div class="genre-filter">
           <div class="chips-hint">Tags: pick one, then require or exclude it</div>
-          <input type="text" id="tagInput" list="tagList" placeholder="e.g. Time Travel">
-          <datalist id="tagList"></datalist>
+          <div class="suggest-wrap">
+            <input type="text" id="tagInput" placeholder="e.g. Time Travel" autocomplete="off">
+            <div id="tagSuggest" class="suggest" hidden></div>
+          </div>
           <div class="row">
             <button id="tagReq" class="secondary" type="button">Require</button>
             <button id="tagExc" class="secondary" type="button">Exclude</button>

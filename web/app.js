@@ -8,6 +8,8 @@ const state = {
   shown: 0,
   genreState: {}, // name -> "inc" | "exc"
   tagState: {}, // name -> "inc" | "exc"
+  tagVocabulary: [], // full tag list, for the suggestion dropdown
+  tagSuggestIndex: -1, // keyboard-highlighted suggestion
   titleLang: localStorage.getItem("mb_title_lang") || "english",
 };
 
@@ -672,6 +674,7 @@ function addTagFilter(mode) {
   if (!name) return;
   state.tagState[name] = mode;
   $("tagInput").value = "";
+  hideTagSuggestions();
   renderTagChips();
   rerunActive();
 }
@@ -679,14 +682,93 @@ function addTagFilter(mode) {
 async function loadTagVocabulary() {
   try {
     const data = await api("/tags");
-    const list = $("tagList");
-    for (const name of data.tags) {
-      const opt = document.createElement("option");
-      opt.value = name;
-      list.appendChild(opt);
-    }
+    state.tagVocabulary = data.tags || [];
   } catch {
     // Autocomplete is a convenience; typing exact tag names still works.
+  }
+}
+
+// Custom suggestion dropdown for the tag input. A native datalist hides its
+// suggestions in the keyboard strip on Android and is easy to never notice;
+// this one is visible, filtered as you type, and keyboard-navigable.
+const MAX_TAG_SUGGESTIONS = 12;
+
+function tagMatches(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const vocab = state.tagVocabulary || [];
+  const starts = [];
+  const contains = [];
+  for (const name of vocab) {
+    const lower = name.toLowerCase();
+    if (lower.startsWith(q)) starts.push(name);
+    else if (lower.includes(q)) contains.push(name);
+    if (starts.length >= MAX_TAG_SUGGESTIONS) break;
+  }
+  return [...starts, ...contains].slice(0, MAX_TAG_SUGGESTIONS);
+}
+
+function hideTagSuggestions() {
+  const box = $("tagSuggest");
+  if (box) {
+    box.hidden = true;
+    box.innerHTML = "";
+  }
+  state.tagSuggestIndex = -1;
+}
+
+function renderTagSuggestions() {
+  const box = $("tagSuggest");
+  if (!box) return;
+  const matches = tagMatches($("tagInput").value);
+  if (!matches.length) {
+    hideTagSuggestions();
+    return;
+  }
+  box.innerHTML = "";
+  matches.forEach((name, i) => {
+    const item = document.createElement("div");
+    item.textContent = name;
+    if (i === state.tagSuggestIndex) item.classList.add("active");
+    // mousedown fires before the input's blur, so the click always lands.
+    item.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      $("tagInput").value = name;
+      hideTagSuggestions();
+      $("tagInput").focus();
+    });
+    box.appendChild(item);
+  });
+  box.hidden = false;
+}
+
+function tagInputKeydown(e) {
+  const box = $("tagSuggest");
+  const open = box && !box.hidden;
+  const count = open ? box.children.length : 0;
+  if (e.key === "ArrowDown" && count) {
+    e.preventDefault();
+    state.tagSuggestIndex = (state.tagSuggestIndex + 1) % count;
+    renderTagSuggestions();
+  } else if (e.key === "ArrowUp" && count) {
+    e.preventDefault();
+    state.tagSuggestIndex = (state.tagSuggestIndex - 1 + count) % count;
+    renderTagSuggestions();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (open && state.tagSuggestIndex >= 0) {
+      $("tagInput").value = box.children[state.tagSuggestIndex].textContent;
+      hideTagSuggestions();
+    } else if (open && count === 1) {
+      $("tagInput").value = box.children[0].textContent;
+      hideTagSuggestions();
+    } else {
+      // No selection: Enter means "require this tag".
+      hideTagSuggestions();
+      addTagFilter("inc");
+    }
+  } else if (e.key === "Escape") {
+    hideTagSuggestions();
   }
 }
 
@@ -774,6 +856,12 @@ function bindEvents() {
 
   on("tagReq", "click", () => addTagFilter("inc"));
   on("tagExc", "click", () => addTagFilter("exc"));
+  on("tagInput", "input", () => {
+    state.tagSuggestIndex = -1;
+    renderTagSuggestions();
+  });
+  on("tagInput", "keydown", tagInputKeydown);
+  on("tagInput", "blur", hideTagSuggestions);
   on("alRefresh", "click", refreshAnilist);
 
   $("titleLang").value = state.titleLang;
