@@ -232,25 +232,32 @@ def run_bench(pairs_file: str, models: list[str], negatives: int, encode_batch_s
     results = {}
     for model_name in models:
         print(f"[benchmark] embedding pool with {model_name}...")
+        # One broken model (unloadable config, out-of-memory encode, custom
+        # code the installed libraries cannot run) must not kill the run;
+        # the remaining models still get measured and reported.
         try:
             model = SentenceTransformer(model_name)
-        except Exception as exc:  # noqa: BLE001 - one broken model must not kill the run
-            print(f"[benchmark] SKIPPED {model_name}: failed to load ({exc})")
-            continue
-        vectors = model.encode(texts, batch_size=encode_batch_size, normalize_embeddings=True)
-        vectors = np.asarray(vectors)
+            vectors = model.encode(texts, batch_size=encode_batch_size, normalize_embeddings=True)
+            vectors = np.asarray(vectors)
 
-        ranks = []
-        for p in kept:
-            seed, target = p["media_id"], p["rec_id"]
-            scores = vectors @ vectors[index_of[seed]]
-            excluded_idx = {
-                index_of[i] for i in ({seed} | franchises.get(seed, set())) if i in index_of
-            }
-            rank = rank_of_target(scores, index_of[target], excluded_idx)
-            if rank is not None:
-                ranks.append(rank)
-        results[model_name] = summarize(ranks)
+            ranks = []
+            for p in kept:
+                seed, target = p["media_id"], p["rec_id"]
+                scores = vectors @ vectors[index_of[seed]]
+                excluded_idx = {
+                    index_of[i] for i in ({seed} | franchises.get(seed, set())) if i in index_of
+                }
+                rank = rank_of_target(scores, index_of[target], excluded_idx)
+                if rank is not None:
+                    ranks.append(rank)
+            results[model_name] = summarize(ranks)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[benchmark] SKIPPED {model_name}: {exc}")
+            continue
+        finally:
+            # Free the model before the next candidate loads: two large
+            # models resident at once would OOM small hosts.
+            model = None
 
     print(f"\n{'model':<45} {'n':>5} {'r@10':>7} {'r@50':>7} {'mrr':>7}")
     for model_name, m in results.items():
