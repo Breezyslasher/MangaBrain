@@ -64,3 +64,15 @@ def test_security_headers_present(client):
     home = client.get("/")
     assert "default-src 'self'" in home.headers["Content-Security-Policy"]
     assert "frame-ancestors 'none'" in home.headers["Content-Security-Policy"]
+
+
+def test_medium_deep_links_serve_the_spa(client, monkeypatch):
+    # /anime, /manga, /light-novel, /one-shot match Anibrain's structure and
+    # serve the app shell (auth-exempt like the rest of the static SPA).
+    monkeypatch.setattr(settings, "auth_token", "secret")
+    for path in ("/anime", "/manga", "/light-novel", "/one-shot"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert "MangaBrain" in resp.text
+        assert resp.headers["Cache-Control"] == "no-cache"
+        assert "Content-Security-Policy" in resp.headers

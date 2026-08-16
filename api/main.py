@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.config import settings
@@ -46,10 +46,15 @@ app = FastAPI(title="MangaBrain", version="0.1.0", lifespan=lifespan)
 async def static_no_cache(request, call_next):
     response = await call_next(request)
     path = request.url.path
-    if path == "/" or path.endswith((".html", ".js", ".css")):
+    if path == "/" or path in MEDIUM_PATHS or path.endswith((".html", ".js", ".css")):
         response.headers["Cache-Control"] = "no-cache"
     return response
 
+
+# Per-medium deep links, matching Anibrain's structure: each serves the SPA
+# with that tab preselected (the JS reads the path). Registered as routes, so
+# they win over the catch-all static mount.
+MEDIUM_PATHS = ("/anime", "/manga", "/light-novel", "/one-shot")
 
 # Everything under these prefixes is the JSON API; anything else is a static
 # SPA asset. /healthz stays open for liveness probes and uptime monitors.
@@ -126,7 +131,7 @@ async def security(request, call_next):
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    if path == "/" or path.endswith(".html"):
+    if path == "/" or path in MEDIUM_PATHS or path.endswith(".html"):
         response.headers.setdefault("Content-Security-Policy", CSP)
     return response
 
@@ -166,4 +171,12 @@ def _web_dir() -> Path | None:
 
 web_dir = _web_dir()
 if web_dir is not None:
+    index_file = web_dir / "index.html"
+
+    def _spa_shell() -> FileResponse:
+        return FileResponse(index_file)
+
+    for medium_path in MEDIUM_PATHS:
+        app.add_api_route(medium_path, _spa_shell, include_in_schema=False)
+
     app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
