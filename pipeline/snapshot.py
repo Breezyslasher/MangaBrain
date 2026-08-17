@@ -40,6 +40,11 @@ def create_snapshot(out_path: str, include_user_tables: bool = False) -> None:
         "custom",
         "--no-owner",
         "--no-privileges",
+        # Fail loudly when a listed table is missing instead of silently
+        # dumping the rest: a partially restored database once produced a
+        # "checkpoint" with the whole catalog but zero embeddings, which
+        # then poisoned the next CI resume.
+        "--strict-names",
     ]
     tables = DATA_TABLES + (USER_TABLES if include_user_tables else ())
     for table in tables:
