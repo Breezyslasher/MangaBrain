@@ -64,7 +64,12 @@ jobs:
 
       - name: Load checkpoint into database
         if: steps.checkpoint.outputs.cache-matched-key != ''
+        # The dump uses vector columns and trigram indexes; on a fresh CI
+        # database those extensions do not exist until something creates
+        # them (normally ensure_schema, which raw pg_restore bypasses).
         run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
           pg_restore --dbname "$DATABASE_URL" --clean --if-exists \
             --no-owner --no-privileges checkpoint.dump
           rm checkpoint.dump
