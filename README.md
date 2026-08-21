@@ -81,6 +81,8 @@ python -m pipeline.backfill_jikan                # optional: fill missing synops
 python -m pipeline.benchmark fetch --out benchmark_pairs.json
 python -m pipeline.benchmark run --pairs-file benchmark_pairs.json \
     --model BAAI/bge-small-en-v1.5 --model avsolatorio/GIST-small-Embedding-v0
+# or run it on CI hardware instead: Actions > model-bench > Run workflow
+# (restores the published snapshot, fetches pairs, prints the table in the log)
 
 uvicorn api.main:app --reload                    # dev server + SPA at http://localhost:8000
 ```
