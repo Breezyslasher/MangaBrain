@@ -15,14 +15,14 @@ on:
         default: >-
           avsolatorio/GIST-small-Embedding-v0
           avsolatorio/GIST-Embedding-v0
-          jinaai/jina-embeddings-v5-text-nano
-          mixedbread-ai/mxbai-embed-large-v1
-          avsolatorio/GIST-large-Embedding-v0
-          Qwen/Qwen3-Embedding-0.6B
       negatives:
         description: random negative titles added to the ranking pool
         required: false
         default: "5000"
+      trust_remote_code:
+        description: allow models shipping custom code (jina v5 etc.); runs third-party code
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -82,6 +82,9 @@ jobs:
           for m in $(echo "${{ github.event.inputs.models }}" | tr ',' ' '); do
             ARGS="$ARGS --model $m"
           done
+          if [ "${{ github.event.inputs.trust_remote_code }}" = "true" ]; then
+            ARGS="$ARGS --trust-remote-code"
+          fi
           python -m pipeline.benchmark run --pairs-file pairs.json \
             --negatives "${{ github.event.inputs.negatives }}" \
             --encode-batch-size 32 $ARGS

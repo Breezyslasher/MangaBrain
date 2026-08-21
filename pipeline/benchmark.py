@@ -184,7 +184,13 @@ def summarize(ranks: list[int]) -> dict[str, float]:
     }
 
 
-def run_bench(pairs_file: str, models: list[str], negatives: int, encode_batch_size: int) -> None:
+def run_bench(
+    pairs_file: str,
+    models: list[str],
+    negatives: int,
+    encode_batch_size: int,
+    trust_remote_code: bool = False,
+) -> None:
     from sentence_transformers import SentenceTransformer
 
     pairs = json.loads(Path(pairs_file).read_text())
@@ -231,12 +237,12 @@ def run_bench(pairs_file: str, models: list[str], negatives: int, encode_batch_s
     index_of = {media_id: i for i, media_id in enumerate(pool_ids)}
     results = {}
     for model_name in models:
-        print(f"[benchmark] embedding pool with {model_name}...")
+        print(f"[benchmark] embedding pool with {model_name}...", flush=True)
         # One broken model (unloadable config, out-of-memory encode, custom
         # code the installed libraries cannot run) must not kill the run;
         # the remaining models still get measured and reported.
         try:
-            model = SentenceTransformer(model_name)
+            model = SentenceTransformer(model_name, trust_remote_code=trust_remote_code)
             vectors = model.encode(texts, batch_size=encode_batch_size, normalize_embeddings=True)
             vectors = np.asarray(vectors)
 
@@ -250,9 +256,16 @@ def run_bench(pairs_file: str, models: list[str], negatives: int, encode_batch_s
                 rank = rank_of_target(scores, index_of[target], excluded_idx)
                 if rank is not None:
                     ranks.append(rank)
-            results[model_name] = summarize(ranks)
+            m = results[model_name] = summarize(ranks)
+            # Emit each row the moment it exists: a killed run (job timeout,
+            # OOM) must not take every finished model's numbers with it.
+            print(
+                f"[benchmark] RESULT {model_name}: n={m['n']}"
+                f" r@10={m['recall@10']:.3f} r@50={m['recall@50']:.3f} mrr={m['mrr']:.3f}",
+                flush=True,
+            )
         except Exception as exc:  # noqa: BLE001
-            print(f"[benchmark] SKIPPED {model_name}: {exc}")
+            print(f"[benchmark] SKIPPED {model_name}: {exc}", flush=True)
             continue
         finally:
             # Free the model before the next candidate loads: two large
@@ -285,13 +298,25 @@ def main() -> None:
         help="sentence-transformers model id; repeat to compare several",
     )
     run.add_argument("--negatives", type=int, default=5000)
+    run.add_argument(
+        "--trust-remote-code",
+        action="store_true",
+        help="allow models that ship custom code (e.g. jina v5); executes"
+        " third-party code from the model repository, so opt-in only",
+    )
     run.add_argument("--encode-batch-size", type=int, default=16)
 
     args = parser.parse_args()
     if args.command == "fetch":
         fetch_pairs(args.out, args.pairs, args.min_rating)
     else:
-        run_bench(args.pairs_file, args.model, args.negatives, args.encode_batch_size)
+        run_bench(
+            args.pairs_file,
+            args.model,
+            args.negatives,
+            args.encode_batch_size,
+            trust_remote_code=args.trust_remote_code,
+        )
 
 
 if __name__ == "__main__":
