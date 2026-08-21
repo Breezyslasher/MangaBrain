@@ -134,17 +134,29 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        # Replace the asset in place instead of deleting and recreating the
-        # release: delete-then-create leaves a minutes-long window where the
-        # dataset-latest download URL 404s and fresh installs fall back to a
-        # slow full sync. --clobber shrinks that window to the upload itself.
+        # Releases on this repo are immutable: assets cannot be replaced and
+        # a used tag can never be reused, deleted or not (the original
+        # rolling dataset-latest tag is permanently burned this way). Every
+        # snapshot therefore gets a fresh dated tag marked as latest, and
+        # consumers download through the stable /releases/latest/download/
+        # URL, which follows the release marked latest with no 404 window.
         run: |
-          NOTES="Weekly catalog snapshot: media, relations, embeddings, and sync checkpoints. Restore with pipeline.restore or set SEED_SNAPSHOT_URL; the nightly incremental sync continues from this snapshot's checkpoint. Data sourced from the AniList API."
-          if gh release view dataset-latest > /dev/null 2>&1; then
-            gh release upload dataset-latest mangabrain-dataset.dump --clobber
-            gh release edit dataset-latest \
-              --title "Catalog snapshot $(date -u +%F)" --notes "$NOTES"
-          else
-            gh release create dataset-latest mangabrain-dataset.dump \
-              --title "Catalog snapshot $(date -u +%F)" --notes "$NOTES"
-          fi
+          NOTES="Weekly catalog snapshot: media, relations, embeddings, and sync checkpoints. Restore with pipeline.restore or set SEED_SNAPSHOT_URL; the nightly incremental sync continues from this snapshot's checkpoint. Stable download URL: releases/latest/download/mangabrain-dataset.dump. Data sourced from the AniList API."
+          TAG="dataset-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$TAG" mangabrain-dataset.dump --latest \
+            --title "Catalog snapshot $(date -u +%F)" --notes "$NOTES"
+
+      - name: Prune old snapshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Dated tags accumulate one ~330 MB release per week; keep the four
+        # newest. Immutable releases may still be deleted - their tags just
+        # can never be reused, and dated tags never are. Best-effort: a
+        # pruning hiccup must not fail a successful publish.
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '[.[] | select(.tag_name | startswith("dataset-"))] | sort_by(.created_at) | reverse | .[4:] | .[].tag_name' |
+          while read -r tag; do
+            echo "pruning $tag"
+            gh release delete "$tag" --cleanup-tag --yes || true
+          done
