@@ -4,9 +4,16 @@ on:
   schedule:
     - cron: "30 4 * * 1"
   workflow_dispatch:
+    inputs:
+      resume_attempt:
+        description: internal counter for the self-resume chain; leave at 0
+        required: false
+        default: "0"
 
+# actions: write lets a timed-out run dispatch its own resume.
 permissions:
   contents: write
+  actions: write
 
 # Budget: the first full run measured sync 272 min + embed 67 min, so a
 # from-scratch build barely fits the 6 h job limit. Every run therefore
@@ -75,10 +82,12 @@ jobs:
           rm checkpoint.dump
 
       - name: Full AniList sync
+        id: sync
         timeout-minutes: 280
         run: python -m pipeline.sync_anilist --skip-if-fresh 24
 
       - name: Generate embeddings
+        id: embed
         timeout-minutes: 70
         run: python -m pipeline.embed
 
@@ -90,11 +99,34 @@ jobs:
         run: python -m pipeline.snapshot --out checkpoint.dump
 
       - name: Upload checkpoint to cache
+        id: checkpoint_upload
         if: always()
         uses: actions/cache/save@v4
         with:
           path: checkpoint.dump
           key: dataset-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # A sync or embed step timeout is the designed split-across-runs case:
+      # the checkpoint holds the progress, so dispatch a fresh run to resume
+      # it instead of waiting for a human or next week's cron. Only fires
+      # when the checkpoint actually uploaded (a failure elsewhere, like a
+      # broken restore, must not loop), and the attempt counter caps the
+      # chain so a persistent failure stops after three resumes.
+      - name: Dispatch resume run
+        if: >-
+          always() && steps.checkpoint_upload.outcome == 'success'
+          && (steps.sync.outcome == 'failure' || steps.embed.outcome == 'failure')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ATTEMPT="${{ github.event.inputs.resume_attempt || '0' }}"
+          if [ "$ATTEMPT" -ge 3 ]; then
+            echo "resume chain exhausted after $ATTEMPT attempts; leaving it to the next cron"
+            exit 0
+          fi
+          echo "dispatching resume attempt $((ATTEMPT + 1))"
+          gh workflow run dataset-publish.yml -R "$GITHUB_REPOSITORY" \
+            -f resume_attempt=$((ATTEMPT + 1))
 
       - name: Dump snapshot
         run: python -m pipeline.snapshot --out mangabrain-dataset.dump
