@@ -1,0 +1,87 @@
+name: model-bench
+
+# On-demand embedding-model bake-off on CI hardware (4 cores, 16 GB - faster
+# than a NAS and free), so candidate models get measured without loading the
+# home server. Builds its world from scratch: restores the published catalog
+# snapshot (only the text matters, not its embeddings), fetches the human
+# recommendation pairs from AniList, then prints recall@10/@50 and MRR per
+# model. Results appear in the "Run benchmark" step log.
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: models to compare (space or comma separated)
+        required: false
+        default: >-
+          avsolatorio/GIST-small-Embedding-v0
+          avsolatorio/GIST-Embedding-v0
+          jinaai/jina-embeddings-v5-text-nano
+          mixedbread-ai/mxbai-embed-large-v1
+          avsolatorio/GIST-large-Embedding-v0
+          Qwen/Qwen3-Embedding-0.6B
+      negatives:
+        description: random negative titles added to the ranking pool
+        required: false
+        default: "5000"
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: mangabrain
+          POSTGRES_PASSWORD: mangabrain
+          POSTGRES_DB: mangabrain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mangabrain -d mangabrain"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://mangabrain:mangabrain@localhost:5432/mangabrain
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project (CPU torch)
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install .
+
+      - name: Restore catalog snapshot
+        # ensure_schema runs first, so extensions and tables exist before
+        # pg_restore. The snapshot's embeddings are irrelevant here; the
+        # bench embeds fresh with each candidate model.
+        run: |
+          python -m pipeline.restore --url \
+            https://github.com/Breezyslasher/MangaBrain/releases/download/dataset-latest/mangabrain-dataset.dump
+
+      - name: Fetch recommendation pairs
+        run: python -m pipeline.benchmark fetch --out pairs.json
+
+      - name: Run benchmark
+        env:
+          # Optional: lets gated models (e.g. google/embeddinggemma-300m)
+          # download. Unset is fine for the default list.
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          ARGS=""
+          for m in $(echo "${{ github.event.inputs.models }}" | tr ',' ' '); do
+            ARGS="$ARGS --model $m"
+          done
+          python -m pipeline.benchmark run --pairs-file pairs.json \
+            --negatives "${{ github.event.inputs.negatives }}" \
+            --encode-batch-size 32 $ARGS
