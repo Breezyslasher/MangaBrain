@@ -38,8 +38,11 @@ function.
 
 Every merge to main publishes `ghcr.io/breezyslasher/mangabrain:latest`
 (linux/amd64) via GitHub Actions, and a weekly workflow publishes a catalog
-snapshot (media, relations, embeddings, sync checkpoints) as the
-`dataset-latest` release. To run without building or syncing anything, copy
+snapshot (media, relations, embeddings, sync checkpoints) as a dated
+`dataset-*` release, always downloadable through the stable
+`releases/latest/download/mangabrain-dataset.dump` URL (GitHub releases on
+this repo are immutable, so snapshots are never replaced in place). To run
+without building or syncing anything, copy
 the single file [`docker-compose.prebuilt.yml`](docker-compose.prebuilt.yml)
 anywhere and:
 

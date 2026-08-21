@@ -67,7 +67,7 @@ jobs:
         # bench embeds fresh with each candidate model.
         run: |
           python -m pipeline.restore --url \
-            https://github.com/Breezyslasher/MangaBrain/releases/download/dataset-latest/mangabrain-dataset.dump
+            https://github.com/Breezyslasher/MangaBrain/releases/latest/download/mangabrain-dataset.dump
 
       - name: Fetch recommendation pairs
         run: python -m pipeline.benchmark fetch --out pairs.json

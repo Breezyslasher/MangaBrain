@@ -7,7 +7,7 @@ snapshot left off, so a fresh install is browsable in minutes instead of
 hours.
 
 Usage:
-    python -m pipeline.restore --url https://github.com/OWNER/REPO/releases/download/dataset-latest/mangabrain-dataset.dump
+    python -m pipeline.restore --url https://github.com/OWNER/REPO/releases/latest/download/mangabrain-dataset.dump
     python -m pipeline.restore --file mangabrain-dataset.dump
     python -m pipeline.restore --url ... --force   # replace an existing catalog
 """
