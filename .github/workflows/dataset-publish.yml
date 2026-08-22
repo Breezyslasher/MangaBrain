@@ -86,10 +86,15 @@ jobs:
         timeout-minutes: 280
         run: python -m pipeline.sync_anilist --skip-if-fresh 24
 
+      # A full re-embed with the 768-dim base model takes several of these
+      # 70-minute windows; the checkpoint + self-resume chain below splits
+      # it across runs. --prune-stale only executes once embedding is fully
+      # complete (the command runs to the end without timing out), so
+      # published snapshots carry exactly one embedding version.
       - name: Generate embeddings
         id: embed
         timeout-minutes: 70
-        run: python -m pipeline.embed
+        run: python -m pipeline.embed --prune-stale
 
       # Runs even when sync or embed failed or timed out, so the next
       # trigger resumes instead of restarting. The key is unique per attempt

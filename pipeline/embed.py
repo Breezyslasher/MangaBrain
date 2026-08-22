@@ -1,11 +1,16 @@
 """Generate synopsis embeddings for media rows that lack one.
 
-Embeddings are versioned by model name: a row whose embed_model differs from
-the configured EMBED_MODEL is treated as missing and re-embedded, so switching
-models is a rerun of this script, not a schema change.
+Embeddings are versioned by model name: a media row without a row for the
+configured EMBED_MODEL is treated as missing and embedded, so switching
+models is a rerun of this script, not a schema change. New-version rows are
+inserted ALONGSIDE the old version's (composite primary key), so the API
+keeps serving the complete old embedding space until the new one has
+coverage; once this script reports nothing left to embed, retire the old
+rows with --prune-stale.
 
 Usage:
     python -m pipeline.embed
+    python -m pipeline.embed --prune-stale   # embed the rest, then drop old versions
 """
 
 import argparse
@@ -39,11 +44,12 @@ SELECT_MISSING_SQL = """
 UPSERT_SQL = """
     INSERT INTO embeddings (media_id, embed_model, embedding, updated_at)
     VALUES (%s, %s, %s, now())
-    ON CONFLICT (media_id) DO UPDATE SET
-        embed_model = EXCLUDED.embed_model,
+    ON CONFLICT (media_id, embed_model) DO UPDATE SET
         embedding = EXCLUDED.embedding,
         updated_at = now()
 """
+
+PRUNE_STALE_SQL = "DELETE FROM embeddings WHERE embed_model <> %s"
 
 
 def embed_text(
@@ -110,17 +116,38 @@ def embed_missing(
     return total
 
 
+def prune_stale(model_name: str | None = None) -> int:
+    """Delete embeddings of every version except the configured one.
+
+    Only safe once embed_missing reports nothing left: until then the old
+    rows are what recommendations serve from during a re-embed migration.
+    """
+    stored_id = embed_model_id(model_name or settings.embed_model)
+    with psycopg.connect(settings.database_url) as conn:
+        cur = conn.execute(PRUNE_STALE_SQL, (stored_id,))
+        conn.commit()
+        print(f"[embed] pruned {cur.rowcount} stale embeddings (kept {stored_id})")
+        return cur.rowcount
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate missing embeddings")
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--encode-batch-size", type=int, default=ENCODE_BATCH_SIZE)
     parser.add_argument("--model", default=None, help="override EMBED_MODEL")
+    parser.add_argument(
+        "--prune-stale",
+        action="store_true",
+        help="after embedding completes, delete rows of other embedding versions",
+    )
     args = parser.parse_args()
     embed_missing(
         batch_size=args.batch_size,
         model_name=args.model,
         encode_batch_size=args.encode_batch_size,
     )
+    if args.prune_stale:
+        prune_stale(args.model)
 
 
 if __name__ == "__main__":

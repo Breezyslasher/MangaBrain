@@ -348,6 +348,13 @@ def _recommend_for_seeds(
         taste_select = (
             ", 1 - (e.embedding <=> %(taste_vec)s) AS taste" if taste_vec is not None else ""
         )
+        # The embedding column is dimension-untyped (versions with different
+        # dimensions coexist during a re-embed migration), so the ANN index
+        # is a per-dimension partial expression index. The dimension is
+        # inlined as a literal - the ORDER BY cast and the vector_dims
+        # predicate must textually match the index definition for the
+        # planner to use it.
+        dim = int(seed_vec.shape[0])
         candidate_sql = f"""
             SELECT {MEDIA_COLS},
                    1 - (e.embedding <=> %(seed_vec)s) AS semantic
@@ -356,8 +363,9 @@ def _recommend_for_seeds(
             JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
             WHERE m.medium = ANY(%(mediums)s)
               AND m.id <> ALL(%(exclude_ids)s::int[])
+              AND vector_dims(e.embedding) = {dim}
               {filter_sql}
-            ORDER BY e.embedding <=> %(seed_vec)s
+            ORDER BY e.embedding::vector({dim}) <=> %(seed_vec)s
             LIMIT %(pool_size)s
         """
         candidate_params = {

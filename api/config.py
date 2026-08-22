@@ -5,15 +5,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_url: str = "postgresql://mangabrain:mangabrain@localhost:5432/mangabrain"
-    # 384-dim, CPU-friendly, and a large retrieval-quality step over the
-    # earlier all-MiniLM-L6-v2 (also 384-dim, so the vector column fits both).
-    # Our similarity is symmetric (title text vs title text), so bge's query
-    # instruction prefix is deliberately not used.
     # Chosen by measured recall on the AniList recommendation-pair benchmark
-    # (pipeline.benchmark): r@10 0.132 vs 0.103 for bge-small-en-v1.5, same
-    # 384 dims and size. bge-base-en-v1.5 scored 0.144 but needs a 768-dim
-    # migration and triple the embed time for a statistically marginal edge.
-    embed_model: str = "avsolatorio/GIST-small-Embedding-v0"
+    # (pipeline.benchmark, 4860 pairs, 5000 random negatives, CI run of
+    # 2026-08-22): r@10 0.174 / r@50 0.371 / MRR 0.081 vs 0.136 / 0.316 /
+    # 0.066 for GIST-small - roughly 7 standard errors, a 28% relative gain,
+    # and it wins every metric. The other measured sizes lose on
+    # value-per-parameter: Qwen3-Embedding-0.6B managed only +0.009 r@10
+    # from 5x the parameters. Cost of base over small: 768-dim vectors
+    # (per-dimension partial ANN indexes in db/schema.sql) and about 3x the
+    # embed time at 109M params. Our similarity is symmetric (title text vs
+    # title text), so no query instruction prefix is used.
+    embed_model: str = "avsolatorio/GIST-Embedding-v0"
     candidate_pool: int = 500
     http_cache_dir: str = ""
     anilist_min_interval: float = 2.0

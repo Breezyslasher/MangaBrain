@@ -65,18 +65,53 @@ CREATE TABLE IF NOT EXISTS media_relations (
 
 CREATE INDEX IF NOT EXISTS idx_media_relations_media ON media_relations (media_id);
 
--- One embedding per media row, shared vector space across all mediums.
--- embed_model versions the embedding; re-embedding with a new model is a
--- migration that replaces rows, never a silent overwrite.
+-- One embedding per (media row, embedding version), shared vector space
+-- across all mediums. Re-embedding with a new model inserts rows alongside
+-- the old version's, so recommendations keep serving from the complete old
+-- space until the new one has coverage (the API picks the version per
+-- request, see _choose_embed_model); `pipeline.embed --prune-stale` then
+-- retires the old rows. The column is dimension-untyped so versions with
+-- different dimensions (384-dim small models, 768-dim base models) can
+-- coexist; ANN queries cast to a fixed dimension to use the partial
+-- indexes below.
 CREATE TABLE IF NOT EXISTS embeddings (
-    media_id    INTEGER PRIMARY KEY REFERENCES media (id) ON DELETE CASCADE,
+    media_id    INTEGER NOT NULL REFERENCES media (id) ON DELETE CASCADE,
     embed_model TEXT NOT NULL,
-    embedding   vector(384) NOT NULL,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    embedding   vector NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (media_id, embed_model)
 );
 
-CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw
-    ON embeddings USING hnsw (embedding vector_cosine_ops);
+-- Migration for installs (and restored dumps) created when the table was
+-- one row per media with a fixed vector(384) column. The old HNSW index
+-- goes first: ALTER TYPE would otherwise rebuild it just to drop it.
+DROP INDEX IF EXISTS idx_embeddings_hnsw;
+DO $$
+BEGIN
+    IF (SELECT atttypmod FROM pg_attribute
+        WHERE attrelid = 'embeddings'::regclass AND attname = 'embedding') <> -1 THEN
+        ALTER TABLE embeddings ALTER COLUMN embedding TYPE vector USING embedding::vector;
+    END IF;
+    IF (SELECT array_length(conkey, 1) FROM pg_constraint
+        WHERE conrelid = 'embeddings'::regclass AND contype = 'p') = 1 THEN
+        EXECUTE (SELECT format('ALTER TABLE embeddings DROP CONSTRAINT %I', conname)
+                 FROM pg_constraint
+                 WHERE conrelid = 'embeddings'::regclass AND contype = 'p');
+        ALTER TABLE embeddings ADD PRIMARY KEY (media_id, embed_model);
+    END IF;
+END $$;
+
+-- HNSW cannot index a dimension-untyped column directly; one partial
+-- expression index per dimension in use covers it (pgvector's documented
+-- recipe for mixed-dimension columns). Queries must repeat both the cast
+-- and the vector_dims predicate to hit these. A future model with another
+-- dimension needs its index added here.
+CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw_384
+    ON embeddings USING hnsw ((embedding::vector(384)) vector_cosine_ops)
+    WHERE vector_dims(embedding) = 384;
+CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw_768
+    ON embeddings USING hnsw ((embedding::vector(768)) vector_cosine_ops)
+    WHERE vector_dims(embedding) = 768;
 
 -- Cached MAL user lists pulled via Jikan. Everything on either list is
 -- excluded from recommendation results when mal_user is passed.

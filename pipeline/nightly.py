@@ -15,7 +15,7 @@ import psycopg
 
 from api.config import settings
 from pipeline.client import RateLimitedClient
-from pipeline.embed import embed_missing
+from pipeline.embed import embed_missing, prune_stale
 from pipeline.sync_anilist import full_sync, get_state, incremental_sync, set_state
 
 # Overlap re-syncs a little history so entries updated while a pass was
@@ -38,6 +38,7 @@ def run_once(client: RateLimitedClient) -> None:
             print("[nightly] catalog is empty; running the full sync")
             full_sync(client, conn, None)
             embed_missing()
+            prune_stale()
             return
         for media_type in ("ANIME", "MANGA"):
             key = f"anilist_last_sync_{media_type.lower()}"
@@ -56,7 +57,10 @@ def run_once(client: RateLimitedClient) -> None:
             target = None if len(capped) == 2 else capped[0]
             print(f"[nightly] offset cap hit for {capped}; running full scan to catch up")
             full_sync(client, conn, target)
+    # embed_missing returning means every media row has a current-version
+    # embedding, so retiring older versions cannot leave a coverage gap.
     embed_missing()
+    prune_stale()
 
 
 def main() -> None:
