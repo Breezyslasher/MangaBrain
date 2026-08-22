@@ -12,6 +12,7 @@ working mid-way through a re-embed migration.
 
 from fastapi import APIRouter, HTTPException, Query
 
+from api.config import embed_model_id
 from api.db import get_pool
 from api.media_groups import ALL_MEDIUMS, MEDIUM_GROUPS, MediumGroup
 from api.models import RecommendResponse
@@ -20,8 +21,14 @@ from api.scoring import Weights
 
 router = APIRouter()
 
+# Ties broken toward the configured model: after a completed re-embed both
+# versions cover the whole catalog until the old rows are pruned, and the
+# feed must land on the same version the recommender prefers.
 DOMINANT_MODEL_SQL = """
-    SELECT embed_model FROM embeddings GROUP BY embed_model ORDER BY count(*) DESC LIMIT 1
+    SELECT embed_model FROM embeddings
+    GROUP BY embed_model
+    ORDER BY count(*) DESC, (embed_model = %(preferred)s) DESC, embed_model
+    LIMIT 1
 """
 
 
@@ -155,7 +162,7 @@ def foryou(
     mediums = MEDIUM_GROUPS[medium]
 
     with get_pool().connection() as conn:
-        model_row = conn.execute(DOMINANT_MODEL_SQL).fetchone()
+        model_row = conn.execute(DOMINANT_MODEL_SQL, {"preferred": embed_model_id()}).fetchone()
         if model_row is None:
             raise HTTPException(status_code=409, detail="no embeddings yet; run pipeline.embed")
         params = {
