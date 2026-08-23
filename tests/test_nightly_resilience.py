@@ -36,6 +36,7 @@ def worker(monkeypatch):
     monkeypatch.setattr(nightly.psycopg, "connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(nightly, "get_state", lambda conn, key: {"ts": 1_700_000_000})
     monkeypatch.setattr(nightly, "set_state", lambda conn, key, value: None)
+
     def record(name):
         def bump():
             calls[name] += 1
