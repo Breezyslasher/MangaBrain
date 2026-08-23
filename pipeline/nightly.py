@@ -30,37 +30,56 @@ FAILURE_RETRY_SECONDS = 3600.0
 
 def run_once(client: RateLimitedClient) -> None:
     capped: list[str] = []
+    # Embedding is local work over rows that are already in the database, so
+    # an upstream outage (AniList returning 403/5xx) must not stall it. A
+    # failed sync is remembered and re-raised after the embedding pass, so
+    # the caller still schedules its retry.
+    sync_error: Exception | None = None
     with psycopg.connect(settings.database_url) as conn:
         empty = conn.execute("SELECT 1 FROM media LIMIT 1").fetchone() is None
         if empty:
             # Fresh database and no snapshot seeded it: a 7-day incremental
             # would leave the catalog nearly empty, so run the full scan.
+            # Nothing to embed if this fails, so the error propagates.
             print("[nightly] catalog is empty; running the full sync")
             full_sync(client, conn, None)
             embed_missing()
             prune_stale()
             return
-        for media_type in ("ANIME", "MANGA"):
-            key = f"anilist_last_sync_{media_type.lower()}"
-            state = get_state(conn, key) or {}
-            since = int(state.get("ts", time.time() - DEFAULT_LOOKBACK_SECONDS))
-            started = int(time.time())
-            _, hit_cap = incremental_sync(client, conn, media_type, max(0, since - OVERLAP_SECONDS))
-            if hit_cap:
-                capped.append(media_type)
-            set_state(conn, key, {"ts": started})
-            conn.commit()
-        if capped:
-            # More entries changed than the offset-capped incremental walk
-            # can reach; self-heal with a full id scan (resumable, and the
-            # upserts skip unchanged rows cheaply).
-            target = None if len(capped) == 2 else capped[0]
-            print(f"[nightly] offset cap hit for {capped}; running full scan to catch up")
-            full_sync(client, conn, target)
+        try:
+            for media_type in ("ANIME", "MANGA"):
+                key = f"anilist_last_sync_{media_type.lower()}"
+                state = get_state(conn, key) or {}
+                since = int(state.get("ts", time.time() - DEFAULT_LOOKBACK_SECONDS))
+                started = int(time.time())
+                _, hit_cap = incremental_sync(
+                    client, conn, media_type, max(0, since - OVERLAP_SECONDS)
+                )
+                if hit_cap:
+                    capped.append(media_type)
+                set_state(conn, key, {"ts": started})
+                conn.commit()
+            if capped:
+                # More entries changed than the offset-capped incremental walk
+                # can reach; self-heal with a full id scan (resumable, and the
+                # upserts skip unchanged rows cheaply).
+                target = None if len(capped) == 2 else capped[0]
+                print(f"[nightly] offset cap hit for {capped}; running full scan to catch up")
+                full_sync(client, conn, target)
+        except Exception as exc:  # noqa: BLE001
+            sync_error = exc
+            print(
+                f"[nightly] sync failed ({type(exc).__name__}); the catalog keeps its current"
+                " contents and the embedding pass runs anyway",
+                flush=True,
+            )
     # embed_missing returning means every media row has a current-version
     # embedding, so retiring older versions cannot leave a coverage gap.
     embed_missing()
     prune_stale()
+    if sync_error is not None:
+        # Surfaces the traceback and puts the loop on its shorter retry.
+        raise sync_error
 
 
 def main() -> None:
