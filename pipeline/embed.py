@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+import os
 from collections.abc import Iterable, Mapping
 
 import psycopg
@@ -84,13 +85,26 @@ def embed_text(
     return "\n".join(parts)[:MAX_TEXT_CHARS]
 
 
+def torch_thread_count(configured: int, cpu_count: int | None) -> int:
+    """Threads torch gets for encoding: the configured value, or all cores
+    minus one so the host stays responsive during a long embed pass."""
+    if configured > 0:
+        return configured
+    return max(1, (cpu_count or 2) - 1)
+
+
 def embed_missing(
     batch_size: int = 256,
     model_name: str | None = None,
     encode_batch_size: int = ENCODE_BATCH_SIZE,
 ) -> int:
     # Imported lazily: pulls in torch, which the API service never needs.
+    import torch
     from sentence_transformers import SentenceTransformer
+
+    threads = torch_thread_count(settings.embed_threads, os.cpu_count())
+    torch.set_num_threads(threads)
+    print(f"[embed] torch limited to {threads} threads")
 
     model_name = model_name or settings.embed_model
     stored_id = embed_model_id(model_name)

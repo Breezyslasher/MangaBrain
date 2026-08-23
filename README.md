@@ -197,6 +197,7 @@ All settings come from environment variables (see `.env.example`):
 | `ANILIST_MIN_INTERVAL` | `2.0` | seconds between AniList requests |
 | `JIKAN_MIN_INTERVAL` | `0.5` | seconds between Jikan requests |
 | `SYNC_INTERVAL_HOURS` | `24` | worker pass interval |
+| `MANGABRAIN_EMBED_THREADS` | `0` | torch threads while embedding; 0 = cores minus one (the worker also runs at reduced CPU weight so other apps win under contention) |
 | `AUTH_TOKEN` | empty | when set, every API request must carry `Authorization: Bearer <token>`; the web app asks once and remembers it. Set this before exposing the app publicly |
 | `RATE_LIMIT_PER_MINUTE` | `0` (off) | per-client-IP cap on API requests (reads `CF-Connecting-IP` behind Cloudflare) |
 

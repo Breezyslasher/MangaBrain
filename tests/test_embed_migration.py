@@ -52,3 +52,12 @@ def test_candidate_query_matches_index_expression():
     source = inspect.getsource(recommend._recommend_for_seeds)
     assert "vector_dims(e.embedding) = {dim}" in source
     assert "e.embedding::vector({dim}) <=> %(seed_vec)s" in source
+
+
+def test_torch_thread_count_leaves_a_core_free():
+    from pipeline.embed import torch_thread_count
+
+    assert torch_thread_count(0, 4) == 3
+    assert torch_thread_count(0, 1) == 1
+    assert torch_thread_count(0, None) == 1
+    assert torch_thread_count(2, 8) == 2
