@@ -63,6 +63,11 @@ PENDING_COUNT_SQL = """
     WHERE e.media_id IS NULL
 """
 
+# The whole catalog, so progress is reported against the migration rather
+# than against one pass. A re-embed that spans several runs (the CI step
+# timeout splits it deliberately) would otherwise restart at 0% every time.
+CATALOG_COUNT_SQL = "SELECT count(*) FROM media"
+
 
 def embed_text(
     title_romaji: str | None,
@@ -104,16 +109,27 @@ def torch_thread_count(configured: int, cpu_count: int | None) -> int:
     return max(1, (cpu_count or 2) - 1)
 
 
-def progress_line(done: int, pending: int, elapsed: float) -> str:
+def progress_line(
+    done: int,
+    pending: int,
+    elapsed: float,
+    already: int = 0,
+    catalog_total: int | None = None,
+) -> str:
     """Human-readable progress: fraction, percent, rate and ETA.
 
-    A bare running count says nothing about how far along a multi-hour pass
-    is, which is exactly what a CI log or `docker compose logs` needs.
+    The fraction is reported against the whole catalog (already embedded
+    plus this pass's work), so a re-embed split across several runs shows
+    one continuous 0-100% climb instead of restarting at 0% per run. Rate
+    and ETA come from this pass, but the ETA still covers all remaining
+    work, since `pending` counts everything the migration has left.
     """
+    total = catalog_total if catalog_total is not None else pending
+    position = already + done
     rate = done / elapsed if elapsed > 0 else 0.0
-    parts = [f"[embed] {done}/{pending}"]
-    if pending > 0:
-        parts.append(f"({100.0 * done / pending:.1f}%)")
+    parts = [f"[embed] {position}/{total}"]
+    if total > 0:
+        parts.append(f"({100.0 * position / total:.1f}%)")
     if rate > 0:
         remaining = max(pending - done, 0)
         parts.append(f"{rate:.1f}/s")
@@ -141,7 +157,13 @@ def embed_missing(
     with psycopg.connect(settings.database_url) as conn:
         register_vector(conn)
         pending = conn.execute(PENDING_COUNT_SQL, (stored_id,)).fetchone()[0]
-        print(f"[embed] {pending} entries to embed with {stored_id}", flush=True)
+        catalog_total = conn.execute(CATALOG_COUNT_SQL).fetchone()[0]
+        already = catalog_total - pending
+        print(
+            f"[embed] {pending} entries to embed with {stored_id}"
+            f" ({already}/{catalog_total} already current)",
+            flush=True,
+        )
         started = time.monotonic()
         while True:
             rows = conn.execute(SELECT_MISSING_SQL, (stored_id, batch_size)).fetchall()
@@ -156,7 +178,10 @@ def embed_missing(
                 )
             conn.commit()
             total += len(rows)
-            print(progress_line(total, pending, time.monotonic() - started), flush=True)
+            print(
+                progress_line(total, pending, time.monotonic() - started, already, catalog_total),
+                flush=True,
+            )
     print(f"[embed] done, {total} new/updated embeddings ({stored_id})", flush=True)
     return total
 
