@@ -36,8 +36,14 @@ def worker(monkeypatch):
     monkeypatch.setattr(nightly.psycopg, "connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(nightly, "get_state", lambda conn, key: {"ts": 1_700_000_000})
     monkeypatch.setattr(nightly, "set_state", lambda conn, key, value: None)
-    monkeypatch.setattr(nightly, "embed_missing", lambda: calls.__setitem__("embed", calls["embed"] + 1))
-    monkeypatch.setattr(nightly, "prune_stale", lambda: calls.__setitem__("prune", calls["prune"] + 1))
+    def record(name):
+        def bump():
+            calls[name] += 1
+
+        return bump
+
+    monkeypatch.setattr(nightly, "embed_missing", record("embed"))
+    monkeypatch.setattr(nightly, "prune_stale", record("prune"))
     return calls
 
 
