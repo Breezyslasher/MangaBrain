@@ -15,6 +15,7 @@ Usage:
 
 import argparse
 import os
+import time
 from collections.abc import Iterable, Mapping
 
 import psycopg
@@ -51,6 +52,16 @@ UPSERT_SQL = """
 """
 
 PRUNE_STALE_SQL = "DELETE FROM embeddings WHERE embed_model <> %s"
+
+# How much work the pass has ahead of it, so progress can be reported as a
+# fraction with an ETA instead of an unanchored running count.
+PENDING_COUNT_SQL = """
+    SELECT count(*)
+    FROM media m
+    LEFT JOIN embeddings e
+        ON e.media_id = m.id AND e.embed_model = %s
+    WHERE e.media_id IS NULL
+"""
 
 
 def embed_text(
@@ -93,6 +104,23 @@ def torch_thread_count(configured: int, cpu_count: int | None) -> int:
     return max(1, (cpu_count or 2) - 1)
 
 
+def progress_line(done: int, pending: int, elapsed: float) -> str:
+    """Human-readable progress: fraction, percent, rate and ETA.
+
+    A bare running count says nothing about how far along a multi-hour pass
+    is, which is exactly what a CI log or `docker compose logs` needs.
+    """
+    rate = done / elapsed if elapsed > 0 else 0.0
+    parts = [f"[embed] {done}/{pending}"]
+    if pending > 0:
+        parts.append(f"({100.0 * done / pending:.1f}%)")
+    if rate > 0:
+        remaining = max(pending - done, 0)
+        parts.append(f"{rate:.1f}/s")
+        parts.append(f"ETA {remaining / rate / 60:.0f}m")
+    return " ".join(parts)
+
+
 def embed_missing(
     batch_size: int = 256,
     model_name: str | None = None,
@@ -104,7 +132,7 @@ def embed_missing(
 
     threads = torch_thread_count(settings.embed_threads, os.cpu_count())
     torch.set_num_threads(threads)
-    print(f"[embed] torch limited to {threads} threads")
+    print(f"[embed] torch limited to {threads} threads", flush=True)
 
     model_name = model_name or settings.embed_model
     stored_id = embed_model_id(model_name)
@@ -112,6 +140,9 @@ def embed_missing(
     total = 0
     with psycopg.connect(settings.database_url) as conn:
         register_vector(conn)
+        pending = conn.execute(PENDING_COUNT_SQL, (stored_id,)).fetchone()[0]
+        print(f"[embed] {pending} entries to embed with {stored_id}", flush=True)
+        started = time.monotonic()
         while True:
             rows = conn.execute(SELECT_MISSING_SQL, (stored_id, batch_size)).fetchall()
             if not rows:
@@ -125,8 +156,8 @@ def embed_missing(
                 )
             conn.commit()
             total += len(rows)
-            print(f"[embed] {total} embeddings written")
-    print(f"[embed] done, {total} new/updated embeddings ({stored_id})")
+            print(progress_line(total, pending, time.monotonic() - started), flush=True)
+    print(f"[embed] done, {total} new/updated embeddings ({stored_id})", flush=True)
     return total
 
 
@@ -140,7 +171,7 @@ def prune_stale(model_name: str | None = None) -> int:
     with psycopg.connect(settings.database_url) as conn:
         cur = conn.execute(PRUNE_STALE_SQL, (stored_id,))
         conn.commit()
-        print(f"[embed] pruned {cur.rowcount} stale embeddings (kept {stored_id})")
+        print(f"[embed] pruned {cur.rowcount} stale embeddings (kept {stored_id})", flush=True)
         return cur.rowcount
 
 

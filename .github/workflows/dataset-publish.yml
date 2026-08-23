@@ -43,6 +43,11 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgresql://mangabrain:mangabrain@localhost:5432/mangabrain
+      # Python block-buffers stdout into a pipe, so without this the
+      # long sync/embed/benchmark steps show an empty log until they
+      # finish. The container image sets it too; CI runs pip-installed
+      # Python directly and needs it here.
+      PYTHONUNBUFFERED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

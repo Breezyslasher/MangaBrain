@@ -311,7 +311,10 @@ def full_sync(
         conn.commit()
         batch += 1
         if batch % 10 == 0 or last_id >= max_id:
-            print(f"[sync] {label}: scanned through id {last_id}/{max_id}, {total} entries")
+            print(
+                f"[sync] {label}: scanned through id {last_id}/{max_id}, {total} entries",
+                flush=True,
+            )
     clear_state(conn, checkpoint_key)
     for t in types:
         set_state(conn, f"anilist_last_sync_{t.lower()}", {"ts": started})

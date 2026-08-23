@@ -61,3 +61,21 @@ def test_torch_thread_count_leaves_a_core_free():
     assert torch_thread_count(0, 1) == 1
     assert torch_thread_count(0, None) == 1
     assert torch_thread_count(2, 8) == 2
+
+
+def test_progress_line_reports_fraction_percent_and_eta():
+    from pipeline.embed import progress_line
+
+    line = progress_line(50, 200, elapsed=10.0)
+    assert "50/200" in line
+    assert "(25.0%)" in line
+    assert "5.0/s" in line
+    # 150 remaining at 5/s = 30s = 0m (rounded), so just assert the label.
+    assert "ETA" in line
+
+
+def test_progress_line_survives_zero_elapsed_and_zero_pending():
+    from pipeline.embed import progress_line
+
+    assert progress_line(0, 0, elapsed=0.0) == "[embed] 0/0"
+    assert "0/100" in progress_line(0, 100, elapsed=0.0)
