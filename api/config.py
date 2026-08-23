@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     # embed time at 109M params. Our similarity is symmetric (title text vs
     # title text), so no query instruction prefix is used.
     embed_model: str = "avsolatorio/GIST-Embedding-v0"
+    # CPU threads torch may use while embedding. 0 = all cores minus one,
+    # so a long embed pass cannot starve everything else on a small host
+    # (the shared mini-PC problem); set an exact count to override.
+    embed_threads: int = 0
     candidate_pool: int = 500
     http_cache_dir: str = ""
     anilist_min_interval: float = 2.0
