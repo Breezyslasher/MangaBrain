@@ -79,3 +79,27 @@ def test_progress_line_survives_zero_elapsed_and_zero_pending():
 
     assert progress_line(0, 0, elapsed=0.0) == "[embed] 0/0"
     assert "0/100" in progress_line(0, 100, elapsed=0.0)
+
+
+def test_progress_line_counts_the_whole_catalog_across_resumed_runs():
+    """A re-embed split across CI runs must not restart its percentage.
+
+    Each run only knows the rows still missing, so anchoring the fraction on
+    that made every resumed run report 0% and climb again (run 14 of
+    dataset-publish reached 58.8%, then its resume started over).
+    """
+    from pipeline.embed import progress_line
+
+    # Resumed run: 99k of a 160k catalog already current, 60,536 left,
+    # 35,584 done this pass.
+    line = progress_line(35584, 60536, elapsed=4200.0, already=99464, catalog_total=160000)
+    assert "135048/160000" in line
+    assert "(84.4%)" in line
+    # ETA still covers all remaining work, not just this run's slice.
+    assert "ETA 49m" in line
+
+
+def test_progress_line_defaults_to_the_pass_when_no_catalog_total():
+    from pipeline.embed import progress_line
+
+    assert progress_line(50, 200, elapsed=10.0).startswith("[embed] 50/200 (25.0%)")
