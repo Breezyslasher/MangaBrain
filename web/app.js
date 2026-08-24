@@ -11,6 +11,7 @@ const state = {
   tagVocabulary: [], // full tag list, for the suggestion dropdown
   tagSuggestIndex: -1, // keyboard-highlighted suggestion
   titleLang: localStorage.getItem("mb_title_lang") || "english",
+  shownSeedIds: "", // seeds currently on screen, so a re-rank does not scroll
 };
 
 const PAGE_SIZE = 60;
@@ -416,13 +417,26 @@ function renderRelated(related) {
 }
 
 function renderRecommendations(data) {
-  renderSeeds(data.seeds && data.seeds.length ? data.seeds : [data.seed]);
+  const seeds = data.seeds && data.seeds.length ? data.seeds : [data.seed];
+  renderSeeds(seeds);
   renderRelated(data.related);
   state.pending = data.results;
   state.shown = 0;
   renderPending();
   setStatus(data.results.length ? "" : "No recommendations pass the active filters.");
-  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  // Only move the page when the seeds actually changed (a new title, a
+  // Surprise me, a fresh For-you draw). Adjusting a slider or filter
+  // re-ranks the same seeds, and yanking the reader back would lose their
+  // place in the list. scrollIntoView with block "nearest" scrolls the
+  // minimum needed, so nothing moves when the results are already visible -
+  // unlike scrollTo(0), which jumped past the whole filter sidebar on the
+  // single-column (mobile) layout.
+  const seedIds = seeds.map((s) => s.id).join(",");
+  if (seedIds !== state.shownSeedIds) {
+    state.shownSeedIds = seedIds;
+    $("seed").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
 }
 
 async function loadRecommendations(mediaId, opts = {}) {
