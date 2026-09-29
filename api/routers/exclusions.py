@@ -33,6 +33,30 @@ UPSERT_STATE_SQL = """
 """
 
 
+# One entry as stored: (planned, score).
+EntryState = tuple[bool, "int | None"]
+
+
+def merge_entry(
+    entries: dict[tuple[str, int], EntryState],
+    key: tuple[str, int],
+    planned: bool,
+    score: int | None,
+) -> None:
+    """Fold one (kind, ext_id) entry into the accumulator.
+
+    The same external id can arrive several times: from two Kitsu mappings,
+    from a client that sends both a bare id and a detailed entry, or from a
+    title tracked on two of a user's lists. Started always wins over planned
+    (so a title being read is never left recommendable), and the higher of
+    the two ratings is kept. Shared by every list source so they cannot
+    drift apart.
+    """
+    prev_planned, prev_score = entries.get(key, (True, None))
+    scores = [s for s in (prev_score, score) if s is not None]
+    entries[key] = (prev_planned and planned, max(scores) if scores else None)
+
+
 def normalize_name(name: str) -> str:
     name = name.strip().lower()
     if not NAME_RE.match(name):
@@ -43,9 +67,7 @@ def normalize_name(name: str) -> str:
     return name
 
 
-def store_exclusion_list(
-    name: str, entries: dict[tuple[str, int], tuple[bool, int | None]]
-) -> None:
+def store_exclusion_list(name: str, entries: dict[tuple[str, int], EntryState]) -> None:
     """Replace the named list with {(kind, ext_id): (planned, score)} entries.
 
     planned=True marks a plan-to-watch/plan-to-read tracker entry, which the
@@ -86,14 +108,47 @@ def get_status(name: str) -> ExclusionStatus:
 @router.post("/exclusions/{name}", response_model=ExclusionStatus)
 def replace_exclusion_list(name: str, body: ExclusionListIn) -> ExclusionStatus:
     name = normalize_name(name)
-    # Manually posted ids carry no tracker status or rating, so they always
-    # exclude (planned=False) and sample with neutral weight (score=None).
-    entries: dict[tuple[str, int], tuple[bool, int | None]] = {}
-    entries.update({("anilist", i): (False, None) for i in body.anilist_ids})
-    entries.update({("mal_anime", i): (False, None) for i in body.mal_anime_ids})
-    entries.update({("mal_manga", i): (False, None) for i in body.mal_manga_ids})
+    entries: dict[tuple[str, int], EntryState] = {}
+    # Bare ids carry no tracker status or rating: they always exclude
+    # (planned=False) and sample with neutral weight (score=None).
+    for kind, ids in (
+        ("anilist", body.anilist_ids),
+        ("mal_anime", body.mal_anime_ids),
+        ("mal_manga", body.mal_manga_ids),
+    ):
+        for ext_id in ids:
+            merge_entry(entries, (kind, ext_id), False, None)
+
+    # Kitsu ids are not a join key for the exclusion filter, so they are
+    # translated to the MAL/AniList ids they map to before storing. Imported
+    # here rather than at module scope: kitsu.py imports this module.
+    kitsu_items = [e for e in body.entries if e.kind.startswith("kitsu_")]
+    kitsu_keys: dict[tuple[str, int], list[tuple[str, int]]] = {}
+    if kitsu_items:
+        from api.routers.kitsu import external_keys_for
+
+        wanted: dict[str, list[int]] = {}
+        for item in kitsu_items:
+            wanted.setdefault(item.kind.removeprefix("kitsu_"), []).append(item.id)
+        kitsu_keys = external_keys_for(wanted)
+
+    skipped = 0
+    for item in body.entries:
+        if item.kind.startswith("kitsu_"):
+            targets = kitsu_keys.get((item.kind, item.id)) or []
+            if not targets:
+                # No usable mapping on Kitsu's side, so nothing to exclude.
+                skipped += 1
+            for key in targets:
+                merge_entry(entries, key, item.planned, item.score)
+        else:
+            merge_entry(entries, (item.kind, item.id), item.planned, item.score)
+
     store_exclusion_list(name, entries)
-    return get_status(name)
+    status = get_status(name)
+    if kitsu_items:
+        status.skipped = skipped
+    return status
 
 
 @router.get("/exclusions/{name}", response_model=ExclusionStatus)

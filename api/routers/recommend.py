@@ -139,7 +139,7 @@ RELATED_SQL = f"""
 # (w_taste): the profile is the rating-weighted mean of these vectors. The
 # random cap bounds work on very large lists without biasing any title kind.
 TASTE_ANILIST_SQL = """
-    SELECT e.embedding, al.score
+    SELECT e.media_id, e.embedding, al.score
     FROM anilist_list_entries al
     JOIN embeddings e ON e.media_id = al.media_id AND e.embed_model = %(model)s
     WHERE al.username = %(username)s
@@ -148,7 +148,7 @@ TASTE_ANILIST_SQL = """
 """
 
 TASTE_MAL_SQL = """
-    SELECT e.embedding, l.score
+    SELECT e.media_id, e.embedding, l.score
     FROM mal_list_entries l
     JOIN media m ON m.id_mal = l.id_mal AND l.list_type = lower(m.media_type)
     JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
@@ -158,7 +158,7 @@ TASTE_MAL_SQL = """
 """
 
 TASTE_LIST_SQL = """
-    SELECT e.embedding, ce.score
+    SELECT e.media_id, e.embedding, ce.score
     FROM custom_exclusion_entries ce
     JOIN media m ON ((ce.kind = 'anilist' AND m.id = ce.ext_id)
         OR (ce.kind = 'mal_anime' AND m.media_type = 'ANIME' AND m.id_mal = ce.ext_id)
@@ -187,6 +187,26 @@ def taste_weights(scores: list[float | None]) -> np.ndarray:
     return weights
 
 
+def taste_sources(
+    anilist_user: str | None, mal_user: str | None, exclude_lists: list[str] | None
+) -> list[tuple[str, dict[str, Any]]]:
+    """Every configured list source as (sql, params).
+
+    All of them, not the first one: a user with an AniList account and a
+    synced Kitsu, Yamtrack or Suwayomi list has taste evidence in both, and
+    ignoring the tracker list would throw away their whole reading history.
+    """
+    names = [n.strip().lower() for n in (exclude_lists or []) if n.strip()]
+    sources: list[tuple[str, dict[str, Any]]] = []
+    if anilist_user:
+        sources.append((TASTE_ANILIST_SQL, {"username": anilist_user.strip().lower()}))
+    if mal_user:
+        sources.append((TASTE_MAL_SQL, {"username": mal_user.strip().lower()}))
+    if names:
+        sources.append((TASTE_LIST_SQL, {"lists": names}))
+    return sources
+
+
 def _taste_profile(
     conn: Any,
     embed_model: str,
@@ -196,21 +216,28 @@ def _taste_profile(
     exclude_lists: list[str] | None,
 ) -> np.ndarray | None:
     """Rating-weighted mean of the user's list embeddings (L2-normalized),
-    or None when no list source is configured or nothing is embedded."""
-    names = [n.strip().lower() for n in (exclude_lists or []) if n.strip()]
-    if anilist_user:
-        sql, params = TASTE_ANILIST_SQL, {"username": anilist_user.strip().lower()}
-    elif mal_user:
-        sql, params = TASTE_MAL_SQL, {"username": mal_user.strip().lower()}
-    elif names:
-        sql, params = TASTE_LIST_SQL, {"lists": names}
-    else:
+    or None when no list source is configured or nothing is embedded.
+
+    Weights are percentile ranks computed WITHIN each source: people rate
+    differently, and they rate differently on different sites, so a 7 on one
+    tracker and a 7 on another are not the same evidence. A title on several
+    lists is counted once, at its highest weight, so syncing the same
+    library twice cannot double its pull on the profile.
+    """
+    best: dict[int, tuple[float, np.ndarray]] = {}
+    for sql, params in taste_sources(anilist_user, mal_user, exclude_lists):
+        rows = conn.execute(sql, {**params, "model": embed_model}).fetchall()
+        if not rows:
+            continue
+        weights = taste_weights([row["score"] for row in rows])
+        for row, weight in zip(rows, weights, strict=True):
+            media_id = row["media_id"]
+            if media_id not in best or weight > best[media_id][0]:
+                best[media_id] = (weight, _embedding_array(row["embedding"]))
+    if not best:
         return None
-    rows = conn.execute(sql, {**params, "model": embed_model}).fetchall()
-    if not rows:
-        return None
-    vectors = np.array([_embedding_array(row["embedding"]) for row in rows])
-    weights = taste_weights([row["score"] for row in rows])
+    vectors = np.array([vector for _, vector in best.values()])
+    weights = np.array([weight for weight, _ in best.values()])
     profile = (vectors * weights[:, np.newaxis]).sum(axis=0) / weights.sum()
     norm = np.linalg.norm(profile)
     return profile / norm if norm > 0 else None
