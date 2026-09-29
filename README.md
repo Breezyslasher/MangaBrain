@@ -122,6 +122,8 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | endpoint | description |
 | -------- | ----------- |
 | `GET /search?q=...&medium=anime` | Trigram-ranked title search within a medium group |
+| `POST /search/resolve` | Batch exact title-to-id lookup for a library client: body `{"items": [{"key": "...", "titles": [...], "mal_id": null}], "adult": false}` (<=500 items), one catalog pass. Returns `match` of `mal`/`title`/`synonym`/`ambiguous`/`none` - never a best guess, since a wrong id would exclude an unrelated title. Manga-family only |
+| `GET /search/by-mal/{mal_id}?type=manga` | The catalog entry for a MAL id; typed because MAL anime and manga ids are separate id spaces |
 | `GET /recommend/{id}` | Ranked similar titles with similarity percentage and per-component scores |
 | `GET /recommend?ids=1&ids=2` | Multi-seed blend (up to 5 titles): averaged embedding and tag profile, unioned genres |
 | `GET /random?medium=manga` | A random title passing the active filters |
@@ -130,8 +132,8 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | `POST /anilist/{username}/refresh` | Fetch and cache the user's AniList anime + manga lists (a few chunked GraphQL queries, no API key) |
 | `GET /anilist/{username}` | Cached AniList list status |
 | `GET /tags` | Distinct tag vocabulary (for filter autocomplete) |
-| `GET /foryou?medium=anime&anilist_user=...` | Personal discovery feed: blends a fresh sample of the user's list into one multi-seed recommendation, excluding everything already on it; seeds come from `anilist_user`, `mal_user`, or `exclude_list` (a synced Kitsu/Yamtrack list), sampled weighted by each title's percentile among the user's own ratings (`use_ratings=false` for uniform sampling; `seeds=N` controls the sample size, fewer = more specific) |
-| `POST /exclusions/{name}` | Replace a generic named exclusion list: body `{"anilist_ids": [], "mal_anime_ids": [], "mal_manga_ids": []}`; exclude with `exclude_list={name}` (GET for status, DELETE to remove) |
+| `GET /foryou?medium=anime&anilist_user=...` | Personal discovery feed: blends a fresh sample of the user's list into one multi-seed recommendation, excluding everything already on it; seeds come from every configured source (`anilist_user`, `mal_user`, and `exclude_list` lists such as a synced Kitsu/Yamtrack/Suwayomi library) taken round-robin so a large list cannot crowd out a small one, sampled weighted by each title's percentile among the user's own ratings (`use_ratings=false` for uniform sampling; `seeds=N` controls the sample size, fewer = more specific) |
+| `POST /exclusions/{name}` | Replace a generic named exclusion list: body `{"anilist_ids": [], "mal_anime_ids": [], "mal_manga_ids": []}`, plus optional `entries` carrying tracker state: `[{"kind": "anilist|mal_anime|mal_manga|kitsu_anime|kitsu_manga", "id": 1, "planned": false, "score": 0-100}]`. Bare ids mean "on the list, status unknown"; entries feed `keep_planned`, For-you sampling and the taste profile. Kitsu ids are resolved to the MAL/AniList ids they map to (unmappable ones are reported in `skipped`). Exclude with `exclude_list={name}` (GET for status, DELETE to remove) |
 | `POST /yamtrack/refresh` | Pull the configured Yamtrack instance's anime + manga lists into the `yamtrack` exclusion list (configure via the Accounts panel or `YAMTRACK_URL`/`YAMTRACK_TOKEN`) |
 | `POST /kitsu/refresh` | Pull the configured Kitsu user's public anime + manga library into the `kitsu` exclusion list via Kitsu's MAL/AniList id mappings (set the Kitsu username in the Accounts panel; no token needed) |
 | `GET` / `PUT /settings` | Account settings (AniList/MAL/Kitsu usernames, Yamtrack endpoint and token) persisted server-side; the token is write-only |

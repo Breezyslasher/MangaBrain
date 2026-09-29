@@ -10,6 +10,8 @@ Seeds are restricted to the dominant embedding version so the feed keeps
 working mid-way through a re-embed migration.
 """
 
+from itertools import zip_longest
+
 from fastapi import APIRouter, HTTPException, Query
 
 from api.config import embed_model_id
@@ -30,6 +32,26 @@ DOMINANT_MODEL_SQL = """
     ORDER BY count(*) DESC, (embed_model = %(preferred)s) DESC, embed_model
     LIMIT 1
 """
+
+
+def round_robin(per_source: list[list[int]], limit: int) -> list[int]:
+    """Take seeds one at a time from each source in turn, de-duplicated.
+
+    Concatenating instead would let the largest library fill a small seed
+    count on its own, so a user with a 2000-title AniList account and a
+    30-title Suwayomi library would never see the latter. With a single
+    source this is just that source's own order, unchanged.
+    """
+    seeds: list[int] = []
+    seen: set[int] = set()
+    for tier in zip_longest(*per_source):
+        for media_id in tier:
+            if media_id is not None and media_id not in seen:
+                seen.add(media_id)
+                seeds.append(media_id)
+        if len(seeds) >= limit:
+            break
+    return seeds[:limit]
 
 
 def weighted_order(pct_col: str) -> str:
@@ -148,42 +170,47 @@ def foryou(
             " (a synced tracker list can seed the feed)",
         )
 
+    # Every configured source contributes, not just the first one: an
+    # AniList account and a synced tracker list are both the user's library.
+    sources: list[tuple[str, dict]] = []
     if anilist_user:
-        template = ANILIST_SEEDS_SQL
-    elif mal_user:
-        template = MAL_SEEDS_SQL
-    else:
-        template = LIST_SEEDS_SQL
+        sources.append((ANILIST_SEEDS_SQL, {"username": anilist_user.strip().lower()}))
+    if mal_user:
+        sources.append((MAL_SEEDS_SQL, {"username": mal_user.strip().lower()}))
+    if list_names:
+        sources.append((LIST_SEEDS_SQL, {"lists": list_names}))
     # use_ratings=false reverts to uniform sampling: every list entry has
     # the same chance of anchoring the feed, ratings ignored entirely.
     order = weighted_order("r.pct") if use_ratings else "ORDER BY random()"
-    seeds_sql = template.format(order=order)
-    username = (anilist_user or mal_user or "").strip().lower()
     mediums = MEDIUM_GROUPS[medium]
 
+    per_source: list[list[int]] = []
     with get_pool().connection() as conn:
         model_row = conn.execute(DOMINANT_MODEL_SQL, {"preferred": embed_model_id()}).fetchone()
         if model_row is None:
             raise HTTPException(status_code=409, detail="no embeddings yet; run pipeline.embed")
-        params = {
-            "model": model_row["embed_model"],
-            "username": username,
-            "lists": list_names,
-            "mediums": mediums,
-            "n": seeds,
-        }
-        rows = conn.execute(seeds_sql, params).fetchall()
-        if not rows:
-            # Nothing from the list in this medium; sample across all mediums.
-            rows = conn.execute(seeds_sql, {**params, "mediums": ALL_MEDIUMS}).fetchall()
-    if not rows:
+        for template, source_params in sources:
+            seeds_sql = template.format(order=order)
+            params = {
+                "model": model_row["embed_model"],
+                "mediums": mediums,
+                "n": seeds,
+                **source_params,
+            }
+            rows = conn.execute(seeds_sql, params).fetchall()
+            if not rows:
+                # Nothing from this list in this medium; sample across all.
+                rows = conn.execute(seeds_sql, {**params, "mediums": ALL_MEDIUMS}).fetchall()
+            per_source.append([row["id"] for row in rows])
+
+    seed_ids = round_robin(per_source, seeds)
+    if not seed_ids:
         raise HTTPException(
             status_code=404,
             detail="no titles from your cached list are embedded in the catalog;"
             " refresh your list first",
         )
 
-    seed_ids = list(dict.fromkeys(row["id"] for row in rows))
     return _recommend_for_seeds(
         seed_ids,
         weights=Weights(w_semantic, w_tags, w_genres).normalized(),

@@ -96,6 +96,10 @@ def hnsw_supports_iterative_scan(conn: Any) -> bool:
     return _hnsw_iterative_scan
 
 
+# Alternate titles are returned for client-side matching, but a 50-result
+# response must not balloon: a handful is enough to recognise an entry.
+MAX_SYNONYMS = 10
+
 # Canonical column list for anything returning media rows. The cleaned
 # description is what the API exposes; tags stay internal (used for scoring).
 MEDIA_COLS = """
@@ -103,7 +107,7 @@ MEDIA_COLS = """
     m.description_clean AS description, m.genres, m.tags, m.format,
     m.episodes, m.chapters, m.volumes, m.country_of_origin, m.start_year,
     m.status, m.average_score, m.cover_image_medium, m.cover_image_large,
-    m.is_adult, m.popularity, m.favourites
+    m.is_adult, m.synonyms, m.popularity, m.favourites
 """
 
 
@@ -133,6 +137,7 @@ def media_from_row(row: dict[str, Any]) -> MediaOut:
         cover_image=row["cover_image_medium"],
         cover_image_large=row["cover_image_large"],
         is_adult=row["is_adult"],
+        synonyms=(row["synonyms"] or [])[:MAX_SYNONYMS],
         popularity=row["popularity"],
         favourites=row["favourites"],
     )
