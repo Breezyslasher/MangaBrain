@@ -34,15 +34,31 @@ connection across a page of parents, so asking for Page.media.characters
 yields empty edges and a silent zero. The cast has to be fetched one title at
 a time, which is why this samples tens of titles rather than thousands.
 
-Measured once, 15 titles per stratum (run 6 of the dub-probe workflow):
-anime ranked 1-15 by popularity 15/15 credit an English voice actor, rank
-~1000 14/15, rank ~3000 9/15, rank ~5000 10/15, and the two least-popular
-strata 0/15 each. Every title in those bottom strata has no cast recorded at
-all (music videos, kids shorts, educational OVAs), so the floor is missing
-cast data rather than missing dub data: of the 62 sampled titles that have
-any cast, 48 credit an English voice actor. dubGroup is populated
-occasionally and usefully ("4Kids" and "Odex" on One Piece, "Animax" on
-Fullmetal Alchemist: Brotherhood).
+Measured twice, and the rank labels of both runs were wrong: the page number
+was hardcoded, so the rank it landed on moved with --per-stratum. The numbers
+below are the second run (10 per stratum) with its true ranges, which are
+shallower than its labels claimed:
+
+    ranks     1-10      10/10 credit an English voice actor
+    ranks   391-400      9/10
+    ranks  1191-1200     8/10
+    ranks  1981-1990     5/10
+    least popular        0/10
+    least popular+1000   0/10
+
+Every title in the bottom two strata has no cast recorded at all (music
+videos, kids shorts, educational OVAs), so the floor is missing cast data
+rather than missing dub data: of the 41 sampled titles with any cast, 32
+credit an English voice actor. Nothing here actually sampled rank 5000; the
+deepest stratum of real shows was ranks 1981-1990, at 50%. dubGroup is
+populated occasionally and usefully ("4Kids" and "Odex" on One Piece,
+"Animax" on K-ON!!).
+
+The false negatives cluster in sequel, season and OVA entries whose parent
+series is dubbed (World Trigger 3rd Season: 25 characters, 0 English voice
+actors; Eromanga Sensei OVA; High School DxD OVA), which looks like cast
+credits not being re-entered per entry rather than a dub not existing. A
+franchise-aware fill via media_relations would recover most of them.
 
 The asymmetry this implies matters more than the headline number. "Credits an
 English VA" is a reliable positive: it is hard to get there by accident.
@@ -69,18 +85,30 @@ JIKAN_BASE = "https://api.jikan.moe/v4"
 
 CHARACTERS_PER_PAGE = 25
 
-# (label, sort, page). Deep POPULARITY_DESC pagination starts returning HTTP
-# 400, so the tail is reached by sorting ascending from the other end rather
-# than paging thousands deep. POPULARITY ascending page 1 is the least popular
-# titles in the catalog, which is exactly the hidden-gem case.
+# (label, sort, target_rank): the popularity rank each stratum should land on.
+# The page is derived from --per-stratum rather than hardcoded, because the
+# same page number means a different rank at a different page size. Hardcoding
+# the page and then labelling it by rank is how an earlier run reported
+# "rank ~5000" while actually sampling ranks 1981-1990.
+#
+# Deep POPULARITY_DESC pagination starts returning HTTP 400, so the tail is
+# reached by sorting ascending from the other end rather than paging thousands
+# deep. POPULARITY ascending rank 1 is the least popular title in the catalog,
+# which is exactly the hidden-gem case.
 STRATA: tuple[tuple[str, str, int], ...] = (
     ("most popular", "POPULARITY_DESC", 1),
-    ("rank ~1000", "POPULARITY_DESC", 40),
-    ("rank ~3000", "POPULARITY_DESC", 120),
-    ("rank ~5000", "POPULARITY_DESC", 199),
+    ("rank ~1000", "POPULARITY_DESC", 1000),
+    ("rank ~3000", "POPULARITY_DESC", 3000),
+    ("rank ~5000", "POPULARITY_DESC", 5000),
     ("least popular", "POPULARITY", 1),
-    ("least popular +1000", "POPULARITY", 40),
+    ("least popular +1000", "POPULARITY", 1000),
 )
+
+
+def page_for(target_rank: int, per_page: int) -> int:
+    """The page whose last entry sits at or just past target_rank."""
+    return max(1, -(-target_rank // per_page))
+
 
 # Hand-labelled ground truth. "dub" means an English dub is known to exist and
 # be widely documented; "no dub" means none is known. Kept small on purpose:
@@ -265,14 +293,19 @@ def run_ground_truth(client: RateLimitedClient) -> int:
 def run_strata(client: RateLimitedClient, per_stratum: int) -> list[dict[str, Any]]:
     log("=== 2. coverage by popularity stratum ===")
     sampled: list[dict[str, Any]] = []
-    for label, sort, page in STRATA:
+    for label, sort, target_rank in STRATA:
+        page = page_for(target_rank, per_stratum)
+        lo = (page - 1) * per_stratum + 1
+        # The label says what was asked for; the range says what was sampled.
+        scope = f"{label} (ranks {lo}-{lo + per_stratum - 1}"
+        scope += " from the bottom)" if sort == "POPULARITY" else ")"
         try:
             media_list = fetch_ids(client, sort, page, per_stratum)
         except Exception as exc:  # noqa: BLE001 - a probe reports, it does not fail
-            log(f"{label}: {type(exc).__name__}: {exc}")
+            log(f"{scope}: {type(exc).__name__}: {exc}")
             continue
         if not media_list:
-            log(f"{label}: empty")
+            log(f"{scope}: empty")
             continue
         hits = 0
         for media in media_list:
@@ -282,7 +315,7 @@ def run_strata(client: RateLimitedClient, per_stratum: int) -> list[dict[str, An
             sampled.append(media)
             log(describe(media, cast))
         pct = 100.0 * hits / len(media_list)
-        log(f"{label}: {hits}/{len(media_list)} ({pct:.0f}%) credit an English voice actor")
+        log(f"{scope}: {hits}/{len(media_list)} ({pct:.0f}%) credit an English voice actor")
     return sampled
 
 
