@@ -19,6 +19,30 @@ cast recorded but no English cast, which is the Berserk 2017 case: 21
 characters, no English voice actors, and a dub that exists. A dub house in
 the credits is direct evidence the cast data missed one.
 
+OUTCOME: measured, and not worth building. Recorded here so the question is
+not reopened from the encouraging half of the numbers.
+
+The precision is real - Funimation reaches 92% on 36 titles with a 78%
+lower bound against a 34.8% base rate, and the ceiling is 2.9x - but
+precision and reach are inversely related, which kills it. A licensor whose
+titles reliably get their casts entered has nothing left to fix: Funimation
+would correct 3 titles in 998, Netflix and Central Park Media zero. The
+licensors with titles to fix are the ones whose dub claim is weakest -
+Sentai Filmworks 9 fixes at 64%, Crunchyroll 5 at 58%, Discotek 3 at 40%.
+
+So the choice is between a precise signal that reaches almost nothing and a
+broad one that is frequently wrong:
+
+    precision >= 0.75   ~182 titles (0.8% of catalog), ~28 of them wrong
+    all licensors       ~681 titles (3.0% of catalog), ~225 of them wrong
+
+Against 7,016 titles already covered, the careful option adds 2.6% while
+asserting ~28 dubs that do not exist, and the broad option asserts ~225. A
+project that refuses to serve english_va_count = 0 as "sub only" because a
+zero is unreliable should not assert a dub on a distributor credit, and
+franchise propagation already added 2,537 titles for free on a mechanism
+that is actually tight - same production, same language.
+
 Two cautions this probe cannot resolve, and does not pretend to:
 
   - The label is itself incomplete. "Has a recorded English cast" is the only
