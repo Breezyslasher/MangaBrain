@@ -28,6 +28,7 @@ Run it where the network allows (CI, or the NAS):
 """
 
 import argparse
+import json
 import time
 from typing import Any
 
@@ -96,6 +97,36 @@ MEDIA_FIELDS    }
   }
 }
 """.replace("MEDIA_FIELDS", MEDIA_FIELDS)
+
+
+DEBUG_QUERY = """
+query ($id: Int) {
+  Media(id: $id, type: ANIME) {
+    id
+    title { romaji }
+    characters(perPage: 3, sort: ROLE) {
+      pageInfo { total }
+      edges {
+        node { id name { full } }
+        voiceActors { id language: languageV2 name { full } }
+        voiceActorsEnglish: voiceActors(language: ENGLISH) { id name { full } }
+        voiceActorRoles(language: ENGLISH) {
+          dubGroup
+          voiceActor { id name { full } }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def run_debug(client: RateLimitedClient, media_id: int) -> None:
+    log(f"=== raw dump for media {media_id} ===")
+    data = client.request(
+        "POST", ANILIST_URL, json_body={"query": DEBUG_QUERY, "variables": {"id": media_id}}
+    )
+    print(json.dumps(data, indent=2)[:6000], flush=True)
 
 
 def log(message: str) -> None:
@@ -176,7 +207,11 @@ def run_strata(client: RateLimitedClient, strata: tuple[int, ...]) -> list[dict[
     log("=== 2. coverage by popularity stratum ===")
     sampled: list[dict[str, Any]] = []
     for page in strata:
-        media_list = fetch(client, BY_PAGE_QUERY, {"page": page, "perPage": PER_PAGE})
+        try:
+            media_list = fetch(client, BY_PAGE_QUERY, {"page": page, "perPage": PER_PAGE})
+        except Exception as exc:  # noqa: BLE001 - a probe reports, it does not fail
+            log(f"page {page}: {type(exc).__name__}: {exc}")
+            continue
         if not media_list:
             log(f"page {page}: empty (past the end of the catalog)")
             continue
@@ -225,6 +260,12 @@ def main() -> None:
         default=40,
         help="how many AniList-silent titles to re-check against MAL (0 to skip)",
     )
+    parser.add_argument(
+        "--debug-id",
+        type=int,
+        default=0,
+        help="dump the raw character/VA JSON for one media id and stop",
+    )
     parser.add_argument("--anilist-min-interval", type=float, default=2.5)
     parser.add_argument("--jikan-min-interval", type=float, default=1.0)
     args = parser.parse_args()
@@ -235,6 +276,9 @@ def main() -> None:
     # No cache_dir: a coverage measurement must see live data, not a replay.
     anilist = RateLimitedClient(min_interval=args.anilist_min_interval)
     try:
+        if args.debug_id:
+            run_debug(anilist, args.debug_id)
+            return
         run_ground_truth(anilist)
         sampled = run_strata(anilist, strata)
     finally:
