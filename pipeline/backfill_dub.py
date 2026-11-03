@@ -45,6 +45,20 @@ CHARACTERS_PER_PAGE = 25
 MAX_ATTEMPTS = 3
 CONSECUTIVE_5XX_ABORT = 25
 
+# A second walk started while the first is running does the same work twice
+# and halves the share of AniList's rate limit each one gets, so both crawl
+# through 429 backoff for no extra progress. It is an easy mistake: the walk
+# runs for twelve hours detached, so "did I already start it?" is a real
+# question, and re-running after a container restart that did not actually
+# kill the first one produces exactly this. Observed in the wild as two
+# interleaved progress lines, one counting to 22167 and one to 11717, the
+# second having computed its candidate list once the first was 10450 titles
+# in.
+#
+# A session-scoped advisory lock makes the second invocation say so and exit
+# instead. Distinct from the schema lock in api/db.py.
+WALK_LOCK_KEY = 727273
+
 # node is load-bearing. Without a node selection AniList resolves voiceActors
 # to null on every edge instead of erroring, which reads as "no English cast"
 # for the entire catalog. A guard below fails loudly if that ever regresses.
@@ -148,6 +162,27 @@ def backfill(
     limit: int | None = None,
     retry_failed: bool = False,
     stale_before: datetime | None = None,
+) -> int:
+    held = conn.execute("SELECT pg_try_advisory_lock(%s)", (WALK_LOCK_KEY,)).fetchone()[0]
+    if not held:
+        print(
+            "[dub] another dub walk is already running against this database;"
+            " leaving it to finish rather than duplicating its requests",
+            flush=True,
+        )
+        return 0
+    try:
+        return _walk(client, conn, limit, retry_failed, stale_before)
+    finally:
+        conn.execute("SELECT pg_advisory_unlock(%s)", (WALK_LOCK_KEY,))
+
+
+def _walk(
+    client: RateLimitedClient,
+    conn: psycopg.Connection,
+    limit: int | None,
+    retry_failed: bool,
+    stale_before: datetime | None,
 ) -> int:
     conn.execute(STATE_TABLE_SQL)
     conn.commit()
