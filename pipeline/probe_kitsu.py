@@ -21,6 +21,35 @@ Nothing here is asserted from memory. Endpoint shapes are tried and the raw
 JSON keys are dumped, because Kitsu's cast modelling has changed over time
 (castings, media-characters, character-voices) and guessing which exists is
 how a probe ends up measuring the wrong thing.
+
+The API's real contract, measured by pipeline.probe_kitsu_shape rather than
+read from docs - the OpenAPI spec documents 8 paths and no cast resources,
+the legacy Apiary docs no longer resolve, and api-docs.kitsu.cloud is a
+different product (CGWire's Kitsu, an animation tracker whose "casting"
+means assigning assets to shots). Each of these was guessed wrong at least
+once:
+
+  - Filters are normalised server-side. filter[mediaId] and filter[media_id]
+    both work and return the same count; errors report the snake_case form.
+    The camelCase spelling was never the problem.
+  - voiceActor is NOT filterable: "voice_actor is not allowed". Selecting on
+    it must happen client-side.
+  - Comma lists DO work: filter[mediaId]=1,2,3 is honoured. An earlier run
+    logged "bulk castings: HTTP 400" and blamed the comma list, but that
+    request also carried the invalid voiceActor filter, which is what the
+    400 was about. Batched fetching was available all along.
+  - media-characters cannot be filtered by media in either spelling; reach
+    characters via /anime/{id}/characters.
+  - page[limit] is hard-capped at 20: "Limit exceeds maximum page size of 20".
+  - mappings takes a comma list of externalId, holds 341,771 rows, and
+    accepts both anilist/anime and myanimelist/anime as externalSite.
+
+And the resource question: castings carries a free-text `language`
+("Brazilian", "English"), while character-voices carries a `locale` code
+(ja_jp, en, it, es), holds 207,844 rows, and is reachable only through
+/anime/{id}/characters?include=voices. Cowboy Bebop has 345 castings against
+roughly 600 character-voices, so character-voices is denser and cleaner, and
+every language figure this probe reports comes from castings and is a FLOOR.
 """
 
 import argparse
