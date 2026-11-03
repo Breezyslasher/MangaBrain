@@ -168,3 +168,47 @@ def _row(**overrides) -> dict:
     }
     row.update(overrides)
     return row
+
+
+def test_the_walk_roots_on_either_direct_source():
+    """Rooting on AniList alone made propagation a no-op without the walk.
+
+    AniList's cast costs one request per title, so any environment that has
+    not spent twelve hours on it has english_va_count NULL everywhere -
+    including the CI job that builds the published dataset, where ANN is the
+    only dub source there is time for. Rooting on ANN as well is what makes
+    the published snapshot carry inferred dubs at all.
+    """
+    assert "'en' = ANY(m.dub_languages)" in REACHABLE_SQL
+    # And an entry ANN already calls English-dubbed is not re-marked.
+    assert "NOT ('en' = ANY(m.dub_languages))" in REACHABLE_SQL
+    assert "NOT ('en' = ANY(dub_languages))" in MARK_SQL
+
+
+def test_the_dataset_workflow_builds_dub_data_into_the_snapshot():
+    """Otherwise anyone restoring the published dataset starts from nothing.
+
+    The dub columns live on media, which is in DATA_TABLES, so they travel
+    with the snapshot - but only if the publishing job actually fills them.
+    """
+    workflow = (
+        Path(__file__).parent.parent / ".github" / "workflows" / "dataset-publish.yml"
+    ).read_text()
+    assert "pipeline.backfill_dub_ann" in workflow
+    assert "pipeline.propagate_dub" in workflow
+    # Runs regardless of the embed outcome: dub data is unrelated to
+    # embeddings, and without this a timed-out embed would skip it on every
+    # run of a long re-embed chain, so the languages would never arrive.
+    assert "if: always()" in workflow
+    # After the checkpoint upload, so it can never cost a run its checkpoint,
+    # and after the resume dispatch, because a job timeout kills the steps
+    # after it and losing the resume is worse than partial dub data.
+    assert workflow.index("Upload checkpoint to cache") < workflow.index("id: dub_ann")
+    assert workflow.index("Dispatch resume run") < workflow.index("id: dub_ann")
+    assert workflow.index("id: dub_ann") < workflow.index("Dump snapshot")
+    assert "runs-on: ubuntu-24.04" in workflow
+    # The resume must continue on the ref it started from. gh defaults to the
+    # default branch, so without this a branch run resumes with a different
+    # workflow definition than it began with.
+    assert '--ref "$GITHUB_REF_NAME"' in workflow
+    assert "runs-on: ubuntu-latest" not in workflow

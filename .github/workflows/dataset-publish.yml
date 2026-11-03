@@ -25,7 +25,15 @@ permissions:
 # checkpoint-save step always gets to run.
 jobs:
   build-dataset:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest. The pgvector service is pg16 and these jobs
+    # shell out to pg_dump/pg_restore against it, and ubuntu-latest has rolled
+    # to Ubuntu 26.04 "resolute", whose archive no longer carries
+    # postgresql-client-16: "E: Unable to locate package
+    # postgresql-client-16", which failed the job 30 seconds in. 24.04 still
+    # has it. The alternative, PGDG's apt repo, has no resolute suite yet, so
+    # pinning is the predictable fix; revisit when pg16 client packages exist
+    # for a newer runner.
+    runs-on: ubuntu-24.04
     timeout-minutes: 358
     services:
       db:
@@ -135,8 +143,54 @@ jobs:
             exit 0
           fi
           echo "dispatching resume attempt $((ATTEMPT + 1))"
+          # --ref, or the resume silently lands on the default branch: gh
+          # defaults there, so a run started from a branch resumes with a
+          # different workflow definition than it began with. That happened
+          # here - a branch run's resume went to main, where neither the
+          # runner pin nor the dub step existed, and died in 29 seconds.
           gh workflow run dataset-publish.yml -R "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
             -f resume_attempt=$((ATTEMPT + 1))
+
+      # The published dataset carries dub data so nobody restoring it has to
+      # spend twelve hours on AniList's cast, which costs one request per
+      # title because it will not populate a nested connection across a page
+      # of parents. ANN instead hands over its whole anime list in ~22 paged
+      # requests and 20 casts per request, which is the catalog in about
+      # three quarters of an hour, and tags every cast entry with its
+      # language so all nine arrive together.
+      #
+      # It is incremental (rows already sourced from ANN are skipped), so a
+      # timeout here resumes on the next run like sync and embed do.
+      # Propagation then runs off whichever direct source exists, which on
+      # CI is ANN alone.
+      #
+      # Last, and always. Three constraints land it here.
+      #
+      # After the checkpoint upload, because the job budget note above keeps
+      # sync + embed (280 + 70) inside the 358-minute job limit precisely so
+      # the checkpoint always gets saved; 40 minutes ahead of it would let a
+      # cold run die before checkpointing and lose everything.
+      #
+      # After the resume dispatch, because a worst-case run reaching here at
+      # minute 350 would have this step cut off by the job timeout, and a
+      # job timeout kills the steps after it too. Ahead of the dispatch that
+      # would cost the run its resume, which is what makes this workflow
+      # finish at all across runs. Losing a resume is far worse than
+      # finishing with partial dub data.
+      #
+      # if: always() because dub data has nothing to do with embeddings: an
+      # embed that times out would otherwise skip this step on every run of
+      # a long re-embed chain, so the languages would never be fetched. The
+      # pass is incremental, so each run adds to the last and it needs no
+      # resume trigger of its own.
+      - name: Dub languages from ANN
+        id: dub_ann
+        if: always()
+        timeout-minutes: 40
+        run: |
+          python -m pipeline.backfill_dub_ann
+          python -m pipeline.propagate_dub
 
       - name: Dump snapshot
         run: python -m pipeline.snapshot --out mangabrain-dataset.dump
