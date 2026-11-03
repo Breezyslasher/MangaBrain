@@ -6,6 +6,11 @@ name: dub-probe
 # because CI can reach AniList and Jikan. Results appear in the "Probe" step
 # log; nothing is written anywhere.
 on:
+  # Temporary: a workflow_dispatch workflow is not dispatchable until the
+  # file reaches the default branch, and this is a one-off measurement, so
+  # it runs on push to the working branch and the trigger comes back out.
+  push:
+    branches: [claude/work-in-progress-1dzs1q]
   workflow_dispatch:
     inputs:
       strata:
@@ -42,5 +47,5 @@ jobs:
       - name: Probe
         run: |
           python -m pipeline.probe_dub_coverage \
-            --strata "${{ inputs.strata }}" \
-            --cross-check "${{ inputs.cross_check }}"
+            --strata "${{ inputs.strata || '1,40,120,280,480,700' }}" \
+            --cross-check "${{ inputs.cross_check || '40' }}"
