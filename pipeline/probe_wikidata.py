@@ -109,6 +109,37 @@ LIMIT 15
 """
 
 
+PREFERRED_ID_PROPS = (
+    "MyAnimeList anime ID",
+    "AniList anime ID",
+    "Anime News Network anime ID",
+    "Kitsu anime ID",
+)
+
+
+def choose_id_property(discovered: dict[str, str]) -> tuple[str, str]:
+    """Pick the anime identifier property by EXACT label.
+
+    A substring test picked "MyAnimeList people ID" on the first run,
+    because "anime" occurs inside "myanimelist" - myanimelist[2:7] is
+    literally "anime" - so the probe joined voice actors against PEOPLE ids
+    and reported 3 items, which read as "Wikidata has almost no dub data"
+    and was entirely an artefact of the match. A wrong property id in SPARQL
+    returns a confident empty result, not an error, so nothing flagged it.
+
+    MyAnimeList first because every catalog row already stores idMal;
+    AniList second because the catalog is keyed on it.
+    """
+    for want in PREFERRED_ID_PROPS:
+        pid = discovered.get(want)
+        if pid:
+            return want, pid
+    raise SystemExit(
+        "none of the expected anime identifier properties were found:"
+        f" wanted one of {PREFERRED_ID_PROPS}, discovered {sorted(discovered)}"
+    )
+
+
 def query(client: httpx.Client, sparql: str, label: str) -> list[dict] | None:
     try:
         resp = client.get(
@@ -159,17 +190,8 @@ def main() -> None:
         if not props:
             raise SystemExit("could not discover any identifier property")
 
-        # Prefer MyAnimeList: every catalog row already stores idMal.
-        idprop = None
-        for name, pid in props.items():
-            if "myanimelist" in name.lower() and "anime" in name.lower():
-                idprop = pid
-                chosen = name
-                break
-        if idprop is None:
-            chosen, idprop = next(iter(props.items()))
-        print(f"\n   joining on: {chosen} ({idprop})", flush=True)
-
+        chosen, idprop = choose_id_property(props)
+        PREFERRED = PREFERRED_ID_PROPS
         print()
         print("=" * 72)
         print("2. how many items carry that identifier?")
@@ -184,12 +206,23 @@ def main() -> None:
         print("=" * 72)
         print("3. are voice actors recorded, and do they carry a language?")
         print("=" * 72)
-        rows = query(client, VOICE_ANY % {"idprop": idprop}, "voice actor statements")
-        any_items, any_st = scalar(rows, "items"), scalar(rows, "statements")
-        print(f"   items with ANY voice actor (P725)      {any_items}  ({any_st} statements)")
-        rows = query(client, VOICE_WITH_LANGUAGE % {"idprop": idprop}, "with language qualifier")
-        lang_items, lang_st = scalar(rows, "items"), scalar(rows, "statements")
-        print(f"   of those, with a language qualifier    {lang_items}  ({lang_st} statements)")
+        # Every anime-id property, not only the chosen one: if one join is
+        # sparse the others say whether that is Wikidata or the join.
+        lang_items = 0
+        for want in PREFERRED:
+            pid = props.get(want)
+            if not pid:
+                continue
+            rows = query(client, VOICE_ANY % {"idprop": pid}, f"{want} any VA")
+            items, statements = scalar(rows, "items"), scalar(rows, "statements")
+            rows = query(client, VOICE_WITH_LANGUAGE % {"idprop": pid}, f"{want} with lang")
+            l_items, l_st = scalar(rows, "items"), scalar(rows, "statements")
+            print(
+                f"   {want:<30} any VA {items}/{statements} st   with language {l_items}/{l_st} st",
+                flush=True,
+            )
+            if pid == idprop:
+                lang_items = l_items or 0
         print(
             "\n   A cast with no language says nothing about dubs - that is what"
             "\n   ruled out AniDB's <seiyuu>, which is the original cast.",
