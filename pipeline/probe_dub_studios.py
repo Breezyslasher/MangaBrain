@@ -34,10 +34,9 @@ import argparse
 import json
 import math
 import random
-import time
 from collections import Counter
 
-import httpx
+from pipeline.client import RateLimitedClient
 
 URL = "https://graphql.anilist.co"
 
@@ -67,15 +66,24 @@ query ($ids: [Int]) {
 """
 
 
-def post(client: httpx.Client, query: str, variables: dict) -> dict:
-    resp = client.post(URL, json={"query": query, "variables": variables})
-    payload = resp.json()
+def post(client: RateLimitedClient, query: str, variables: dict) -> dict:
+    """Through the project's client, not a bare httpx call.
+
+    A bare client.post killed a 1,000-title run on its 40th request with
+    "Server disconnected without sending a response" - a transient
+    RemoteProtocolError, which subclasses httpx.TransportError and which
+    RateLimitedClient already retries with backoff. It also paces requests
+    and caches responses on disk, so a rerun over the same sampled ids costs
+    almost nothing. Hand-rolling retries here would have been the fifth copy
+    of that logic in these probes.
+    """
+    payload = client.request("POST", URL, json_body={"query": query, "variables": variables})
     if payload.get("errors"):
         print(f"   errors: {json.dumps(payload['errors'])[:240]}", flush=True)
     return payload
 
 
-def sample_ids(client: httpx.Client, want: int, seed: int) -> list[int]:
+def sample_ids(client: RateLimitedClient, want: int, seed: int) -> list[int]:
     """Random across the whole id space; a popularity sample cannot reach the
     tail past AniList's 5000-row offset cap, and the tail is the subject."""
     rng = random.Random(seed)
@@ -84,7 +92,6 @@ def sample_ids(client: httpx.Client, want: int, seed: int) -> list[int]:
         payload = post(client, IDS_QUERY, {"ids": [rng.randint(1, 190_000) for _ in range(50)]})
         media = ((payload.get("data") or {}).get("Page") or {}).get("media") or []
         out.extend(m["id"] for m in media)
-        time.sleep(2.0)
     return out[:want]
 
 
@@ -133,18 +140,22 @@ def main() -> None:
     parser.add_argument("--sample", type=int, default=1000)
     parser.add_argument("--min-support", type=int, default=5)
     parser.add_argument("--seed", type=int, default=20261103)
+    parser.add_argument(
+        "--cache-dir",
+        default="",
+        help="on-disk response cache, so a rerun over the same ids is free",
+    )
     args = parser.parse_args()
 
-    with httpx.Client(timeout=120.0, headers={"Content-Type": "application/json"}) as client:
-        ids = sample_ids(client, args.sample, args.seed)
-        print(f"sampled {len(ids)} random anime ids\n", flush=True)
-        records = []
-        for start in range(0, len(ids), 50):
-            chunk = ids[start : start + 50]
-            payload = post(client, QUERY, {"ids": chunk, "perPage": len(chunk)})
-            page = (payload.get("data") or {}).get("Page") or {}
-            records.extend(page.get("media") or [])
-            time.sleep(2.0)
+    client = RateLimitedClient(min_interval=2.0, cache_dir=args.cache_dir, timeout=120.0)
+    ids = sample_ids(client, args.sample, args.seed)
+    print(f"sampled {len(ids)} random anime ids\n", flush=True)
+    records = []
+    for start in range(0, len(ids), 50):
+        chunk = ids[start : start + 50]
+        payload = post(client, QUERY, {"ids": chunk, "perPage": len(chunk)})
+        page = (payload.get("data") or {}).get("Page") or {}
+        records.extend(page.get("media") or [])
 
     with_cast = [m for m in records if has_any_cast(m)]
     dubbed = [m for m in with_cast if has_english(m)]
