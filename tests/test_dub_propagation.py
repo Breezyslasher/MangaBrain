@@ -77,9 +77,18 @@ def test_a_flag_no_longer_supported_is_cleared():
     assert "NOT (id = ANY(%(ids)s))" in CLEAR_SQL
 
 
-def test_the_filter_accepts_measured_or_inferred():
+def test_the_filter_accepts_measured_inferred_or_ann():
+    """English has three sources that fill at very different times.
+
+    AniList measures it per entry over ~22k requests and hours, ANN supplies
+    every language at once but only where a title could be matched, and
+    propagation infers it from a dubbed relative. Any of the three answers,
+    so the filter does not go empty while one is still filling.
+    """
     sql, _ = build_filters(dubbed=True)
-    assert "(m.english_va_count > 0 OR m.english_dub_inferred)" in sql
+    assert "m.dub_languages @> ARRAY['en']::text[]" in sql
+    assert "m.english_va_count > 0" in sql
+    assert "m.english_dub_inferred" in sql
 
 
 def test_the_filter_is_still_positive_only():

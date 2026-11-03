@@ -20,6 +20,7 @@ def build_filters(
     max_episodes: int | None = None,
     max_chapters: int | None = None,
     dubbed: bool = False,
+    dub_lang: str | None = None,
     mal_user: str | None = None,
     anilist_user: str | None = None,
     exclude_lists: list[str] | None = None,
@@ -83,7 +84,10 @@ def build_filters(
     if max_chapters is not None:
         clauses.append("(m.chapters IS NULL OR m.chapters <= %(f_max_chapters)s)")
         params["f_max_chapters"] = max_chapters
-    if dubbed:
+    # dubbed=true is English, kept as the shorthand it has always been.
+    if dubbed and not dub_lang:
+        dub_lang = "en"
+    if dub_lang:
         # Positive only, and deliberately not invertible. english_va_count > 0
         # means AniList credits an English voice actor, which is a reliable
         # "has an English dub". A zero is NOT a reliable "sub only": midlist
@@ -96,7 +100,23 @@ def build_filters(
         # relative with a measured English cast (pipeline.propagate_dub),
         # which is what recovers season and OVA entries whose own AniList
         # page never had the English cast entered.
-        clauses.append("(m.english_va_count > 0 OR m.english_dub_inferred)")
+        code = dub_lang.strip().lower()
+        if code == "en":
+            # English has two sources and they arrive at different times.
+            # AniList measures it per entry over ~22k requests and hours;
+            # ANN supplies every language at once but only for the titles it
+            # can be matched to. Either answers for English, so the filter
+            # does not go empty while one of them is still filling.
+            clauses.append(
+                "(m.dub_languages @> ARRAY['en']::text[]"
+                " OR m.english_va_count > 0 OR m.english_dub_inferred)"
+            )
+        else:
+            # Other languages come from ANN only: AniList must be asked one
+            # aliased field per language and was only ever asked about
+            # English, so a non-English answer exists just where ANN matched.
+            clauses.append("m.dub_languages @> ARRAY[%(f_dub_lang)s]::text[]")
+            params["f_dub_lang"] = code
     # keep_planned: plan-to-watch/plan-to-read entries stop excluding, so
     # planned titles can still be recommended; started and finished entries
     # (watching/reading, completed, on hold, dropped) always exclude.

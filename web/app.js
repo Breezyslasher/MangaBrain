@@ -121,10 +121,13 @@ function filterParams() {
     if (state.medium === "anime") params.max_episodes = maxLen;
     else params.max_chapters = maxLen;
   }
-  // Positive filter only, and only for anime: on means "known to have an
-  // English dub", off means no dub filtering at all. There is deliberately no
-  // sub-only option, because an empty English cast is not evidence of one.
-  if (state.medium === "anime" && $("dubbed").checked) params.dubbed = "true";
+  // Positive filter only, and only for anime: a chosen language means "known
+  // to be dubbed in it", and "Any" means no dub filtering at all. There is
+  // deliberately no sub-only option, because an absent cast is not evidence
+  // of one. English can be answered by AniList, ANN or franchise inference;
+  // the other languages exist only where ANN matched the entry.
+  const dubLang = $("dubLang").value;
+  if (state.medium === "anime" && dubLang) params.dub_lang = dubLang;
   if (isChecked("malExclude") && $("malUser").value.trim()) {
     params.mal_user = $("malUser").value.trim();
   }
@@ -216,10 +219,12 @@ async function loadDubCoverage() {
       return;
     }
     const pct = Math.round((100 * data.checked) / data.total);
-    note.textContent = `${pct}% of anime checked`;
+    note.textContent = `English: ${pct}% checked`;
     note.title =
-      `${data.checked} of ${data.total} anime checked for an English cast;` +
-      ` ${data.dubbed} have one. Unchecked titles are hidden while this is on.`;
+      `${data.checked} of ${data.total} anime checked against AniList for an` +
+      ` English cast; ${data.dubbed} have one. Titles not yet checked are` +
+      " hidden while a dub language is selected. Other languages come from" +
+      " ANN and cover only the titles it could be matched to.";
   } catch {
     note.textContent = "";
   }
@@ -938,7 +943,7 @@ function bindEvents() {
     on(slider, "change", rerunActive);
   }
 
-  for (const id of ["adult", "dubbed", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
+  for (const id of ["adult", "dubLang", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
                     "minScore", "country", "status", "format", "maxPop", "maxLen",
                     "malExclude", "alExclude", "kitsuExclude", "ytExclude", "keepPlanned"]) {
     on(id, "change", rerunActive);

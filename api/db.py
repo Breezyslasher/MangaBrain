@@ -108,7 +108,7 @@ MEDIA_COLS = """
     m.episodes, m.chapters, m.volumes, m.country_of_origin, m.start_year,
     m.status, m.average_score, m.cover_image_medium, m.cover_image_large,
     m.is_adult, m.synonyms, m.popularity, m.favourites,
-    m.english_va_count, m.dub_groups, m.english_dub_inferred
+    m.english_va_count, m.dub_groups, m.english_dub_inferred, m.dub_languages
 """
 
 
@@ -143,12 +143,19 @@ def media_from_row(row: dict[str, Any]) -> MediaOut:
         favourites=row["favourites"],
         has_english_dub=_has_dub(row),
         dub_groups=row.get("dub_groups") or [],
+        dub_languages=row.get("dub_languages") or [],
         dub_source=_dub_source(row),
     )
 
 
 def _has_dub(row: dict[str, Any]) -> bool | None:
-    """True when measured or inferred, None only when nothing is known yet."""
+    """Whether an English dub is known, from any of the three sources.
+
+    None means nothing is known yet, which is distinct from a checked entry
+    that has none; the filter excludes both, but a client can say which.
+    """
+    if "en" in (row.get("dub_languages") or []):
+        return True
     if row.get("english_dub_inferred"):
         return True
     count = row.get("english_va_count")
@@ -156,8 +163,11 @@ def _has_dub(row: dict[str, Any]) -> bool | None:
 
 
 def _dub_source(row: dict[str, Any]) -> str | None:
+    """Most direct evidence first: measured, then ANN, then inherited."""
     if (row.get("english_va_count") or 0) > 0:
         return "measured"
+    if "en" in (row.get("dub_languages") or []):
+        return "ann"
     if row.get("english_dub_inferred"):
         return "franchise"
     return None

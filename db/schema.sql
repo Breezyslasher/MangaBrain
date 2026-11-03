@@ -75,6 +75,28 @@ ALTER TABLE media ADD COLUMN IF NOT EXISTS english_dub_inferred BOOLEAN NOT NULL
 CREATE INDEX IF NOT EXISTS idx_media_english_dub_inferred
     ON media (id) WHERE english_dub_inferred;
 
+-- Every language ANN credits a cast in, lowercase ISO-639-1 ('en', 'de',
+-- 'es', 'fr', 'it', 'ja', 'ko', 'pt', 'ru', 'tl'). AniList can only be asked
+-- about one language per aliased field and its enum covers ten, while ANN
+-- tags every cast entry with its language in the same response: 58 of 58 on
+-- the sampled title, across nine languages. So AniList stays the English
+-- source, measured per entry, and ANN fills in the rest.
+--
+-- It is also the cheaper source by a wide margin. AniList will not populate a
+-- nested connection across a page of parents, so its cast costs one request
+-- per title (~22k, over twelve hours), while ANN hands over its whole anime
+-- list in ~22 paged requests and then 20 casts per request.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS dub_languages TEXT[] NOT NULL DEFAULT '{}';
+-- Which source supplied dub_languages, so a thin ANN match stays
+-- distinguishable from a measured AniList cast.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS dub_languages_source TEXT;
+-- The matched ANN entry, kept so a questionable row can be traced back to
+-- the record it came from rather than being taken on faith.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS ann_id INTEGER;
+
+CREATE INDEX IF NOT EXISTS idx_media_dub_languages
+    ON media USING gin (dub_languages);
+
 -- Partial index: the filter only ever asks for titles known to be dubbed.
 CREATE INDEX IF NOT EXISTS idx_media_english_dub
     ON media (id) WHERE english_va_count > 0;
