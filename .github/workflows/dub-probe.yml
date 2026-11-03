@@ -48,8 +48,5 @@ jobs:
       - name: Install httpx
         run: pip install "httpx>=0.27"
 
-      - name: Probe
-        run: |
-          python -m pipeline.probe_dub_coverage \
-            --per-stratum "${{ inputs.per_stratum || '10' }}" \
-            --cross-check "${{ inputs.cross_check || '15' }}"
+      - name: Compare query shapes on a known-dubbed title
+        run: python -m pipeline.probe_dub_coverage --debug-id 1535

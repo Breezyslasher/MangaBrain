@@ -206,11 +206,18 @@ def describe(media: dict[str, Any], cast: Cast) -> str:
 
 
 def run_debug(client: RateLimitedClient, media_id: int) -> None:
-    log(f"=== raw cast dump for media {media_id} ===")
-    data = client.request(
-        "POST", ANILIST_URL, json_body={"query": DEBUG_QUERY, "variables": {"id": media_id}}
-    )
-    print(json.dumps(data, indent=2)[:6000], flush=True)
+    """Print both query shapes for one title, side by side.
+
+    DEBUG_QUERY demonstrably returns English voice actors; CAST_QUERY returns
+    none for the same titles. Since one of the two is lying about the same
+    data, print both raw responses rather than reason about the difference.
+    """
+    for name, query in (("CAST_QUERY", CAST_QUERY), ("DEBUG_QUERY", DEBUG_QUERY)):
+        log(f"=== {name} raw response for media {media_id} ===")
+        data = client.request(
+            "POST", ANILIST_URL, json_body={"query": query, "variables": {"id": media_id}}
+        )
+        print(json.dumps(data, indent=2)[:7000], flush=True)
 
 
 def run_ground_truth(client: RateLimitedClient) -> int:
