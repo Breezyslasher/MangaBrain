@@ -290,3 +290,8 @@ button:hover { filter: brightness(1.1); }
 @media (max-width: 900px) {
   main { grid-template-columns: 1fr; }
 }
+
+/* Backfill progress beside the dub toggle: present only while the English
+   cast check is incomplete, because until then the filter hides titles it
+   has not looked at yet. */
+.inline-note { color: var(--muted); font-size: 0.78rem; }
