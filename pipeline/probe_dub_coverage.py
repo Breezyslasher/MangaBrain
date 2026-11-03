@@ -20,7 +20,9 @@ So this probe answers three things against the live APIs:
      be dubbed and known not to be. This is the guard that matters: a first
      version of this probe reported zero English voice actors for every title
      sampled, which read as "the signal does not exist" and was really a bad
-     query. Only the labelled set caught it.
+     query. Only the labelled set caught it. The labels themselves are
+     asserted from memory, so a disagreement is as likely to be a wrong label
+     as wrong data; treat it as a prompt to check, not a measurement.
   2. Coverage by popularity stratum, from the most popular titles in the
      catalog down to the least popular.
   3. Disagreement with MAL (via Jikan), which bounds the false-negative rate.
@@ -31,6 +33,22 @@ One caveat the first run paid for: AniList does not populate a nested
 connection across a page of parents, so asking for Page.media.characters
 yields empty edges and a silent zero. The cast has to be fetched one title at
 a time, which is why this samples tens of titles rather than thousands.
+
+Measured once, 15 titles per stratum (run 6 of the dub-probe workflow):
+anime ranked 1-15 by popularity 15/15 credit an English voice actor, rank
+~1000 14/15, rank ~3000 9/15, rank ~5000 10/15, and the two least-popular
+strata 0/15 each. Every title in those bottom strata has no cast recorded at
+all (music videos, kids shorts, educational OVAs), so the floor is missing
+cast data rather than missing dub data: of the 62 sampled titles that have
+any cast, 48 credit an English voice actor. dubGroup is populated
+occasionally and usefully ("4Kids" and "Odex" on One Piece, "Animax" on
+Fullmetal Alchemist: Brotherhood).
+
+The asymmetry this implies matters more than the headline number. "Credits an
+English VA" is a reliable positive: it is hard to get there by accident.
+"Credits none" is not a reliable negative in the midlist, where Berserk 2
+(2017) came back with 21 characters and zero English voice actors despite
+having a dub. So this supports a "known dubbed" filter, not a "sub only" one.
 
 Run it where the network allows (CI, or the NAS):
 

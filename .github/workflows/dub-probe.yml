@@ -1,16 +1,12 @@
 name: dub-probe
 
-# One-off research probe: is English voice-actor data a usable dub signal, and
-# does its coverage survive into the long tail? AniList has no dub field, so
-# the candidate signal is "an English voice actor is credited". This runs on CI
-# because CI can reach AniList and Jikan. Results appear in the "Probe" step
-# log; nothing is written anywhere.
+# Research probe: is English voice-actor data a usable dub signal, and does
+# its coverage survive into the long tail? AniList has no dub field, so the
+# candidate signal is "an English voice actor is credited". This runs on CI
+# because CI can reach AniList; api.jikan.moe is NOT reachable from GitHub's
+# runners, so the MAL cross-check has to run from the NAS. Results appear in
+# the "Probe" step log; nothing is written anywhere.
 on:
-  # Temporary: a workflow_dispatch workflow is not dispatchable until the
-  # file reaches the default branch, and this is a one-off measurement, so
-  # it runs on push to the working branch and the trigger comes back out.
-  push:
-    branches: [claude/work-in-progress-1dzs1q]
   workflow_dispatch:
     inputs:
       per_stratum:
