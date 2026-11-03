@@ -143,7 +143,13 @@ jobs:
             exit 0
           fi
           echo "dispatching resume attempt $((ATTEMPT + 1))"
+          # --ref, or the resume silently lands on the default branch: gh
+          # defaults there, so a run started from a branch resumes with a
+          # different workflow definition than it began with. That happened
+          # here - a branch run's resume went to main, where neither the
+          # runner pin nor the dub step existed, and died in 29 seconds.
           gh workflow run dataset-publish.yml -R "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
             -f resume_attempt=$((ATTEMPT + 1))
 
       # The published dataset carries dub data so nobody restoring it has to

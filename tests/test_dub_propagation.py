@@ -207,4 +207,8 @@ def test_the_dataset_workflow_builds_dub_data_into_the_snapshot():
     assert workflow.index("Dispatch resume run") < workflow.index("id: dub_ann")
     assert workflow.index("id: dub_ann") < workflow.index("Dump snapshot")
     assert "runs-on: ubuntu-24.04" in workflow
+    # The resume must continue on the ref it started from. gh defaults to the
+    # default branch, so without this a branch run resumes with a different
+    # workflow definition than it began with.
+    assert '--ref "$GITHUB_REF_NAME"' in workflow
     assert "runs-on: ubuntu-latest" not in workflow
