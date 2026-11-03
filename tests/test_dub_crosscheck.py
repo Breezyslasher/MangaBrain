@@ -85,3 +85,43 @@ def test_resolve_tolerates_a_missing_start_date():
     index = build_index([AnnEntry("3", "Capeta", "TV", 2005)])
     media = {"title": {"english": "Capeta"}, "synonyms": [], "format": "TV"}
     assert resolve_media(index, media)[0] == "exact"
+
+
+def test_an_english_release_title_hiding_in_synonyms_resolves():
+    """AniList often has no `english` field but lists it as a synonym.
+
+    Matching is a dictionary lookup against the bulk index now, not a request
+    per candidate, so every name is tried. Capping the candidates was a
+    leftover from the search era and cost real recall: 45% of silent titles
+    went unresolved, and ANN files this one under the English name.
+    """
+    index = build_index([AnnEntry("1", "My Wife is the Student Council President", "TV", 2015)])
+    media = {
+        "title": {
+            "english": None,
+            "romaji": "Okusama ga Seitokaichou!",
+            "native": "おくさまが生徒会長！",
+        },
+        "synonyms": ["OkuSei", "Okusama+!", "My Wife is the Student Council President"],
+        "startDate": {"year": 2015},
+        "format": "TV",
+    }
+    verdict, entry = resolve_media(index, media)
+    assert verdict == "exact"
+    assert entry is not None and entry.ann_id == "1"
+
+
+def test_widening_the_candidates_does_not_reopen_the_bad_join():
+    """A synonym match is how the Suntory advert hit 'your name.'.
+
+    Trying more names is only safe because corroboration rejects a match whose
+    year or format contradicts it, so that case must stay rejected.
+    """
+    index = build_index([AnnEntry("18171", "your name.", "movie", 2016)])
+    media = {
+        "title": {"english": None, "romaji": "Suntory Minami Alps no Tennen Mizu"},
+        "synonyms": ["your name.", "Suntory CM"],
+        "startDate": {"year": 2016},
+        "format": "SPECIAL",
+    }
+    assert resolve_media(index, media) == ("rejected_format", None)

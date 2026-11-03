@@ -47,11 +47,16 @@ from pipeline.probe_dub_coverage import STRATA, fetch_cast, fetch_ids, page_for
 
 UA = "MangaBrain/0.1 (self-hosted recommendation engine; dub coverage probe)"
 
-# ANN's search needed the query to be a prefix of a real title and returned
-# nothing for sequels, OVAs and Japanese script, so matching is done offline
-# against the bulk report instead. Names tried per title are still capped.
-MAX_TITLE_TRIES = 4
-MAX_SYNONYM_TRIES = 2
+# Every name is tried, because matching is a dictionary lookup against the
+# bulk index rather than a request. These caps were sized when each candidate
+# cost an HTTP round trip against a source asking for one request a second,
+# and keeping them afterwards threw away free recall: AniList's synonyms are
+# often where the English release title lives, and 45% of silent titles were
+# going unresolved. Corroboration on year and format is what makes this safe
+# to widen - a synonym match is exactly how a Suntory advert once matched
+# 'your name.', and that is now rejected on format rather than prevented by
+# never looking.
+MAX_SYNONYMS = 12
 
 
 def log(message: str) -> None:
@@ -69,7 +74,7 @@ def candidate_titles(media: dict[str, Any]) -> list[str]:
     """
     title = media.get("title") or {}
     ordered = [title.get("english"), title.get("romaji"), title.get("native")]
-    ordered += (media.get("synonyms") or [])[:MAX_SYNONYM_TRIES]
+    ordered += (media.get("synonyms") or [])[:MAX_SYNONYMS]
     seen: set[str] = set()
     out: list[str] = []
     for name in ordered:
@@ -86,7 +91,7 @@ def resolve_media(index: dict, media: dict[str, Any]) -> tuple[str, Any]:
     year = (media.get("startDate") or {}).get("year")
     return match(
         index,
-        candidate_titles(media)[:MAX_TITLE_TRIES],
+        candidate_titles(media),
         year=year,
         fmt=media.get("format"),
     )
