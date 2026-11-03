@@ -278,3 +278,20 @@ CREATE TABLE IF NOT EXISTS sync_state (
     value      JSONB NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Dub languages measured per entry from AniList, as opposed to the
+-- name-matched set in dub_languages that comes from ANN. Kept apart rather
+-- than merged: ANN resolves 31.8% of the catalog by title and a wrong match
+-- asserts another show's dub, while AniList answers for the id it was given,
+-- so the two claims carry different weight and the API reports which is which.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS measured_dub_languages TEXT[] NOT NULL DEFAULT '{}';
+
+-- Which languages have been ASKED about, so that "asked, no cast credited"
+-- stays distinguishable from "never asked" - the same reason english_va_count
+-- keeps NULL apart from 0. Without this a title with no Spanish dub and a
+-- title nobody has checked for Spanish look identical, and a positive-only
+-- filter cannot tell the user which it is looking at.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS dub_languages_checked TEXT[] NOT NULL DEFAULT '{}';
+
+CREATE INDEX IF NOT EXISTS idx_media_measured_dub_languages
+    ON media USING gin (measured_dub_languages);

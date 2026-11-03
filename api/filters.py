@@ -109,13 +109,22 @@ def build_filters(
             # does not go empty while one of them is still filling.
             clauses.append(
                 "(m.dub_languages @> ARRAY['en']::text[]"
+                " OR m.measured_dub_languages @> ARRAY['en']::text[]"
                 " OR m.english_va_count > 0 OR m.english_dub_inferred)"
             )
         else:
-            # Other languages come from ANN only: AniList must be asked one
-            # aliased field per language and was only ever asked about
-            # English, so a non-English answer exists just where ANN matched.
-            clauses.append("m.dub_languages @> ARRAY[%(f_dub_lang)s]::text[]")
+            # Two sources, and they differ in kind rather than only in
+            # timing. measured_dub_languages is AniList answering for the id
+            # it was given, so it reaches the whole catalog;
+            # dub_languages is ANN matched on title, which resolves 31.8% and
+            # can in principle match the wrong show. Either satisfies the
+            # filter - withholding a title because only the weaker source
+            # knows about it would hide exactly the obscure entries this
+            # project exists to surface - and the API reports which answered.
+            clauses.append(
+                "(m.dub_languages @> ARRAY[%(f_dub_lang)s]::text[]"
+                " OR m.measured_dub_languages @> ARRAY[%(f_dub_lang)s]::text[])"
+            )
             params["f_dub_lang"] = code
     # keep_planned: plan-to-watch/plan-to-read entries stop excluding, so
     # planned titles can still be recommended; started and finished entries

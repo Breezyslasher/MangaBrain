@@ -40,6 +40,12 @@ on:
           before this came from a 15-40 title sample.
         required: false
         default: "false"
+      anidb:
+        description: evaluate AniDB as a dub source. Sends only a handful of
+          requests, because AniDB bans IPs for automated access and its terms
+          restrict bulk use - that constraint IS the finding, not a detail.
+        required: false
+        default: "false"
       kitsu:
         description: probe Kitsu as a dub source. The reason to care is its
           mappings resource, which may carry AniList/MAL ids - an id join
@@ -68,7 +74,7 @@ permissions:
 # and deleted by a reports probe queued while it was still working.
 concurrency:
   group: >-
-    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}
   cancel-in-progress: true
 
 jobs:
@@ -101,9 +107,28 @@ jobs:
             --per-stratum "${{ inputs.per_stratum || '10' }}" \
             --limit "${{ inputs.ann_lookups || '30' }}"
 
+      - name: Evaluate AniDB
+        if: inputs.anidb == 'true'
+        run: python -m pipeline.probe_anidb --confirm
+
       - name: Probe Kitsu
         if: inputs.kitsu == 'true'
         run: python -m pipeline.probe_kitsu --sample 200 --raw
+
+      # Separate from the measurement above: this one asks what the API is,
+      # rather than measuring through an assumed shape. It runs with the
+      # same input because a measurement taken against the wrong resource
+      # is worth less than knowing which resource is right.
+      # Read the spec before interrogating the server: the spec says which
+      # resource is current and what each filter is actually called, which
+      # is the thing three measurements have now guessed at.
+      - name: Read Kitsu's OpenAPI spec
+        if: inputs.kitsu == 'true'
+        run: python -m pipeline.probe_kitsu_spec --all-paths
+
+      - name: Discover Kitsu's cast API shape
+        if: inputs.kitsu == 'true'
+        run: python -m pipeline.probe_kitsu_shape --skip-docs
 
       - name: Probe AniList's dub languages
         if: inputs.languages == 'true'
@@ -121,7 +146,7 @@ jobs:
       - name: Probe
         if: inputs.sources != 'true' && inputs.crosscheck != 'true'
           && inputs.paged_cast != 'true' && inputs.languages != 'true'
-          && inputs.kitsu != 'true'
+          && inputs.kitsu != 'true' && inputs.anidb != 'true'
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \

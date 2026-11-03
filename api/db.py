@@ -108,7 +108,8 @@ MEDIA_COLS = """
     m.episodes, m.chapters, m.volumes, m.country_of_origin, m.start_year,
     m.status, m.average_score, m.cover_image_medium, m.cover_image_large,
     m.is_adult, m.synonyms, m.popularity, m.favourites,
-    m.english_va_count, m.dub_groups, m.english_dub_inferred, m.dub_languages
+    m.english_va_count, m.dub_groups, m.english_dub_inferred, m.dub_languages,
+    m.measured_dub_languages
 """
 
 
@@ -149,12 +150,14 @@ def media_from_row(row: dict[str, Any]) -> MediaOut:
 
 
 def _has_dub(row: dict[str, Any]) -> bool | None:
-    """Whether an English dub is known, from any of the three sources.
+    """Whether an English dub is known, from any source.
 
     None means nothing is known yet, which is distinct from a checked entry
     that has none; the filter excludes both, but a client can say which.
     """
     if "en" in (row.get("dub_languages") or []):
+        return True
+    if "en" in (row.get("measured_dub_languages") or []):
         return True
     if row.get("english_dub_inferred"):
         return True
@@ -163,8 +166,16 @@ def _has_dub(row: dict[str, Any]) -> bool | None:
 
 
 def _dub_source(row: dict[str, Any]) -> str | None:
-    """Most direct evidence first: measured, then ANN, then inherited."""
+    """Most direct evidence first: measured, then ANN, then inherited.
+
+    Both measured forms outrank ANN. english_va_count and
+    measured_dub_languages are AniList answering for the id it was given;
+    ANN is a title match that resolves 31.8% of the catalog and can match
+    the wrong show, so it is weaker evidence even when it agrees.
+    """
     if (row.get("english_va_count") or 0) > 0:
+        return "measured"
+    if "en" in (row.get("measured_dub_languages") or []):
         return "measured"
     if "en" in (row.get("dub_languages") or []):
         return "ann"
