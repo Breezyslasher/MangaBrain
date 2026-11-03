@@ -24,6 +24,8 @@ Usage:
 
 import argparse
 import time
+from collections import Counter
+from xml.etree import ElementTree
 
 import httpx
 
@@ -56,7 +58,6 @@ CANDIDATES: tuple[tuple[str, str, bool], ...] = (
 ANN_DUMPS: tuple[tuple[str, str], ...] = (
     ("anime by id", f"{ANN_CDN}?anime=4658"),
     ("anime by title", f"{ANN_CDN}?title=~cowboy+bebop"),
-    ("api docs page", "https://www.animenewsnetwork.com/encyclopedia/api.php"),
 )
 
 # ANN asks for no more than one request per second and for caching; this stays
@@ -97,18 +98,50 @@ def run_reachability() -> None:
             log(f"  {label:<24} HTTP {status} {ctype.split(';')[0]:<24} {verdict}{note}")
 
 
+def describe_xml(body: str) -> None:
+    """Print the document's real shape, compactly.
+
+    A raw dump of a 60kB response buries the evidence in CI's log, and
+    summarising from memory is how this project already lost two runs. So walk
+    the parsed tree and report observed tags and attributes, plus every element
+    carrying a language attribute verbatim.
+    """
+    try:
+        root = ElementTree.fromstring(body)
+    except ElementTree.ParseError as exc:
+        log(f"    not parseable as XML: {exc}")
+        log(f"    first 300 chars: {body[:300]!r}")
+        return
+
+    log(f"    root <{root.tag}> attrs={dict(root.attrib)}")
+    for child in list(root)[:3]:
+        kids = Counter(sub.tag for sub in child)
+        log(f"    <{child.tag}> attrs={dict(child.attrib)}")
+        log(f"      children: {dict(kids)}")
+
+    # The whole question: is cast recorded per language?
+    lang_bearing = [el for el in root.iter() if any("lang" in k.lower() for k in el.attrib)]
+    log(f"    elements with a lang-ish attribute: {len(lang_bearing)}")
+    for el in lang_bearing[:6]:
+        text = (el.text or "").strip()[:60]
+        inner = {sub.tag: (sub.text or "").strip()[:40] for sub in list(el)[:3]}
+        log(f"      <{el.tag} {dict(el.attrib)}> text={text!r} children={inner}")
+
+    gross = Counter(el.tag for el in root.iter())
+    log(f"    every tag seen: {dict(gross)}")
+
+
 def run_dump() -> None:
-    log("=== raw ANN responses (write the parser from these, not from memory) ===")
+    log("=== ANN response shape (observed, not recalled) ===")
     with httpx.Client(timeout=30.0, follow_redirects=True, headers={"User-Agent": UA}) as client:
         for label, url in ANN_DUMPS:
             status, ctype, body = get(client, url)
             time.sleep(MIN_INTERVAL)
-            log(f"--- {label}: HTTP {status} {ctype} ({len(body)} bytes) ---")
-            print(body[:9000], flush=True)
-            # The question is whether cast is tagged by language at all.
-            lowered = body.lower()
-            for needle in ('lang="en"', "lang='en'", "<cast", "english"):
-                log(f"    contains {needle!r}: {needle in lowered}")
+            log(f"--- {label}: HTTP {status} {ctype.split(';')[0]} ({len(body)} bytes) ---")
+            if status != 200:
+                log(f"    body: {body[:200]!r}")
+                continue
+            describe_xml(body)
 
 
 def main() -> None:
@@ -118,10 +151,12 @@ def main() -> None:
     args = parser.parse_args()
     if not (args.reachability or args.dump):
         parser.error("pass --reachability and/or --dump")
-    if args.reachability:
-        run_reachability()
+    # Dump first, reachability last: CI serves only the tail of a job log,
+    # so the summary table has to be the final thing printed.
     if args.dump:
         run_dump()
+    if args.reachability:
+        run_reachability()
 
 
 if __name__ == "__main__":
