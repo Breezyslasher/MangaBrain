@@ -23,8 +23,10 @@ Usage:
 """
 
 import argparse
+import re
 import time
 from collections import Counter
+from html import unescape
 from xml.etree import ElementTree
 
 import httpx
@@ -138,8 +140,55 @@ def describe_xml(body: str) -> None:
     for rel in list(root.iter("release"))[:3]:
         log(f"      <release {dict(rel.attrib)}> text={(rel.text or '').strip()[:60]!r}")
 
+    # Does ANN carry a cross-reference to another database? If it does, this
+    # can be joined on an id we already store instead of matched by title,
+    # which is the difference between a reliable join and a guess. Most <info>
+    # elements have no lang attribute and went unexamined until now.
+    infos = list(root.iter("info"))
+    log(f"    <info> types present: {dict(Counter(i.attrib.get('type') for i in infos))}")
+    external = []
+    for info in infos:
+        haystack = " ".join([info.attrib.get("href", ""), (info.text or "")]).lower()
+        if any(k in haystack for k in ("myanimelist", "anilist", "anidb", "kitsu", "mal.")):
+            external.append(info)
+    log(f"    <info> mentioning another database: {len(external)}")
+    for info in external[:8]:
+        log(f"      <info {dict(info.attrib)}> text={(info.text or '').strip()[:70]!r}")
+
     gross = Counter(el.tag for el in root.iter())
     log(f"    every tag seen: {dict(gross)}")
+
+
+DOCS_URL = "https://www.animenewsnetwork.com/encyclopedia/api.php"
+PARAM_HINTS = ("api.xml", "reports.xml", "?anime=", "?manga=", "title=", "id=", "nlist")
+
+
+def run_docs() -> None:
+    """Print only the parameter-ish lines of ANN's API docs.
+
+    The whole page is a 60kB web page that buried everything else in CI's log
+    last time, but it is also the only statement of which lookups the API
+    supports, which is not something to assume.
+    """
+    log("=== ANN API documented parameters (markup stripped) ===")
+    with httpx.Client(timeout=30.0, follow_redirects=True, headers={"User-Agent": UA}) as client:
+        status, _, body = get(client, DOCS_URL)
+    if status != 200:
+        log(f"    HTTP {status}")
+        return
+    text = re.sub(r"<(script|style)\b.*?</\1>", " ", body, flags=re.S | re.I)
+    text = re.sub(r"<[^>]+>", "\n", text)
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        line = unescape(raw).strip()
+        if not (8 < len(line) < 240):
+            continue
+        if not any(hint in line for hint in PARAM_HINTS):
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        log(f"    {line}")
 
 
 def run_dump() -> None:
@@ -159,13 +208,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Probe other dub data sources")
     parser.add_argument("--reachability", action="store_true")
     parser.add_argument("--dump", action="store_true")
+    parser.add_argument("--docs", action="store_true", help="ANN's documented parameters")
     args = parser.parse_args()
-    if not (args.reachability or args.dump):
-        parser.error("pass --reachability and/or --dump")
+    if not (args.reachability or args.dump or args.docs):
+        parser.error("pass --reachability, --dump and/or --docs")
     # Dump first, reachability last: CI serves only the tail of a job log,
     # so the summary table has to be the final thing printed.
     if args.dump:
         run_dump()
+    if args.docs:
+        run_docs()
     if args.reachability:
         run_reachability()
 

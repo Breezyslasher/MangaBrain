@@ -57,7 +57,7 @@ jobs:
       - name: Probe other sources
         if: inputs.sources == 'true'
         run: |
-          python -m pipeline.probe_dub_sources --reachability --dump
+          python -m pipeline.probe_dub_sources --dump --docs --reachability
 
       - name: Probe
         if: inputs.sources != 'true'
