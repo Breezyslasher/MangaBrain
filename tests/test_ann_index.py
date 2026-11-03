@@ -166,3 +166,38 @@ def test_an_exact_match_is_still_held_to_agreement():
     index = build_index([AnnEntry("18171", "your name.", "movie", 2016)])
     candidates = ["Suntory Minami Alps no Tennen Mizu", "your name."]
     assert match(index, candidates, year=2016, fmt="SPECIAL") == ("rejected_format", None)
+
+
+def test_rejected_against_reports_without_weakening_the_guard():
+    """Diagnosing a format rejection must not hand back a storable match.
+
+    match() withholds the entry on a rejection so that a rejected match
+    cannot be written by mistake, which is why a Suntory advert is no longer
+    stored as 'your name.'. Reporting which pair was contradicted needs the
+    entry, so it comes from a separate function - and that function must
+    stay useless for anything but reporting.
+    """
+    from pipeline.ann import rejected_against
+
+    index = build_index([AnnEntry("18171", "your name.", "movie", 2016)])
+    candidates = ["Suntory Minami Alps no Tennen Mizu", "your name."]
+
+    # The guard itself is unchanged: still a rejection, still no entry.
+    assert match(index, candidates, year=2016, fmt="SPECIAL") == ("rejected_format", None)
+
+    # And the reporting path names the pair that caused it.
+    against = rejected_against(index, candidates, year=2016, fmt="SPECIAL")
+    assert against is not None
+    assert against.kind == "movie"
+
+
+def test_rejected_against_is_silent_when_nothing_was_rejected():
+    """It must not become a back door for an unresolved or ambiguous title."""
+    from pipeline.ann import rejected_against
+
+    index = build_index([AnnEntry("1", "Cowboy Bebop", "TV", 1998)])
+    # A clean match is not a rejection.
+    assert match(index, ["Cowboy Bebop"], year=1998, fmt="TV")[0] == "exact"
+    assert rejected_against(index, ["Cowboy Bebop"], year=1998, fmt="TV") is None
+    # Neither is a title absent from the index.
+    assert rejected_against(index, ["Nothing Here"], year=2000, fmt="TV") is None
