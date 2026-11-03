@@ -62,10 +62,24 @@ def probe(client: httpx.Client, label: str, path: str, params: dict | None = Non
 
 
 DOCS_HOSTS = [
+    # Current docs host.
     "https://api-docs.kitsu.cloud/",
     "https://api-docs.kitsu.cloud/openapi.json",
     "https://api-docs.kitsu.cloud/openapi.yaml",
     "https://api-docs.kitsu.cloud/swagger.json",
+    "https://api-docs.kitsu.cloud/spec.json",
+    # The GitHub Pages build of hummingbird-me/api-docs, which the repo's
+    # README points at and which may still carry the Apiary-era cast docs
+    # the OpenAPI conversion has not reached yet.
+    "https://hummingbird-me.github.io/api-docs/",
+    "https://hummingbird-me.github.io/api-docs/openapi.json",
+    "https://hummingbird-me.github.io/api-docs/openapi.yaml",
+    "https://hummingbird-me.github.io/api-docs/api.json",
+    # Raw spec sources, which answer filter names precisely where a rendered
+    # page may not.
+    "https://raw.githubusercontent.com/hummingbird-me/api-docs/openapi3/api/openapi.yml",
+    "https://raw.githubusercontent.com/hummingbird-me/api-docs/openapi3/api/schemas/filters/resourceFilters/base.yml",
+    "https://raw.githubusercontent.com/hummingbird-me/api-docs/master/api/api-docs.apib",
 ]
 
 # Filters, resources and the fields that decide the cast model. A spec dump
@@ -112,7 +126,7 @@ def probe_docs(client: httpx.Client) -> None:
         print(f"  {url:<48} OK  {len(body)} bytes", flush=True)
         # A Swagger/Redoc shell names the spec it loads; follow that.
         for marker in ("openapi.json", "openapi.yaml", "swagger.json", "spec-url", "specUrl"):
-            if marker in body and url.endswith("/"):
+            if marker in body and url.endswith("/"):  # a shell page, not a spec
                 idx = body.find(marker)
                 print(
                     f"    references {marker}: ...{body[max(0, idx - 120) : idx + 80]}...",
