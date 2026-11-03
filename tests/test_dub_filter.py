@@ -402,3 +402,61 @@ def test_the_dub_walk_prints_progress_without_torch_installed():
     import pipeline.embed as embed_module
 
     assert "torch" not in dir(embed_module)
+
+
+class _LockConn:
+    """Minimal connection stub: answers the advisory-lock probe only."""
+
+    def __init__(self, granted: bool) -> None:
+        self.granted = granted
+        self.statements: list[str] = []
+
+    def execute(self, sql, params=None):
+        self.statements.append(" ".join(sql.split()))
+        return self
+
+    def fetchone(self):
+        return (self.granted,)
+
+    def commit(self):
+        pass
+
+
+def test_a_second_concurrent_walk_declines_instead_of_duplicating():
+    """Two walks halve each other's share of AniList's rate limit.
+
+    Running for twelve hours detached makes "did I already start it?" a real
+    question, and re-running after a restart that did not kill the first one
+    produces two walks doing the same work. Seen in the wild as interleaved
+    progress lines, one counting to 22167 and one to 11717 - the second
+    having built its candidate list once the first was 10450 titles in.
+    """
+    from pipeline.backfill_dub import backfill
+
+    class Boom:
+        def request(self, *args, **kwargs):
+            raise AssertionError("the declining walk must not contact AniList")
+
+    conn = _LockConn(granted=False)
+    assert backfill(Boom(), conn) == 0
+    assert any("pg_try_advisory_lock" in s for s in conn.statements)
+    # It declined, so it must not have started the walk's own setup either.
+    assert not any("dub_backfill_state" in s for s in conn.statements)
+
+
+def test_the_walk_lock_does_not_collide_with_the_schema_lock():
+    from api.db import _SCHEMA_LOCK_KEY
+    from pipeline.backfill_dub import WALK_LOCK_KEY
+
+    assert WALK_LOCK_KEY != _SCHEMA_LOCK_KEY
+
+
+def test_the_lock_is_released_even_when_the_walk_raises():
+    """Otherwise one crash leaves the lock held for the session's lifetime."""
+    import inspect
+
+    from pipeline.backfill_dub import backfill
+
+    source = inspect.getsource(backfill)
+    assert "finally:" in source
+    assert "pg_advisory_unlock" in source.split("finally:")[1]
