@@ -101,6 +101,32 @@ jobs:
         timeout-minutes: 70
         run: python -m pipeline.embed --prune-stale
 
+      # The published dataset carries dub data so nobody restoring it has to
+      # spend twelve hours on AniList's cast, which costs one request per
+      # title because it will not populate a nested connection across a page
+      # of parents. ANN instead hands over its whole anime list in ~22 paged
+      # requests and 20 casts per request, which is the catalog in about
+      # three quarters of an hour, and tags every cast entry with its
+      # language so all nine arrive together.
+      #
+      # It is incremental (rows already sourced from ANN are skipped), so a
+      # timeout here resumes on the next run like sync and embed do, and the
+      # checkpoint below is saved after it so the resume keeps the languages
+      # already fetched. Propagation then runs off whichever direct source
+      # exists, which on CI is ANN alone.
+      #
+      # 40 minutes, not the ~45 a cold full pass wants: the job itself is
+      # capped at 358 and sync and embed can claim 280 and 70 of that, so a
+      # generous cap here could let the job die before the checkpoint step
+      # and lose the whole run's progress. Undershooting costs a resume;
+      # overshooting costs everything.
+      - name: Dub languages from ANN
+        id: dub_ann
+        timeout-minutes: 40
+        run: |
+          python -m pipeline.backfill_dub_ann
+          python -m pipeline.propagate_dub
+
       # Runs even when sync or embed failed or timed out, so the next
       # trigger resumes instead of restarting. The key is unique per attempt
       # (same-key saves are rejected); restore-keys picks the newest.
@@ -125,7 +151,8 @@ jobs:
       - name: Dispatch resume run
         if: >-
           always() && steps.checkpoint_upload.outcome == 'success'
-          && (steps.sync.outcome == 'failure' || steps.embed.outcome == 'failure')
+          && (steps.sync.outcome == 'failure' || steps.embed.outcome == 'failure'
+              || steps.dub_ann.outcome == 'failure')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

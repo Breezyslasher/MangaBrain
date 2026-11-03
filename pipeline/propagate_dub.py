@@ -9,10 +9,15 @@ on AniList, while ANN credits 18 English cast entries to the series it belongs
 to. The cast simply was not re-entered on the season's own AniList page.
 
 So a dub is propagated across a franchise: if any anime in a connected group
-of entries has a measured English cast, the rest are marked as inferred. The
-measured column is never written, so "AniList credits an English voice actor
-for this entry" and "a relative of this entry is dubbed" stay distinguishable
-in the database and in the API.
+of entries is known to be English-dubbed, the rest are marked as inferred.
+Neither direct source is written, so "AniList credits an English voice actor
+for this entry", "ANN records an English cast for it" and "a relative of this
+entry is dubbed" stay distinguishable in the database and in the API.
+
+The walk roots on either direct source. Rooting on AniList alone made this a
+no-op anywhere AniList had not been walked, which is every environment that
+has not spent twelve hours on it - including the CI job that builds the
+published dataset, where ANN is the only dub source there is time for.
 
 Which relations count is the whole risk. Only relations that imply the same
 production in the same language are followed: sequels, prequels, parents and
@@ -58,7 +63,8 @@ WITH RECURSIVE edges AS (
 walk (node, depth) AS (
     SELECT m.id, 0
     FROM media m
-    WHERE m.media_type = 'ANIME' AND m.english_va_count > 0
+    WHERE m.media_type = 'ANIME'
+      AND (m.english_va_count > 0 OR 'en' = ANY(m.dub_languages))
     UNION
     SELECT e.b, w.depth + 1
     FROM walk w
@@ -70,6 +76,7 @@ FROM walk w
 JOIN media m ON m.id = w.node
 WHERE m.media_type = 'ANIME'
   AND COALESCE(m.english_va_count, 0) = 0
+  AND NOT ('en' = ANY(m.dub_languages))
 """
 
 MARK_SQL = """
@@ -77,6 +84,7 @@ MARK_SQL = """
     SET english_dub_inferred = TRUE
     WHERE id = ANY(%(ids)s)
       AND COALESCE(english_va_count, 0) = 0
+      AND NOT ('en' = ANY(dub_languages))
       AND english_dub_inferred = FALSE
 """
 

@@ -168,3 +168,35 @@ def _row(**overrides) -> dict:
     }
     row.update(overrides)
     return row
+
+
+def test_the_walk_roots_on_either_direct_source():
+    """Rooting on AniList alone made propagation a no-op without the walk.
+
+    AniList's cast costs one request per title, so any environment that has
+    not spent twelve hours on it has english_va_count NULL everywhere -
+    including the CI job that builds the published dataset, where ANN is the
+    only dub source there is time for. Rooting on ANN as well is what makes
+    the published snapshot carry inferred dubs at all.
+    """
+    assert "'en' = ANY(m.dub_languages)" in REACHABLE_SQL
+    # And an entry ANN already calls English-dubbed is not re-marked.
+    assert "NOT ('en' = ANY(m.dub_languages))" in REACHABLE_SQL
+    assert "NOT ('en' = ANY(dub_languages))" in MARK_SQL
+
+
+def test_the_dataset_workflow_builds_dub_data_into_the_snapshot():
+    """Otherwise anyone restoring the published dataset starts from nothing.
+
+    The dub columns live on media, which is in DATA_TABLES, so they travel
+    with the snapshot - but only if the publishing job actually fills them.
+    """
+    workflow = (
+        Path(__file__).parent.parent / ".github" / "workflows" / "dataset-publish.yml"
+    ).read_text()
+    assert "pipeline.backfill_dub_ann" in workflow
+    assert "pipeline.propagate_dub" in workflow
+    # A failure there must resume like sync and embed, not strand the run.
+    assert "steps.dub_ann.outcome == 'failure'" in workflow
+    # And the checkpoint has to be saved after it, or a resume refetches.
+    assert workflow.index("id: dub_ann") < workflow.index("Save checkpoint")
