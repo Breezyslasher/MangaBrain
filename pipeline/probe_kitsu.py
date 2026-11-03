@@ -25,6 +25,7 @@ how a probe ends up measuring the wrong thing.
 
 import argparse
 import json
+import time
 
 import httpx
 
@@ -151,7 +152,7 @@ def probe_cast(client: httpx.Client, base: str) -> None:
             f"{base}/castings",
             {
                 "filter[mediaId]": kitsu_id,
-                "filter[isVoiceActor]": "true",
+                "filter[voiceActor]": "true",
                 "page[limit]": 5,
             },
         ),
@@ -183,41 +184,177 @@ def probe_cast(client: httpx.Client, base: str) -> None:
             print(f"     relationships: {list(rows[0].get('relationships') or {})}", flush=True)
 
 
-def probe_language_spread(client: httpx.Client, base: str, limit: int) -> None:
+def probe_bulk(client: httpx.Client, base: str) -> None:
+    """Can the join and the cast fetch be batched?
+
+    One mappings call plus one castings call per title is 45,000 requests for
+    the catalog, which decides whether this is a nightly pass or a weekend.
+    JSON:API filters often accept a comma list, so it is worth one request to
+    find out rather than designing around the pessimistic case.
+    """
     print()
     print("=" * 72)
-    print("4. how dense is it? language spread over a sample of castings")
+    print("4. can the join and the cast fetch be batched?")
     print("=" * 72)
+    ids = ",".join(str(i) for i in KNOWN_ANILIST)
+    data, err = get(
+        client,
+        f"{base}/mappings",
+        {
+            "filter[externalSite]": "anilist/anime",
+            "filter[externalId]": ids,
+            "include": "item",
+            "page[limit]": 20,
+        },
+    )
+    if err:
+        print(f"   bulk mappings ({len(KNOWN_ANILIST)} ids): {err}", flush=True)
+    else:
+        rows = data.get("data") or []
+        got = {(r.get("attributes") or {}).get("externalId") for r in rows}
+        print(
+            f"   bulk mappings: asked {len(KNOWN_ANILIST)} ids, got {len(rows)} rows"
+            f" covering {len(got)} distinct externalIds",
+            flush=True,
+        )
+        if len(got) >= len(KNOWN_ANILIST):
+            print("     BATCHED JOIN WORKS: a comma list is honoured", flush=True)
+        else:
+            print("     comma list not honoured; the join is one request per title", flush=True)
+
+    data, err = get(
+        client,
+        f"{base}/castings",
+        {"filter[mediaId]": "1,2,3", "filter[voiceActor]": "true", "page[limit]": 20},
+    )
+    if err:
+        print(f"   bulk castings: {err}", flush=True)
+    else:
+        media_ids = set()
+        for row in data.get("data") or []:
+            rel = ((row.get("relationships") or {}).get("media") or {}).get("data") or {}
+            if rel.get("id"):
+                media_ids.add(rel["id"])
+        print(
+            f"   bulk castings for 3 media ids: {len(data.get('data') or [])} rows"
+            f" spanning media {sorted(media_ids) or '-'}",
+            flush=True,
+        )
+
+
+def probe_density(client: httpx.Client, base: str, sample: int) -> None:
+    """Mapping resolution rate and language spread over real AniList ids.
+
+    The point of comparison is not Kitsu's totals but what it yields for the
+    ids we actually hold, which is what ANN's 31.8% match rate measures.
+    """
+    print()
+    print("=" * 72)
+    print("5. resolution rate and language spread over sampled AniList ids")
+    print("=" * 72)
+    anilist_ids = fetch_anilist_ids(client, sample)
+    if not anilist_ids:
+        print("   could not sample AniList ids", flush=True)
+        return
+    print(f"   sampled {len(anilist_ids)} AniList anime ids", flush=True)
+
+    resolved = 0
+    with_cast = 0
     langs: dict[str, int] = {}
-    seen = 0
-    offset = 0
-    while seen < limit:
+    titles_per_lang: dict[str, int] = {}
+    for anilist_id in anilist_ids:
         data, err = get(
+            client,
+            f"{base}/mappings",
+            {
+                "filter[externalSite]": "anilist/anime",
+                "filter[externalId]": str(anilist_id),
+                "include": "item",
+                "page[limit]": 1,
+            },
+        )
+        if err or not (data.get("data") or []):
+            continue
+        item = next((i for i in (data.get("included") or []) if i.get("type") == "anime"), None)
+        if not item:
+            continue
+        resolved += 1
+        cast, err = get(
             client,
             f"{base}/castings",
             {
-                "filter[isVoiceActor]": "true",
+                "filter[mediaId]": item["id"],
+                "filter[voiceActor]": "true",
                 "page[limit]": 20,
-                "page[offset]": offset,
             },
         )
         if err:
-            print(f"   stopped at offset {offset}: {err}", flush=True)
-            break
-        rows = data.get("data") or []
-        if not rows:
-            break
-        for row in rows:
+            continue
+        seen_here = set()
+        for row in cast.get("data") or []:
             lang = (row.get("attributes") or {}).get("language") or "(none)"
             langs[lang] = langs.get(lang, 0) + 1
-        seen += len(rows)
-        offset += len(rows)
-    print(f"   sampled {seen} voice-actor castings", flush=True)
-    for lang, count in sorted(langs.items(), key=lambda kv: -kv[1]):
-        print(f"     {lang:<22} {count:>5}", flush=True)
-    total = (data or {}).get("meta", {}).get("count") if data else None
-    if total:
-        print(f"   meta.count for all voice-actor castings: {total}", flush=True)
+            seen_here.add(lang)
+        if seen_here:
+            with_cast += 1
+        for lang in seen_here:
+            titles_per_lang[lang] = titles_per_lang.get(lang, 0) + 1
+
+    n = len(anilist_ids)
+    print(
+        f"   resolved via mappings    {resolved:>4}/{n}  ({100 * resolved / n:.1f}%)",
+        flush=True,
+    )
+    print(
+        f"   of those, had a VA cast  {with_cast:>4}/{resolved}"
+        f"  ({100 * with_cast / resolved:.1f}%)"
+        if resolved
+        else "   none resolved",
+        flush=True,
+    )
+    print("   titles per language (first 20 castings each):", flush=True)
+    for lang, count in sorted(titles_per_lang.items(), key=lambda kv: -kv[1]):
+        print(f"     {lang:<22} {count:>4} titles, {langs[lang]:>5} credits", flush=True)
+    print(
+        "\n   Compare: ANN resolved 31.8% of the catalog by name. This number"
+        "\n   is the id-join equivalent, and it has no wrong-match risk.",
+        flush=True,
+    )
+
+
+ANILIST_IDS_QUERY = """
+query ($page: Int, $perPage: Int) {
+  Page(page: $page, perPage: $perPage) {
+    media(type: ANIME, sort: POPULARITY_DESC) { id }
+  }
+}
+"""
+
+
+def fetch_anilist_ids(client: httpx.Client, sample: int) -> list[int]:
+    """Spread across popularity, not the head: a head-only sample is how the
+    earlier ANN estimates came out at double the real rate."""
+    out: list[int] = []
+    per_page = 50
+    # Pages chosen to straddle the head, the middle and the tail of what
+    # AniList will serve before its 5000-row offset cap.
+    for page in (1, 20, 60, 99):
+        if len(out) >= sample:
+            break
+        try:
+            resp = client.post(
+                "https://graphql.anilist.co",
+                json={
+                    "query": ANILIST_IDS_QUERY,
+                    "variables": {"page": page, "perPage": per_page},
+                },
+            )
+            media = ((resp.json().get("data") or {}).get("Page") or {}).get("media") or []
+        except (httpx.HTTPError, ValueError):
+            continue
+        out.extend(m["id"] for m in media)
+        time.sleep(2.0)
+    return out[:sample]
 
 
 def main() -> None:
@@ -232,10 +369,11 @@ def main() -> None:
             raise SystemExit("Kitsu unreachable at every known host")
         probe_mappings(client, base)
         probe_cast(client, base)
-        probe_language_spread(client, base, args.sample)
+        probe_bulk(client, base)
+        probe_density(client, base, args.sample)
         if args.raw:
             data, _err = get(
-                client, f"{base}/castings", {"filter[isVoiceActor]": "true", "page[limit]": 1}
+                client, f"{base}/castings", {"filter[voiceActor]": "true", "page[limit]": 1}
             )
             print()
             print("raw castings record:")
