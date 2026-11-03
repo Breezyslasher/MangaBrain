@@ -51,6 +51,11 @@ UA = "MangaBrain/0.1 (self-hosted recommendation engine; dub coverage probe)"
 # whitespace dropped, non-ASCII kept so Japanese and Korean titles survive.
 NORMALIZE_RE = re.compile(r"[^a-z0-9\u0080-\U0010ffff]+")
 
+# ANN asks for roughly a request a second, so the number of names tried per
+# title is capped rather than walking every synonym.
+MAX_TITLE_TRIES = 3
+MAX_SYNONYM_TRIES = 2
+
 
 def log(message: str) -> None:
     print(f"[crosscheck] {message}", flush=True)
@@ -107,6 +112,48 @@ def ann_lookup(
     return ("matched_dubbed" if english else "matched_no_english"), hits[0], langs
 
 
+def candidate_titles(media: dict[str, Any]) -> list[str]:
+    """Every name worth trying on ANN, best bet first.
+
+    ANN is an English-language encyclopedia and indexes by release title, so
+    the English name resolves where romaji does not: "Shuumatsu no Harem" is
+    filed as "World's End Harem", "Hibike! Euphonium 2" as "Sound! Euphonium
+    2". An earlier run searched romaji only and failed to match 15 of 17
+    titles, which looked like ANN lacking the entries rather than the query
+    using the wrong name for them.
+    """
+    title = media.get("title") or {}
+    ordered = [title.get("english"), title.get("romaji"), title.get("native")]
+    ordered += (media.get("synonyms") or [])[:MAX_SYNONYM_TRIES]
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in ordered:
+        key = normalize(name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+    return out
+
+
+def resolve_media(
+    client: httpx.Client, media: dict[str, Any]
+) -> tuple[str, ElementTree.Element | None, set[str], str]:
+    """Try each known name until one resolves. Returns the verdict and the name used."""
+    last = "unmatched"
+    for name in candidate_titles(media)[:MAX_TITLE_TRIES]:
+        verdict, entry, langs = ann_lookup(client, name)
+        time.sleep(ANN_MIN_INTERVAL)
+        if verdict.startswith("matched"):
+            return verdict, entry, langs, name
+        # Ambiguity is a real answer about this name, not a reason to keep
+        # trying others and risk landing on a different show.
+        if verdict == "ambiguous":
+            return verdict, None, set(), name
+        last = verdict
+    return last, None, set(), ""
+
+
 def collect_silent(client: RateLimitedClient, per_stratum: int) -> list[tuple[dict[str, Any], int]]:
     """AniList titles that have a cast recorded but no English voice actor.
 
@@ -151,14 +198,13 @@ def main() -> None:
     tally: dict[str, int] = {}
     with httpx.Client(timeout=30.0, follow_redirects=True, headers={"User-Agent": UA}) as client:
         for media, chars in silent[: args.limit]:
-            title = media["title"]["romaji"] or media["title"].get("english") or ""
-            verdict, entry, langs = ann_lookup(client, title)
-            time.sleep(ANN_MIN_INTERVAL)
+            verdict, entry, langs, used = resolve_media(client, media)
             tally[verdict] = tally.get(verdict, 0) + 1
             extra = ""
             if entry is not None:
-                extra = f" ann={entry.attrib.get('id')} langs={sorted(langs)}"
-            log(f"  {verdict:<18} {media['id']:>7} chars={chars:>3} {title[:42]}{extra}")
+                extra = f" ann={entry.attrib.get('id')} langs={sorted(langs)} via={used!r}"
+            shown = (media["title"]["romaji"] or "")[:40]
+            log(f"  {verdict:<18} {media['id']:>7} chars={chars:>3} {shown}{extra}")
 
     log("=== 3. result ===")
     for verdict, count in sorted(tally.items(), key=lambda kv: -kv[1]):

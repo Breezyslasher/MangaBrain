@@ -138,7 +138,8 @@ query ($page: Int, $perPage: Int, $sort: [MediaSort]) {
       popularity
       format
       startDate { year }
-      title { romaji }
+      synonyms
+      title { romaji english native }
     }
   }
 }

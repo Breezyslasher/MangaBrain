@@ -78,3 +78,42 @@ def test_english_cast_is_counted_and_languages_reported():
 def test_an_entry_with_no_cast_claims_nothing():
     (solo,) = entries('<ann><anime id="9"><info type="Main title">X</info></anime></ann>')
     assert ann_english_cast(solo) == (0, set())
+
+
+def test_english_title_is_tried_before_romaji():
+    """ANN indexes by English release title, AniList hands back romaji.
+
+    Searching romaji only failed to match 15 of 17 titles, which reads as ANN
+    not having the entries rather than the query using the wrong name: ANN
+    files "Shuumatsu no Harem" as "World's End Harem".
+    """
+    from pipeline.probe_dub_crosscheck import candidate_titles
+
+    media = {
+        "title": {
+            "english": "World's End Harem",
+            "romaji": "Shuumatsu no Harem",
+            "native": "終末のハーレム",
+        },
+        "synonyms": ["Last Man on Earth"],
+    }
+    assert candidate_titles(media)[0] == "World's End Harem"
+    assert "Shuumatsu no Harem" in candidate_titles(media)
+
+
+def test_candidates_dedupe_on_the_normalised_form():
+    from pipeline.probe_dub_crosscheck import candidate_titles
+
+    media = {
+        "title": {"english": "Kuma Miko", "romaji": "kuma-miko!", "native": None},
+        "synonyms": ["KUMA MIKO"],
+    }
+    # All three normalise identically, so ANN is asked once, not three times.
+    assert len(candidate_titles(media)) == 1
+
+
+def test_missing_titles_are_skipped_not_searched_as_blanks():
+    from pipeline.probe_dub_crosscheck import candidate_titles
+
+    assert candidate_titles({"title": {}, "synonyms": None}) == []
+    assert candidate_titles({"title": {"english": None, "romaji": "capeta"}}) == ["capeta"]
