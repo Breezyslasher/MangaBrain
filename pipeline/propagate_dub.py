@@ -15,9 +15,10 @@ for this entry", "ANN records an English cast for it" and "a relative of this
 entry is dubbed" stay distinguishable in the database and in the API.
 
 The walk roots on either direct source. Rooting on AniList alone made this a
-no-op anywhere AniList had not been walked, which is every environment that
-has not spent twelve hours on it - including the CI job that builds the
-published dataset, where ANN is the only dub source there is time for.
+no-op anywhere AniList had not been walked yet, and either source can be the
+one that is missing: a snapshot may be taken while a pass is still partway
+through, and the two passes cover different titles - ANN only reaches what it
+can match by name.
 
 Which relations count is the whole risk. Only relations that imply the same
 production in the same language are followed: sequels, prequels, parents and

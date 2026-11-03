@@ -35,7 +35,7 @@ ANIME_REPORT_ID = "155"
 REPORT_PAGE = 1000
 MAX_REPORT_PAGES = 80
 # api.xml accepts repeated anime= parameters, so casts come back in batches
-# rather than one request per title.
+# rather than one request per title. AniList's cast batches too, at fifty.
 CAST_BATCH = 20
 MIN_INTERVAL = 2.5
 UA = "MangaBrain/0.1 (self-hosted recommendation engine; dub coverage probe)"

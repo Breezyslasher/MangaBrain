@@ -146,7 +146,9 @@ query ($page: Int, $perPage: Int, $sort: [MediaSort]) {
 """
 
 # Per title: a nested connection is only populated for a single parent, so
-# this is one request per title and the sample sizes reflect that.
+# this samples one title per request and the sample sizes reflect that.
+# The backfill itself pages fifty at a time (pipeline.probe_paged_cast); the
+# per-title shape is kept here only because a sample is small by design.
 CAST_QUERY = """
 query ($id: Int) {
   Media(id: $id, type: ANIME) {

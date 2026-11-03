@@ -13,11 +13,23 @@ despite having a dub, so english_va_count = 0 must never be served as "sub
 only" - only english_va_count > 0 as "has an English dub". NULL (not yet
 checked) stays distinct from 0 (checked, none found) for exactly this reason.
 
-AniList only populates a nested connection for a single parent, so this is
-one request per title and a full anime catalog takes hours. The walk is
-resumable: every checked row gets dub_checked_at, so a rerun picks up where
-it stopped, and failures are recorded per entry in dub_backfill_state so one
-bad id cannot stall the pass.
+Casts are fetched a page of titles at a time. This was one request per
+title - 22,167 of them against a two-second floor, so 12.3 hours and far
+too long for CI - on the belief that AniList would not populate a nested
+connection across a page of parents. That was wrong. The probe behind it
+(pipeline.probe_paged_cast) omitted `node { id }`, without which
+voiceActors resolves to null on every edge, and the fix changed both the
+paging and the node selection at once, so the per-title shape got credit
+that belonged to the node. Measured since: a page of fifty returns
+byte-identical cast data to fifty single requests, and omitting node
+zeroes the single-title shape too. The pass is ceil(N/CAST_CHUNK)
+requests, about fifteen minutes.
+
+The walk is resumable: every checked row gets dub_checked_at, so a rerun
+picks up where it stopped, and failures are recorded per entry in
+dub_backfill_state so one bad id cannot stall the pass. A chunk that
+fails as a whole is retried one title at a time, so a single bad id
+cannot cost its forty-nine neighbours their turn.
 
 Only ANIME rows are considered. Manga has no dub.
 
@@ -45,15 +57,23 @@ CHARACTERS_PER_PAGE = 25
 MAX_ATTEMPTS = 3
 CONSECUTIVE_5XX_ABORT = 25
 
+# Titles per cast request. Measured against AniList rather than assumed: see
+# pipeline.probe_paged_cast, which checks that a batch this size comes back
+# whole and with non-null casts. Too large and the response is truncated or
+# the query exceeds AniList's complexity limit, either of which would skip
+# titles while looking like success.
+CAST_CHUNK = 50
+
 # A second walk started while the first is running does the same work twice
 # and halves the share of AniList's rate limit each one gets, so both crawl
-# through 429 backoff for no extra progress. It is an easy mistake: the walk
-# runs for twelve hours detached, so "did I already start it?" is a real
-# question, and re-running after a container restart that did not actually
-# kill the first one produces exactly this. Observed in the wild as two
-# interleaved progress lines, one counting to 22167 and one to 11717, the
-# second having computed its candidate list once the first was 10450 titles
-# in.
+# through 429 backoff for no extra progress. Re-running after a container
+# restart that did not actually kill the first one produces exactly this.
+# Observed in the wild as two interleaved progress lines, one counting to
+# 22167 and one to 11717, the second having computed its candidate list once
+# the first was 10450 titles in. That was the per-title walk, which ran for
+# twelve hours and so had a wide window in which to be started twice; the
+# paged walk takes minutes, but the lock is a single query and the failure
+# has actually happened.
 #
 # A session-scoped advisory lock makes the second invocation say so and exit
 # instead. Distinct from the schema lock in api/db.py.
@@ -61,21 +81,44 @@ WALK_LOCK_KEY = 727273
 
 # node is load-bearing. Without a node selection AniList resolves voiceActors
 # to null on every edge instead of erroring, which reads as "no English cast"
-# for the entire catalog. A guard below fails loudly if that ever regresses.
-CAST_QUERY = """
-query ($id: Int) {
-  Media(id: $id, type: ANIME) {
-    id
-    characters(perPage: CHARACTERS_PER_PAGE, sort: ROLE) {
+# for the entire catalog - and it does so whether one title is requested or
+# fifty, which is what made the original diagnosis go wrong. A guard below
+# fails loudly if that ever regresses.
+_CAST_FIELDS = """
       edges {
         node { id }
         voiceActors(language: ENGLISH) { id }
         voiceActorRoles(language: ENGLISH) { dubGroup }
       }
+"""
+
+# Many titles per request. perPage is passed rather than fixed so it always
+# matches the chunk actually sent: a perPage below the id count silently
+# truncates the response, which would skip titles while reporting success.
+CAST_PAGE_QUERY = """
+query ($ids: [Int], $perPage: Int) {
+  Page(page: 1, perPage: $perPage) {
+    media(id_in: $ids, type: ANIME) {
+      id
+      characters(perPage: CHARACTERS_PER_PAGE, sort: ROLE) {
+CAST_FIELDS
+      }
     }
   }
 }
-""".replace("CHARACTERS_PER_PAGE", str(CHARACTERS_PER_PAGE))
+""".replace("CHARACTERS_PER_PAGE", str(CHARACTERS_PER_PAGE)).replace("CAST_FIELDS", _CAST_FIELDS)
+
+# Kept for the per-title retry of a chunk that failed as a whole.
+CAST_QUERY = """
+query ($id: Int) {
+  Media(id: $id, type: ANIME) {
+    id
+    characters(perPage: CHARACTERS_PER_PAGE, sort: ROLE) {
+CAST_FIELDS
+    }
+  }
+}
+""".replace("CHARACTERS_PER_PAGE", str(CHARACTERS_PER_PAGE)).replace("CAST_FIELDS", _CAST_FIELDS)
 
 STATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS dub_backfill_state (
@@ -156,6 +199,55 @@ def _record(conn: psycopg.Connection, media_id: int, status: str, permanent: boo
     )
 
 
+def _walk_singly(
+    client: RateLimitedClient,
+    conn: psycopg.Connection,
+    ids: list[int],
+    apply_media,
+) -> tuple[int, int]:
+    """Retry a failed chunk one title at a time. Returns (checked, skipped).
+
+    A chunk request covers fifty titles, so a failure that is really about
+    one id would otherwise deny the other forty-nine. Falling back per title
+    costs at most CAST_CHUNK extra requests and only on a chunk that already
+    failed.
+    """
+    checked = skipped = 0
+    for media_id in ids:
+        try:
+            payload = client.request(
+                "POST",
+                ANILIST_URL,
+                json_body={"query": CAST_QUERY, "variables": {"id": media_id}},
+            )
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            skipped += 1
+            if status_code == 404:
+                _record(conn, media_id, "404", permanent=True)
+            else:
+                _record(conn, media_id, f"http_{status_code}", permanent=False)
+            continue
+        except httpx.TransportError as exc:
+            skipped += 1
+            _record(conn, media_id, type(exc).__name__, permanent=False)
+            continue
+
+        if payload.get("errors"):
+            skipped += 1
+            _record(conn, media_id, "graphql_error", permanent=False)
+            continue
+        media = (payload.get("data") or {}).get("Media")
+        if not media:
+            _record(conn, media_id, "no_media", permanent=True)
+            skipped += 1
+            continue
+        apply_media(media)
+        checked += 1
+    conn.commit()
+    return checked, skipped
+
+
 def backfill(
     client: RateLimitedClient,
     conn: psycopg.Connection,
@@ -203,20 +295,40 @@ def _walk(
     checked = dubbed = skipped = 0
     consecutive_5xx = 0
     started = time.monotonic()
-    for i, (media_id,) in enumerate(rows, start=1):
+    ids = [row[0] for row in rows]
+
+    def apply_media(media: dict) -> None:
+        nonlocal checked, dubbed
+        english, characters, groups = parse_cast(media)
+        conn.execute(
+            UPDATE_SQL,
+            {
+                "id": media["id"],
+                "english": english,
+                "characters": characters,
+                "groups": groups,
+            },
+        )
+        conn.execute("DELETE FROM dub_backfill_state WHERE media_id = %s", (media["id"],))
+        checked += 1
+        dubbed += english > 0
+
+    for start_at in range(0, len(ids), CAST_CHUNK):
+        chunk = ids[start_at : start_at + CAST_CHUNK]
         try:
             payload = client.request(
-                "POST", ANILIST_URL, json_body={"query": CAST_QUERY, "variables": {"id": media_id}}
+                "POST",
+                ANILIST_URL,
+                json_body={
+                    "query": CAST_PAGE_QUERY,
+                    # perPage must equal the chunk or the response is
+                    # truncated without saying so.
+                    "variables": {"ids": chunk, "perPage": len(chunk)},
+                },
             )
-        except httpx.HTTPStatusError as exc:
-            status_code = exc.response.status_code
-            skipped += 1
-            if status_code == 404:
-                _record(conn, media_id, "404", permanent=True)
-            else:
-                _record(conn, media_id, f"http_{status_code}", permanent=False)
-                print(f"[dub] skipping {media_id} (HTTP {status_code})", flush=True)
-            if status_code >= 500:
+        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            if status_code is not None and status_code >= 500:
                 consecutive_5xx += 1
                 if consecutive_5xx >= CONSECUTIVE_5XX_ABORT:
                     conn.commit()
@@ -227,49 +339,52 @@ def _walk(
                         flush=True,
                     )
                     break
-            continue
-        except httpx.TransportError as exc:
-            skipped += 1
-            _record(conn, media_id, type(exc).__name__, permanent=False)
-            print(f"[dub] skipping {media_id} ({type(exc).__name__})", flush=True)
+            # One bad id must not cost the rest of its chunk their turn, so
+            # the chunk is retried a title at a time and only the ids that
+            # actually fail are recorded as failures.
+            reason = f"HTTP {status_code}" if status_code is not None else type(exc).__name__
+            print(
+                f"[dub] chunk of {len(chunk)} failed ({reason}); retrying it one title at a time",
+                flush=True,
+            )
+            single_checked, single_skipped = _walk_singly(client, conn, chunk, apply_media)
+            skipped += single_skipped
+            if single_checked == 0 and single_skipped == len(chunk):
+                consecutive_5xx += 1
             continue
         consecutive_5xx = 0
 
         if payload.get("errors"):
-            skipped += 1
-            _record(conn, media_id, "graphql_error", permanent=False)
-            continue
-        media = (payload.get("data") or {}).get("Media")
-        if not media:
-            # Not an anime any more, or deleted upstream: never retried.
-            _record(conn, media_id, "no_media", permanent=True)
-            skipped += 1
-            continue
-
-        english, characters, groups = parse_cast(media)
-        conn.execute(
-            UPDATE_SQL,
-            {
-                "id": media_id,
-                "english": english,
-                "characters": characters,
-                "groups": groups,
-            },
-        )
-        conn.execute("DELETE FROM dub_backfill_state WHERE media_id = %s", (media_id,))
-        checked += 1
-        dubbed += english > 0
-        if i % 50 == 0:
-            conn.commit()
-            pct = 100.0 * dubbed / checked if checked else 0.0
-            progress = progress_line(i, len(rows), time.monotonic() - started, label="dub")
             print(
-                f"{progress} - {dubbed} with an English cast ({pct:.0f}%)",
+                f"[dub] chunk of {len(chunk)} returned GraphQL errors;"
+                " retrying it one title at a time",
                 flush=True,
             )
+            _, single_skipped = _walk_singly(client, conn, chunk, apply_media)
+            skipped += single_skipped
+            continue
+
+        page = (payload.get("data") or {}).get("Page") or {}
+        returned = {m["id"]: m for m in page.get("media") or []}
+        for media_id in chunk:
+            media = returned.get(media_id)
+            if media is None:
+                # Requested and not returned: no longer an anime, or deleted
+                # upstream. Never retried.
+                _record(conn, media_id, "no_media", permanent=True)
+                skipped += 1
+                continue
+            apply_media(media)
+        conn.commit()
+
+        done = min(start_at + CAST_CHUNK, len(ids))
+        pct = 100.0 * dubbed / checked if checked else 0.0
+        progress = progress_line(done, len(ids), time.monotonic() - started, label="dub")
+        print(f"{progress} - {dubbed} with an English cast ({pct:.0f}%)", flush=True)
+
     conn.commit()
     print(
-        f"[dub] done: {checked} checked of {len(rows)} candidates,"
+        f"[dub] done: {checked} checked of {len(ids)} candidates,"
         f" {dubbed} credit an English voice actor ({skipped} skipped)",
         flush=True,
     )
