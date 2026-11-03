@@ -205,10 +205,37 @@ jobs:
         # consumers download through the stable /releases/latest/download/
         # URL, which follows the release marked latest with no 404 window.
         run: |
-          NOTES="Weekly catalog snapshot: media, relations, embeddings, and sync checkpoints. Restore with pipeline.restore or set SEED_SNAPSHOT_URL; the nightly incremental sync continues from this snapshot's checkpoint. Stable download URL: releases/latest/download/mangabrain-dataset.dump. Data sourced from the AniList API."
+          # A notes file, not --notes: the dub section needs paragraphs, and
+          # a multi-line shell string inside this block scalar does not
+          # survive YAML parsing.
+          cat > notes.md <<'NOTES'
+          Weekly catalog snapshot: media, relations, embeddings, and sync
+          checkpoints. Restore with pipeline.restore or set SEED_SNAPSHOT_URL;
+          the nightly incremental sync continues from this snapshot's
+          checkpoint. Stable download URL:
+          releases/latest/download/mangabrain-dataset.dump. Data sourced from
+          the AniList API and Anime News Network.
+
+          Dub data: `dub_languages` comes from ANN and covers every language
+          ANN credits a cast in; `english_dub_inferred` is propagated from
+          those across sequel, prequel, parent and side-story relations.
+
+          `english_va_count` is NOT in this dump and will be null. Measuring
+          it costs one AniList request per title against a two-second rate
+          floor, so a full pass is over twelve hours and cannot run inside
+          this job. Run `python -m pipeline.backfill_dub` yourself if you
+          want it. It is a supplement, not a prerequisite: the ANN languages
+          already answer "is there an English dub" for the titles ANN
+          matched, and the filters accept either source as a yes.
+
+          Restoring over a populated database REPLACES it. pg_restore
+          --clean drops the media table, so any local backfill_dub pass is
+          lost; pipeline.restore refuses unless the catalog is empty or
+          --force is given.
+          NOTES
           TAG="dataset-$(date -u +%Y%m%d-%H%M%S)"
           gh release create "$TAG" mangabrain-dataset.dump --latest \
-            --title "Catalog snapshot $(date -u +%F)" --notes "$NOTES"
+            --title "Catalog snapshot $(date -u +%F)" --notes-file notes.md
 
       - name: Prune old snapshots
         env:
