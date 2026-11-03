@@ -11,6 +11,7 @@ Usage:
 import argparse
 import time
 import traceback
+from datetime import UTC, datetime, timedelta
 
 import psycopg
 
@@ -91,7 +92,7 @@ def run_once(client: RateLimitedClient) -> None:
 
 
 def _dub_pass(client: RateLimitedClient, conn: psycopg.Connection) -> None:
-    """Check a bounded slice of never-checked titles for an English dub.
+    """Check a bounded slice of titles for an English dub.
 
     Bounded because it is one AniList request per title: the initial fill is
     a one-off `python -m pipeline.backfill_dub`, and this only keeps up with
@@ -100,8 +101,19 @@ def _dub_pass(client: RateLimitedClient, conn: psycopg.Connection) -> None:
     """
     if settings.dub_backfill_per_pass <= 0:
         return
+    stale_before = None
+    if settings.dub_recheck_days > 0:
+        # Never-checked titles still sort ahead of rechecks, so this only
+        # spends leftover budget re-asking about titles that may have gained
+        # a dub since they were last seen.
+        stale_before = datetime.now(UTC) - timedelta(days=settings.dub_recheck_days)
     try:
-        backfill_dub(client, conn, limit=settings.dub_backfill_per_pass)
+        backfill_dub(
+            client,
+            conn,
+            limit=settings.dub_backfill_per_pass,
+            stale_before=stale_before,
+        )
     except Exception as exc:  # noqa: BLE001 - freshness of a filter, not of the catalog
         print(
             f"[nightly] dub backfill failed ({type(exc).__name__});"
