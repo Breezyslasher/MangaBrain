@@ -145,3 +145,24 @@ def test_corroboration_is_skipped_when_either_side_is_unknown():
     assert corroborates(undated, year=2015, fmt="TV") == ""
     dated = AnnEntry("2", "Thing", "TV", 2015)
     assert corroborates(dated, year=None, fmt=None) == ""
+
+
+def test_a_base_match_is_exempt_from_year_and_format_agreement():
+    """A season resolving to its parent differs from it in both, by design.
+
+    Requiring agreement rejected BEASTARS FINAL SEASON Part 2 (ONA, 2026)
+    against ANN's BEASTARS (TV, 2019) as rejected_format, discarding the only
+    genuine dub finding in the sample. An exact match claims the entries are
+    the same work; a base match claims only that one belongs to the other.
+    """
+    index = build_index([AnnEntry("38167", "BEASTARS", "TV", 2019)])
+    verdict, entry = match(index, ["BEASTARS Final Season Part 2"], year=2026, fmt="ONA")
+    assert verdict == "base"
+    assert entry is not None and entry.ann_id == "38167"
+
+
+def test_an_exact_match_is_still_held_to_agreement():
+    # The Suntory/your name. guard must survive the base-match exemption.
+    index = build_index([AnnEntry("18171", "your name.", "movie", 2016)])
+    candidates = ["Suntory Minami Alps no Tennen Mizu", "your name."]
+    assert match(index, candidates, year=2016, fmt="SPECIAL") == ("rejected_format", None)

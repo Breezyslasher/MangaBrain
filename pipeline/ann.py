@@ -184,6 +184,9 @@ def corroborates(entry: AnnEntry, year: int | None, fmt: str | None) -> str:
     name matched exactly, and nothing ever checked that a 2-character advert
     and a feature film are not the same work. A single match needs
     corroborating just as much as an ambiguous one needs resolving.
+
+    Only for exact matches, though. See match() for why a base match is
+    exempt.
     """
     if year is not None and entry.year is not None and abs(entry.year - year) > YEAR_TOLERANCE:
         return "year"
@@ -220,9 +223,19 @@ def match(
                 return f"ambiguous_{verdict}", None
             if len(unique) == 1:
                 entry = next(iter(unique.values()))
-                contradiction = corroborates(entry, year, fmt)
-                if contradiction:
-                    return f"rejected_{contradiction}", None
+                # Corroboration applies to an exact match only, because an
+                # exact match claims these are the same work and year and
+                # format are then evidence about that. A base match claims
+                # something different and weaker - that this entry belongs to
+                # that parent series - and a season or OVA legitimately
+                # differs from its parent in both. Demanding agreement there
+                # rejected BEASTARS FINAL SEASON Part 2 (ONA, 2026) against
+                # BEASTARS (TV, 2019), which was the one real dub finding in
+                # the sample.
+                if verdict == "exact":
+                    contradiction = corroborates(entry, year, fmt)
+                    if contradiction:
+                        return f"rejected_{contradiction}", None
                 return verdict, entry
     return "unmatched", None
 
