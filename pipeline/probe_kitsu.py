@@ -458,6 +458,45 @@ def fetch_anilist_ids(client: httpx.Client, sample: int) -> list[int]:
     return out[:sample]
 
 
+# Measured, not assumed: the castings pass ran at 2.4 requests/second with
+# zero failures while the voices pass ran at 6.8 and lost 10% of them. The
+# castings path was never paced deliberately - it was slower by accident of
+# doing more work per request. Kitsu publishes no rate limit in its spec, so
+# this holds to the rate that demonstrably worked.
+MIN_INTERVAL = 0.4
+_last_request = [0.0]
+
+
+def get_paced(client: httpx.Client, url: str, params: dict | None = None):
+    """get() with pacing and a retry, so a 429 is waited out not counted."""
+    for attempt in range(4):
+        wait = MIN_INTERVAL - (time.monotonic() - _last_request[0])
+        if wait > 0:
+            time.sleep(wait)
+        _last_request[0] = time.monotonic()
+        try:
+            resp = client.get(url, params=params, headers=HEADERS)
+        except httpx.HTTPError as exc:
+            if attempt == 3:
+                return None, f"{type(exc).__name__}: {exc}"
+            time.sleep(2**attempt)
+            continue
+        if resp.status_code == 429 or resp.status_code >= 500:
+            retry_after = resp.headers.get("Retry-After")
+            delay = float(retry_after) if retry_after else 2**attempt
+            if attempt == 3:
+                return None, f"HTTP {resp.status_code} after {attempt + 1} tries"
+            time.sleep(min(delay, 30.0))
+            continue
+        if resp.status_code != 200:
+            return None, f"HTTP {resp.status_code}: {resp.text[:160]}"
+        try:
+            return resp.json(), None
+        except ValueError:
+            return None, "not JSON"
+    return None, "gave up"
+
+
 def normalise_locale(locale: str) -> str:
     """ja_jp -> ja, pt_br -> pt-br. Kitsu mixes bare codes and locales."""
     code = locale.strip().lower().replace("_", "-")
@@ -471,7 +510,9 @@ def normalise_locale(locale: str) -> str:
     return head
 
 
-def voices_for_anime(client: httpx.Client, base: str, kitsu_id: str) -> tuple[set[str], int, bool]:
+def voices_for_anime(
+    client: httpx.Client, base: str, kitsu_id: str
+) -> tuple[set[str], int, str | None]:
     """Every cast locale for one anime, via the include path.
 
     castings carries a free-text `language` ("Brazilian"); character-voices
@@ -483,15 +524,14 @@ def voices_for_anime(client: httpx.Client, base: str, kitsu_id: str) -> tuple[se
     locales: set[str] = set()
     seen = 0
     offset = 0
-    truncated = False
     while offset < MAX_CASTINGS:
-        data, err = get(
+        data, err = get_paced(
             client,
             f"{base}/anime/{kitsu_id}/characters",
             {"include": "voices", "page[limit]": 20, "page[offset]": offset},
         )
         if err:
-            return locales, seen, True
+            return locales, seen, err
         rows = data.get("data") or []
         for item in data.get("included") or []:
             if item.get("type") != "characterVoices":
@@ -503,9 +543,7 @@ def voices_for_anime(client: httpx.Client, base: str, kitsu_id: str) -> tuple[se
         if len(rows) < 20:
             break
         offset += len(rows)
-    else:
-        truncated = True
-    return locales, seen, truncated
+    return locales, seen, None
 
 
 def resolve_mappings(client: httpx.Client, base: str, anilist_ids: list[int]) -> dict[int, str]:
@@ -571,10 +609,13 @@ def probe_voices(client: httpx.Client, base: str, sample: int) -> None:
     failures = 0
     truncations = 0
     total_credits = 0
+    reasons: dict[str, int] = {}
     for kitsu_id in resolved.values():
-        locales, seen, failed = voices_for_anime(client, base, kitsu_id)
-        if failed:
+        locales, seen, err = voices_for_anime(client, base, kitsu_id)
+        if err:
             failures += 1
+            key = err.split(":")[0][:40]
+            reasons[key] = reasons.get(key, 0) + 1
             continue
         if seen >= MAX_CASTINGS:
             truncations += 1
@@ -592,6 +633,8 @@ def probe_voices(client: httpx.Client, base: str, sample: int) -> None:
             " Fix the request before reading these numbers.",
             flush=True,
         )
+        for reason, count in sorted(reasons.items(), key=lambda kv: -kv[1]):
+            print(f"     {reason:<44} {count:>4}", flush=True)
         return
     print(f"   voice credits read       {total_credits:>5}", flush=True)
     print(
