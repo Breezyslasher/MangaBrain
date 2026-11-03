@@ -117,12 +117,15 @@ jobs:
   ann-match:
     if: inputs.ann_match == 'true'
     runs-on: ubuntu-24.04
-    # The anime-only sync took longer than a naive 22k/50 pages at the
-    # two-second floor suggests, because sync_anilist walks an id_in scan
-    # over a sparse id space - anime ids are interleaved with manga ids
-    # across the whole range, so the scan makes many more requests than the
-    # anime count divided by the page size.
-    timeout-minutes: 150
+    # Sized from the scan, not from the catalog size. full_sync walks the
+    # whole AniList id space in id_in batches of PER_PAGE=50, from id 1 to
+    # max_id, because AniList rejects a paginated query past a 5000-row
+    # offset. max_id is around 190k, so that is ~3,800 requests at the
+    # two-second floor: a little over two hours, not the fifteen minutes
+    # that 22k anime over fifty-per-page suggests. Two earlier caps here
+    # (35 then 120) were sized against the catalog instead of the scan and
+    # would both have killed the run just short of the measurement.
+    timeout-minutes: 215
     services:
       db:
         image: pgvector/pgvector:pg16
@@ -155,9 +158,14 @@ jobs:
         run: pip install -e .
 
       - name: Sync the anime catalog
-        timeout-minutes: 120
+        timeout-minutes: 180
         run: python -m pipeline.sync_anilist --type anime
 
+      # always() because a partial catalog still measures a match rate. The
+      # scan checkpoints in sync_state after every batch, so whatever it got
+      # through is coherent data rather than a half-written row, and a cap
+      # that fired would otherwise throw away a usable measurement.
       - name: Measure ANN exact-match rate
-        timeout-minutes: 20
+        if: always()
+        timeout-minutes: 25
         run: python -m pipeline.backfill_dub_ann --dry-run
