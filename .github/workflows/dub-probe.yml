@@ -24,6 +24,16 @@ on:
           reachability and dump their raw responses
         required: false
         default: "false"
+      crosscheck:
+        description: bound AniList's dub false negatives against ANN (the
+          measurement Jikan was meant to provide before it started refusing
+          both CI and the deployment host)
+        required: false
+        default: "false"
+      ann_lookups:
+        description: max ANN title lookups in a crosscheck run
+        required: false
+        default: "30"
 
 permissions:
   contents: read
@@ -54,13 +64,20 @@ jobs:
       # Runners have open outbound internet, unlike the dev container whose
       # egress proxy blocks these hosts. That distinction is why the other
       # sources went unmeasured for too long.
+      - name: Cross-check AniList silence against ANN
+        if: inputs.crosscheck == 'true'
+        run: |
+          python -m pipeline.probe_dub_crosscheck \
+            --per-stratum "${{ inputs.per_stratum || '10' }}" \
+            --limit "${{ inputs.ann_lookups || '30' }}"
+
       - name: Probe other sources
         if: inputs.sources == 'true'
         run: |
           python -m pipeline.probe_dub_sources --dump --docs --reachability
 
       - name: Probe
-        if: inputs.sources != 'true'
+        if: inputs.sources != 'true' && inputs.crosscheck != 'true'
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \
