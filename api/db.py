@@ -108,7 +108,7 @@ MEDIA_COLS = """
     m.episodes, m.chapters, m.volumes, m.country_of_origin, m.start_year,
     m.status, m.average_score, m.cover_image_medium, m.cover_image_large,
     m.is_adult, m.synonyms, m.popularity, m.favourites,
-    m.english_va_count, m.dub_groups
+    m.english_va_count, m.dub_groups, m.english_dub_inferred
 """
 
 
@@ -141,8 +141,23 @@ def media_from_row(row: dict[str, Any]) -> MediaOut:
         synonyms=(row["synonyms"] or [])[:MAX_SYNONYMS],
         popularity=row["popularity"],
         favourites=row["favourites"],
-        has_english_dub=(
-            None if row.get("english_va_count") is None else row["english_va_count"] > 0
-        ),
+        has_english_dub=_has_dub(row),
         dub_groups=row.get("dub_groups") or [],
+        dub_source=_dub_source(row),
     )
+
+
+def _has_dub(row: dict[str, Any]) -> bool | None:
+    """True when measured or inferred, None only when nothing is known yet."""
+    if row.get("english_dub_inferred"):
+        return True
+    count = row.get("english_va_count")
+    return None if count is None else count > 0
+
+
+def _dub_source(row: dict[str, Any]) -> str | None:
+    if (row.get("english_va_count") or 0) > 0:
+        return "measured"
+    if row.get("english_dub_inferred"):
+        return "franchise"
+    return None

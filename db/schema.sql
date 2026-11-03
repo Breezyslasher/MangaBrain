@@ -62,6 +62,19 @@ ALTER TABLE media ADD COLUMN IF NOT EXISTS cast_character_count INTEGER;
 ALTER TABLE media ADD COLUMN IF NOT EXISTS dub_groups TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE media ADD COLUMN IF NOT EXISTS dub_checked_at TIMESTAMPTZ;
 
+-- Set by pipeline.propagate_dub when a franchise relative has a measured
+-- English cast. Kept separate from english_va_count so "AniList credits an
+-- English voice actor for this entry" and "a relative of this entry is
+-- dubbed" never collapse into one claim. Measured because AniList's silence
+-- is right per entry and wrong for side entries: of the AniList-silent
+-- titles that resolved exactly against ANN, 0 of 7 had an English cast,
+-- while BEASTARS FINAL SEASON Part 2 (25 characters, no English voice actor
+-- on AniList) belongs to a series ANN credits 18 English cast entries to.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS english_dub_inferred BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_media_english_dub_inferred
+    ON media (id) WHERE english_dub_inferred;
+
 -- Partial index: the filter only ever asks for titles known to be dubbed.
 CREATE INDEX IF NOT EXISTS idx_media_english_dub
     ON media (id) WHERE english_va_count > 0;

@@ -92,7 +92,11 @@ def build_filters(
         # backfilled. There is no dubbed=False branch for that reason, and
         # adding one would quietly hide dubbed titles from the obscure end of
         # the catalog this project exists to surface.
-        clauses.append("m.english_va_count > 0")
+        # Measured or inferred. The inferred flag comes from a franchise
+        # relative with a measured English cast (pipeline.propagate_dub),
+        # which is what recovers season and OVA entries whose own AniList
+        # page never had the English cast entered.
+        clauses.append("(m.english_va_count > 0 OR m.english_dub_inferred)")
     # keep_planned: plan-to-watch/plan-to-read entries stop excluding, so
     # planned titles can still be recommended; started and finished entries
     # (watching/reading, completed, on hold, dropped) always exclude.
