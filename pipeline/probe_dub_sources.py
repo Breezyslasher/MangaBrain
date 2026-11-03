@@ -56,8 +56,7 @@ CANDIDATES: tuple[tuple[str, str, bool], ...] = (
 # dubbed, so a response that cannot show an English cast for it tells us the
 # source is unusable regardless of coverage elsewhere.
 ANN_DUMPS: tuple[tuple[str, str], ...] = (
-    ("anime by id", f"{ANN_CDN}?anime=4658"),
-    ("anime by title", f"{ANN_CDN}?title=~cowboy+bebop"),
+    ("Cowboy Bebop: The Movie (id 353)", f"{ANN_CDN}?anime=353"),
 )
 
 # ANN asks for no more than one request per second and for caching; this stays
@@ -119,13 +118,25 @@ def describe_xml(body: str) -> None:
         log(f"    <{child.tag}> attrs={dict(child.attrib)}")
         log(f"      children: {dict(kids)}")
 
-    # The whole question: is cast recorded per language?
+    # The whole question: is CAST recorded per language? An earlier pass
+    # printed the first lang-bearing elements in document order and they were
+    # all <info> (titles, websites), which says nothing about the cast.
     lang_bearing = [el for el in root.iter() if any("lang" in k.lower() for k in el.attrib)]
-    log(f"    elements with a lang-ish attribute: {len(lang_bearing)}")
-    for el in lang_bearing[:6]:
-        text = (el.text or "").strip()[:60]
-        inner = {sub.tag: (sub.text or "").strip()[:40] for sub in list(el)[:3]}
-        log(f"      <{el.tag} {dict(el.attrib)}> text={text!r} children={inner}")
+    by_tag = Counter(el.tag for el in lang_bearing)
+    log(f"    lang-bearing elements by tag: {dict(by_tag)}")
+
+    casts = list(root.iter("cast"))
+    log(f"    <cast> elements: {len(casts)}")
+    tagged = [c for c in casts if any("lang" in k.lower() for k in c.attrib)]
+    log(f"    <cast> carrying a lang attribute: {len(tagged)}/{len(casts)}")
+    log(f"    lang values on <cast>: {dict(Counter(c.attrib.get('lang') for c in casts))}")
+    for cast in casts[:4]:
+        inner = {sub.tag: (sub.text or "").strip()[:36] for sub in list(cast)[:3]}
+        log(f"      <cast {dict(cast.attrib)}> {inner}")
+
+    # <release> may name the dubbed release instead; worth seeing either way.
+    for rel in list(root.iter("release"))[:3]:
+        log(f"      <release {dict(rel.attrib)}> text={(rel.text or '').strip()[:60]!r}")
 
     gross = Counter(el.tag for el in root.iter())
     log(f"    every tag seen: {dict(gross)}")
