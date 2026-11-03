@@ -46,6 +46,10 @@ class MediaOut(BaseModel):
     # until the ANN pass has matched this entry; English can still be true
     # through AniList alone.
     dub_languages: list[str] = []
+    # AniList's own per-entry measurement, kept apart from dub_languages
+    # (ANN, matched on title) so a client can tell an exact answer from a
+    # name match that resolves 31.8% of the catalog.
+    measured_dub_languages: list[str] = []
     # "measured" when AniList credits an English voice actor for this entry,
     # "ann" when ANN's record supplied it, "franchise" when a related entry
     # is dubbed and this one inherited the flag, None when unknown. A client
