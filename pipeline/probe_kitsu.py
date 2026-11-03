@@ -260,6 +260,8 @@ def probe_density(client: httpx.Client, base: str, sample: int) -> None:
 
     resolved = 0
     with_cast = 0
+    cast_failures = 0
+    map_failures = 0
     langs: dict[str, int] = {}
     titles_per_lang: dict[str, int] = {}
     for anilist_id in anilist_ids:
@@ -279,20 +281,24 @@ def probe_density(client: httpx.Client, base: str, sample: int) -> None:
         if not item:
             continue
         resolved += 1
+        # voiceActor is an attribute, NOT a filterable one: filtering on it
+        # returns HTTP 400, which is how this step previously reported
+        # "0/200 had a cast" when what actually happened was 200 failed
+        # requests. Fetch unfiltered and select locally.
         cast, err = get(
             client,
             f"{base}/castings",
-            {
-                "filter[mediaId]": item["id"],
-                "filter[voiceActor]": "true",
-                "page[limit]": 20,
-            },
+            {"filter[mediaId]": item["id"], "page[limit]": 20},
         )
         if err:
+            cast_failures += 1
             continue
         seen_here = set()
         for row in cast.get("data") or []:
-            lang = (row.get("attributes") or {}).get("language") or "(none)"
+            attrs = row.get("attributes") or {}
+            if not attrs.get("voiceActor"):
+                continue
+            lang = attrs.get("language") or "(none)"
             langs[lang] = langs.get(lang, 0) + 1
             seen_here.add(lang)
         if seen_here:
@@ -302,16 +308,27 @@ def probe_density(client: httpx.Client, base: str, sample: int) -> None:
 
     n = len(anilist_ids)
     print(
-        f"   resolved via mappings    {resolved:>4}/{n}  ({100 * resolved / n:.1f}%)",
+        f"   resolved via mappings    {resolved:>4}/{n}  ({100 * resolved / n:.1f}%)"
+        f"{f'  [{map_failures} request failures]' if map_failures else ''}",
         flush=True,
     )
-    print(
-        f"   of those, had a VA cast  {with_cast:>4}/{resolved}"
-        f"  ({100 * with_cast / resolved:.1f}%)"
-        if resolved
-        else "   none resolved",
-        flush=True,
-    )
+    # A rate computed over failed requests is not a measurement. This step
+    # has already once reported 0.0% when every request behind it 400'd, so
+    # it says so instead of averaging the failures in.
+    if cast_failures:
+        print(
+            f"   CANNOT REPORT cast coverage: {cast_failures}/{resolved} castings"
+            " requests failed. Fix the request before reading this number.",
+            flush=True,
+        )
+    elif resolved:
+        print(
+            f"   of those, had a VA cast  {with_cast:>4}/{resolved}"
+            f"  ({100 * with_cast / resolved:.1f}%)",
+            flush=True,
+        )
+    else:
+        print("   none resolved", flush=True)
     print("   titles per language (first 20 castings each):", flush=True)
     for lang, count in sorted(titles_per_lang.items(), key=lambda kv: -kv[1]):
         print(f"     {lang:<22} {count:>4} titles, {langs[lang]:>5} credits", flush=True)
