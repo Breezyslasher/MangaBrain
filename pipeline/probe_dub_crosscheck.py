@@ -30,6 +30,7 @@ Usage:
 """
 
 import argparse
+import difflib
 import time
 from typing import Any
 
@@ -84,6 +85,37 @@ def candidate_titles(media: dict[str, Any]) -> list[str]:
         seen.add(key)
         out.append(name)
     return out
+
+
+def nearest_names(index: dict, candidates: list[str], limit: int = 3) -> list[str]:
+    """ANN keys closest to any candidate, for diagnosing a failure to match.
+
+    Which cause dominates decides what is worth fixing, and they want
+    different answers. A decoration token is fixable: ANN's "BUILD-DIVIDE
+    -#FFFFFF- CODE WHITE" survives normalisation carrying an ffffff that
+    AniList's "Build Divide: Code White" does not have, and it still shows up
+    as a near name. A translated title is not: ANN files Okusama ga
+    Seitokaichou under "My Wife is the Student Council President", which
+    shares no characters with any name AniList has.
+
+    So a near name means the gap is spelling and worth closing, and no near
+    name means it is a translation or the entry is absent from ANN - this
+    cannot tell those two apart, and both are out of reach of better name
+    handling, which is what the decision needs. Guessing the distribution
+    instead of printing it is how earlier rounds wasted runs.
+    """
+    keys = list(index)
+    found: list[str] = []
+    for name in candidates:
+        key = normalize(name)
+        if not key:
+            continue
+        for hit in difflib.get_close_matches(key, keys, n=limit, cutoff=0.72):
+            entry = index[hit][0]
+            label = f"{entry.name!r} ({entry.kind or '?'} {entry.year or '?'})"
+            if label not in found:
+                found.append(label)
+    return found[:limit]
 
 
 def resolve_media(index: dict, media: dict[str, Any]) -> tuple[str, Any]:
@@ -153,6 +185,9 @@ def main() -> None:
             log(f"  {verdict:<18} {media['id']:>7} chars={chars:>3} {shown}{extra}")
             if entry is not None:
                 resolved.append((media, chars, entry, verdict))
+            elif verdict == "unmatched":
+                near = nearest_names(index, candidate_titles(media))
+                log(f"      nearest ANN names: {near or 'none above 0.72 similarity'}")
 
         log("=== 3. what ANN says about the ones that resolved ===")
         casts = fetch_casts(client, [e.ann_id for _, _, e, _ in resolved])
