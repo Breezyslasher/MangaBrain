@@ -207,3 +207,8 @@ def test_the_dataset_workflow_builds_dub_data_into_the_snapshot():
     # run, so a dub failure evaluated after the dispatch could never trigger
     # the resume its own condition asks for.
     assert workflow.index("id: dub_ann") < workflow.index("Dispatch resume run")
+    # Pinned runner: ubuntu-latest rolled to 26.04, whose archive has no
+    # postgresql-client-16, and this job shells out to pg_dump/pg_restore
+    # against a pg16 service.
+    assert "runs-on: ubuntu-24.04" in workflow
+    assert "runs-on: ubuntu-latest" not in workflow

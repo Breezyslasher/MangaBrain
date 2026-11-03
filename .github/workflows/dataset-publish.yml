@@ -25,7 +25,15 @@ permissions:
 # checkpoint-save step always gets to run.
 jobs:
   build-dataset:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest. The pgvector service is pg16 and these jobs
+    # shell out to pg_dump/pg_restore against it, and ubuntu-latest has rolled
+    # to Ubuntu 26.04 "resolute", whose archive no longer carries
+    # postgresql-client-16: "E: Unable to locate package
+    # postgresql-client-16", which failed the job 30 seconds in. 24.04 still
+    # has it. The alternative, PGDG's apt repo, has no resolute suite yet, so
+    # pinning is the predictable fix; revisit when pg16 client packages exist
+    # for a newer runner.
+    runs-on: ubuntu-24.04
     timeout-minutes: 358
     services:
       db:
