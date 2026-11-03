@@ -105,6 +105,14 @@ jobs:
         if: inputs.kitsu == 'true'
         run: python -m pipeline.probe_kitsu --sample 200 --raw
 
+      # Separate from the measurement above: this one asks what the API is,
+      # rather than measuring through an assumed shape. It runs with the
+      # same input because a measurement taken against the wrong resource
+      # is worth less than knowing which resource is right.
+      - name: Discover Kitsu's cast API shape
+        if: inputs.kitsu == 'true'
+        run: python -m pipeline.probe_kitsu_shape
+
       - name: Probe AniList's dub languages
         if: inputs.languages == 'true'
         run: python -m pipeline.probe_dub_languages --chars 25
