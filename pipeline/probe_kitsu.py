@@ -524,6 +524,7 @@ def voices_for_anime(
     locales: set[str] = set()
     seen = 0
     offset = 0
+    total: int | None = None
     while offset < MAX_CASTINGS:
         data, err = get_paced(
             client,
@@ -531,6 +532,14 @@ def voices_for_anime(
             {"include": "voices", "page[limit]": 20, "page[offset]": offset},
         )
         if err:
+            # A 404 here is an absence, not a breakage: Kitsu returns it for
+            # an anime with no characters, and for an offset past the end.
+            # Counting those as failures is what blocked the whole
+            # measurement on 16 of 164 titles - all of them 404, the same
+            # count before and after pacing, which is how it became clear
+            # that throttling was never involved.
+            if err.startswith("HTTP 404"):
+                return locales, seen, None
             return locales, seen, err
         rows = data.get("data") or []
         for item in data.get("included") or []:
@@ -540,9 +549,14 @@ def voices_for_anime(
             if raw:
                 locales.add(normalise_locale(raw))
                 seen += 1
-        if len(rows) < 20:
-            break
+        if total is None:
+            total = (data.get("meta") or {}).get("count")
         offset += len(rows)
+        # Bound by the reported total rather than by "a full page came back",
+        # which asked for one page past the end on every title whose
+        # character count is an exact multiple of the page size.
+        if not rows or (total is not None and offset >= total):
+            break
     return locales, seen, None
 
 
