@@ -11,12 +11,18 @@ api-docs.kitsu.cloud documents CGWire's Kitsu, an animation production
 tracker whose "casting" means assigning assets to shots. The anime site is
 kitsu.io, documented by hummingbird-me.
 
-What this has to settle, because three measurements have already been taken
-against guessed parameters:
-  - whether `castings` or `media-characters`/`character-voices` is current
-  - the exact filter names each accepts, and their spelling convention
-  - the join path from an anime id to voice actors with a language
-  - whether any filter takes a comma-separated list
+Outcome: the spec cannot settle the cast questions. It documents 8 paths -
+anime, manga, episodes, search and little else - and none of the cast
+resources, exactly as the repo README warns while the conversion from API
+Blueprint is unfinished. The legacy Apiary docs that did cover them no
+longer resolve at any host. So the live API is the only authority, and
+pipeline.probe_kitsu_shape asks it.
+
+What the spec does give, and it is worth keeping:
+  - page[limit] is capped at 20, "some routes may increase the limit"
+  - `include=[relationship]`, successive relationships joined by `.`, and a
+    comma list for several - so include=voices.person is valid
+  - the server is https://kitsu.io/api/edge
 """
 
 import argparse
@@ -49,7 +55,7 @@ def extract_spec(html: str) -> dict | None:
         if in_string:
             if escaped:
                 escaped = False
-            elif ch == "\\\\":
+            elif ch == "\\":
                 escaped = True
             elif ch == '"':
                 in_string = False
@@ -94,16 +100,18 @@ def main() -> None:
             print(f"  doc: {line.strip()[:220]}", flush=True)
 
     paths = spec.get("paths") or {}
-    print(f"\\n{len(paths)} documented paths", flush=True)
+    print(f"{len(paths)} documented paths", flush=True)
 
     cast_paths = sorted(p for p in paths if any(h in p.lower() for h in CAST_HINTS))
-    print(f"\\n{'=' * 72}\\ncast-related paths ({len(cast_paths)})\\n{'=' * 72}", flush=True)
+    print("=" * 72)
+    print(f"cast-related paths ({len(cast_paths)})")
+    print("=" * 72)
     for path in cast_paths:
         for method, op in (paths[path] or {}).items():
             if not isinstance(op, dict):
                 continue
             flag = "  [DEPRECATED]" if op.get("deprecated") else ""
-            print(f"\\n{method.upper():<6} {path}{flag}", flush=True)
+            print(f"{method.upper():<6} {path}{flag}", flush=True)
             summary = op.get("summary") or op.get("operationId")
             if summary:
                 print(f"       {summary}", flush=True)
@@ -124,7 +132,9 @@ def main() -> None:
                 print(f"       other params: {others[:14]}", flush=True)
 
     if args.all_paths:
-        print(f"\\n{'=' * 72}\\nevery path\\n{'=' * 72}", flush=True)
+        print("=" * 72)
+        print("every path")
+        print("=" * 72)
         for path in sorted(paths):
             methods = ",".join(
                 m.upper() for m, o in (paths[path] or {}).items() if isinstance(o, dict)
