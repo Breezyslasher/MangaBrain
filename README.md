@@ -167,7 +167,12 @@ manhwa/manhua), `light_novel`, `one_shot`.
 - `max_episodes=<n>` / `max_chapters=<n>` — length caps (unknown lengths stay
   included)
 - `dub_lang=<code>` — only anime known to be dubbed in that language,
-  lowercase ISO-639-1 (`en`, `de`, `es`, `fr`, `it`, `ko`, `pt`, `ru`, `tl`).
+  lowercase codes as ANN tags them: ISO-639-1 for most (`en`, `de`, `es`,
+  `fr`, `it`, `ko`, `pt`, `ru`, `tl`, `ar`, `pl`, `nl`, `sv`, `da`) and a
+  language-region tag for Chinese (`zh-cn`, `zh-hk`, `zh-tw`), which is not
+  ISO-639-1. A title's own language is never listed: a Japanese cast on a
+  Japanese show is the original, not a dub, so the language implied by
+  country_of_origin is stripped.
   `dubbed=true` is shorthand for `dub_lang=en`. Positive only: there is no
   sub-only option, because an absent cast is not evidence of one.
 - English has three sources and they fill at different rates. AniList is
