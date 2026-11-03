@@ -103,9 +103,17 @@ def ann_lookup(
     wanted = normalize(title)
     # Anime only: ANN returns <manga> entries for the same search, and a manga
     # has no dub.
-    hits = [a for a in root.iter("anime") if wanted in ann_titles(a)]
+    candidates = list(root.iter("anime"))
+    hits = [a for a in candidates if wanted in ann_titles(a)]
     if not hits:
-        return "unmatched", None, set()
+        # "ANN has nothing for this query" and "ANN has entries but none match
+        # exactly" are completely different problems, and three rounds of
+        # guessing which one this was have cost more than reporting it would
+        # have. So say which, and name the near misses.
+        near = [a.attrib.get("name", "?") for a in candidates[:3]]
+        verdict = "no_results" if not candidates else "no_exact_match"
+        log(f"      {verdict}: searched {title!r}, ANN returned {len(candidates)}: {near}")
+        return verdict, None, set()
     if len({a.attrib.get("id") for a in hits}) > 1:
         return "ambiguous", None, set()
     english, langs = ann_english_cast(hits[0])
@@ -140,8 +148,10 @@ def resolve_media(
     client: httpx.Client, media: dict[str, Any]
 ) -> tuple[str, ElementTree.Element | None, set[str], str]:
     """Try each known name until one resolves. Returns the verdict and the name used."""
-    last = "unmatched"
+    last = "no_results"
+    tried: list[str] = []
     for name in candidate_titles(media)[:MAX_TITLE_TRIES]:
+        tried.append(name)
         verdict, entry, langs = ann_lookup(client, name)
         time.sleep(ANN_MIN_INTERVAL)
         if verdict.startswith("matched"):
@@ -151,7 +161,7 @@ def resolve_media(
         if verdict == "ambiguous":
             return verdict, None, set(), name
         last = verdict
-    return last, None, set(), ""
+    return last, None, set(), " | ".join(tried)
 
 
 def collect_silent(client: RateLimitedClient, per_stratum: int) -> list[tuple[dict[str, Any], int]]:
@@ -200,9 +210,10 @@ def main() -> None:
         for media, chars in silent[: args.limit]:
             verdict, entry, langs, used = resolve_media(client, media)
             tally[verdict] = tally.get(verdict, 0) + 1
-            extra = ""
             if entry is not None:
                 extra = f" ann={entry.attrib.get('id')} langs={sorted(langs)} via={used!r}"
+            else:
+                extra = f" tried={used!r}"
             shown = (media["title"]["romaji"] or "")[:40]
             log(f"  {verdict:<18} {media['id']:>7} chars={chars:>3} {shown}{extra}")
 
