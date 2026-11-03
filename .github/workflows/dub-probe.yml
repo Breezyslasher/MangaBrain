@@ -40,6 +40,12 @@ on:
           before this came from a 15-40 title sample.
         required: false
         default: "false"
+      kitsu:
+        description: probe Kitsu as a dub source. The reason to care is its
+          mappings resource, which may carry AniList/MAL ids - an id join
+          would remove the name matching that caps ANN at 31.8%.
+        required: false
+        default: "false"
       languages:
         description: can AniList answer for every dub language at once via
           aliased fields? Would lift non-English dubs off ANN's 31.8% name
@@ -62,7 +68,7 @@ permissions:
 # and deleted by a reports probe queued while it was still working.
 concurrency:
   group: >-
-    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}
   cancel-in-progress: true
 
 jobs:
@@ -95,6 +101,10 @@ jobs:
             --per-stratum "${{ inputs.per_stratum || '10' }}" \
             --limit "${{ inputs.ann_lookups || '30' }}"
 
+      - name: Probe Kitsu
+        if: inputs.kitsu == 'true'
+        run: python -m pipeline.probe_kitsu --sample 200 --raw
+
       - name: Probe AniList's dub languages
         if: inputs.languages == 'true'
         run: python -m pipeline.probe_dub_languages --chars 25
@@ -111,6 +121,7 @@ jobs:
       - name: Probe
         if: inputs.sources != 'true' && inputs.crosscheck != 'true'
           && inputs.paged_cast != 'true' && inputs.languages != 'true'
+          && inputs.kitsu != 'true'
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \
