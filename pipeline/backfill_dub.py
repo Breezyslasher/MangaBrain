@@ -29,6 +29,7 @@ Usage:
 """
 
 import argparse
+import time
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -36,6 +37,7 @@ import psycopg
 
 from api.config import settings
 from pipeline.client import RateLimitedClient
+from pipeline.embed import progress_line
 
 ANILIST_URL = "https://graphql.anilist.co"
 
@@ -165,6 +167,7 @@ def backfill(
 
     checked = dubbed = skipped = 0
     consecutive_5xx = 0
+    started = time.monotonic()
     for i, (media_id,) in enumerate(rows, start=1):
         try:
             payload = client.request(
@@ -224,8 +227,9 @@ def backfill(
         if i % 50 == 0:
             conn.commit()
             pct = 100.0 * dubbed / checked if checked else 0.0
+            progress = progress_line(i, len(rows), time.monotonic() - started, label="dub")
             print(
-                f"[dub] {i}/{len(rows)} checked, {dubbed} with an English cast ({pct:.0f}%)",
+                f"{progress} - {dubbed} with an English cast ({pct:.0f}%)",
                 flush=True,
             )
     conn.commit()

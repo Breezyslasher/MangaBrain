@@ -370,3 +370,35 @@ def test_non_english_ann_languages_do_not_imply_an_english_dub():
     out = media_from_row(row)
     assert out.has_english_dub is False
     assert out.dub_source is None
+
+
+def test_the_dub_walk_reports_rate_and_eta():
+    """A twelve-hour job printing a bare count tells you nothing.
+
+    The walk is one AniList request per title over ~22k titles, so the
+    progress line borrows the embed pass's rate and ETA rather than leaving
+    the operator to work out from a raw count whether it will finish tonight.
+    """
+    from pipeline.embed import progress_line
+
+    line = progress_line(250, 22167, 500.0, label="dub")
+    assert line.startswith("[dub] 250/22167")
+    assert "(1.1%)" in line
+    assert "ETA" in line
+    # The embed pass keeps its own prefix.
+    assert progress_line(50, 200, 10.0).startswith("[embed]")
+
+
+def test_the_dub_walk_prints_progress_without_torch_installed():
+    """backfill_dub imports from pipeline.embed, which must stay torch-free.
+
+    embed_missing imports torch lazily on purpose; if that ever moved to
+    module scope, importing it here would drag torch into a walk that has no
+    use for it.
+    """
+    import pipeline.backfill_dub as walk
+
+    assert walk.progress_line is not None
+    import pipeline.embed as embed_module
+
+    assert "torch" not in dir(embed_module)
