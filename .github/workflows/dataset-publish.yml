@@ -101,32 +101,6 @@ jobs:
         timeout-minutes: 70
         run: python -m pipeline.embed --prune-stale
 
-      # The published dataset carries dub data so nobody restoring it has to
-      # spend twelve hours on AniList's cast, which costs one request per
-      # title because it will not populate a nested connection across a page
-      # of parents. ANN instead hands over its whole anime list in ~22 paged
-      # requests and 20 casts per request, which is the catalog in about
-      # three quarters of an hour, and tags every cast entry with its
-      # language so all nine arrive together.
-      #
-      # It is incremental (rows already sourced from ANN are skipped), so a
-      # timeout here resumes on the next run like sync and embed do, and the
-      # checkpoint below is saved after it so the resume keeps the languages
-      # already fetched. Propagation then runs off whichever direct source
-      # exists, which on CI is ANN alone.
-      #
-      # 40 minutes, not the ~45 a cold full pass wants: the job itself is
-      # capped at 358 and sync and embed can claim 280 and 70 of that, so a
-      # generous cap here could let the job die before the checkpoint step
-      # and lose the whole run's progress. Undershooting costs a resume;
-      # overshooting costs everything.
-      - name: Dub languages from ANN
-        id: dub_ann
-        timeout-minutes: 40
-        run: |
-          python -m pipeline.backfill_dub_ann
-          python -m pipeline.propagate_dub
-
       # Runs even when sync or embed failed or timed out, so the next
       # trigger resumes instead of restarting. The key is unique per attempt
       # (same-key saves are rejected); restore-keys picks the newest.
@@ -141,6 +115,33 @@ jobs:
         with:
           path: checkpoint.dump
           key: dataset-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # The published dataset carries dub data so nobody restoring it has to
+      # spend twelve hours on AniList's cast, which costs one request per
+      # title because it will not populate a nested connection across a page
+      # of parents. ANN instead hands over its whole anime list in ~22 paged
+      # requests and 20 casts per request, which is the catalog in about
+      # three quarters of an hour, and tags every cast entry with its
+      # language so all nine arrive together.
+      #
+      # It is incremental (rows already sourced from ANN are skipped), so a
+      # timeout here resumes on the next run like sync and embed do.
+      # Propagation then runs off whichever direct source exists, which on
+      # CI is ANN alone.
+      #
+      # Placed after the checkpoint upload on purpose. The job budget note
+      # above keeps sync + embed (280 + 70) inside the 358-minute job limit
+      # precisely so the checkpoint always gets saved, and adding 40 minutes
+      # ahead of it would break that: a cold run could die before
+      # checkpointing and lose everything. Running after the upload costs a
+      # refetch of the languages when a resume happens, since the checkpoint
+      # will not contain them, and buys back the guarantee.
+      - name: Dub languages from ANN
+        id: dub_ann
+        timeout-minutes: 40
+        run: |
+          python -m pipeline.backfill_dub_ann
+          python -m pipeline.propagate_dub
 
       # A sync or embed step timeout is the designed split-across-runs case:
       # the checkpoint holds the progress, so dispatch a fresh run to resume

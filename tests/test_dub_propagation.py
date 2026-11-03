@@ -198,5 +198,12 @@ def test_the_dataset_workflow_builds_dub_data_into_the_snapshot():
     assert "pipeline.propagate_dub" in workflow
     # A failure there must resume like sync and embed, not strand the run.
     assert "steps.dub_ann.outcome == 'failure'" in workflow
-    # And the checkpoint has to be saved after it, or a resume refetches.
-    assert workflow.index("id: dub_ann") < workflow.index("Save checkpoint")
+    # And it must come after the checkpoint upload. The job header keeps
+    # sync + embed inside the job limit so the checkpoint step is always
+    # reachable; 40 more minutes ahead of it would break that and a cold run
+    # could die before checkpointing and lose everything.
+    assert workflow.index("Upload checkpoint to cache") < workflow.index("id: dub_ann")
+    # And before the resume dispatch: a step's outcome is empty until it has
+    # run, so a dub failure evaluated after the dispatch could never trigger
+    # the resume its own condition asks for.
+    assert workflow.index("id: dub_ann") < workflow.index("Dispatch resume run")
