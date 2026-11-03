@@ -169,6 +169,31 @@ def narrow(hits: list[AnnEntry], year: int | None, fmt: str | None) -> list[AnnE
     return hits
 
 
+# A vintage can legitimately differ by a year between the two databases
+# (AniList dates the first episode, ANN sometimes the release or a festival
+# screening), so agreement is checked with tolerance rather than equality.
+YEAR_TOLERANCE = 1
+
+
+def corroborates(entry: AnnEntry, year: int | None, fmt: str | None) -> str:
+    """Whether a name match is backed up by year and format, or contradicted.
+
+    A unique name hit used to be accepted outright, and that is how a Suntory
+    mineral-water commercial matched ANN's entry for 'your name.' and was
+    counted as a dubbed title: the commercial carries a tie-in synonym, the
+    name matched exactly, and nothing ever checked that a 2-character advert
+    and a feature film are not the same work. A single match needs
+    corroborating just as much as an ambiguous one needs resolving.
+    """
+    if year is not None and entry.year is not None and abs(entry.year - year) > YEAR_TOLERANCE:
+        return "year"
+    if fmt and entry.kind:
+        allowed = FORMAT_TO_ANN.get(fmt.upper(), set())
+        if allowed and entry.kind not in allowed:
+            return "format"
+    return ""
+
+
 def match(
     index: dict[str, list[AnnEntry]],
     candidates: list[str],
@@ -179,7 +204,10 @@ def match(
 
     Exact names are tried across every candidate before any base form is
     considered, so a sequel never resolves to its parent while an exact match
-    for it exists somewhere in the candidate list.
+    for it exists somewhere in the candidate list. A base match is reported
+    under its own verdict because it is a different claim: it resolves a
+    season or OVA to its parent series, which is useful for inferring a dub
+    but is not the same entry.
     """
     for keyer, verdict in ((normalize, "exact"), (lambda t: normalize(base_form(t)), "base")):
         for name in candidates:
@@ -188,10 +216,14 @@ def match(
                 continue
             hits = narrow(index.get(key, []), year, fmt)
             unique = {h.ann_id: h for h in hits}
-            if len(unique) == 1:
-                return verdict, next(iter(unique.values()))
             if len(unique) > 1:
                 return f"ambiguous_{verdict}", None
+            if len(unique) == 1:
+                entry = next(iter(unique.values()))
+                contradiction = corroborates(entry, year, fmt)
+                if contradiction:
+                    return f"rejected_{contradiction}", None
+                return verdict, entry
     return "unmatched", None
 
 

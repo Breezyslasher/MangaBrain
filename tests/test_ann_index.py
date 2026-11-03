@@ -108,3 +108,40 @@ def test_index_keys_both_the_full_name_and_its_base():
     index = build_index([AnnEntry("13", "Hibike! Euphonium 2", "TV", 2016)])
     assert normalize("Hibike! Euphonium 2") in index
     assert normalize("Hibike! Euphonium") in index
+
+
+def test_a_unique_name_still_needs_corroborating():
+    """The Suntory/your name. failure: same name, utterly different work.
+
+    A Suntory mineral-water advert carries a tie-in synonym, matched ANN's
+    entry for the film exactly, and was counted as a dubbed title because a
+    single hit was accepted without ever checking that a two-character advert
+    and a feature film are not the same thing.
+    """
+    index = build_index([AnnEntry("18171", "your name.", "movie", 2016)])
+    candidates = ["Suntory Minami Alps no Tennen Mizu", "your name."]
+    assert match(index, candidates, year=2016, fmt="SPECIAL") == ("rejected_format", None)
+    # The film itself still resolves.
+    verdict, entry = match(index, ["your name."], year=2016, fmt="MOVIE")
+    assert verdict == "exact"
+    assert entry is not None and entry.ann_id == "18171"
+
+
+def test_a_contradicting_year_is_rejected_not_accepted():
+    index = build_index([AnnEntry("18171", "your name.", "movie", 2016)])
+    assert match(index, ["your name."], year=2021, fmt="MOVIE") == ("rejected_year", None)
+
+
+def test_a_year_within_tolerance_still_matches():
+    # AniList dates the first episode, ANN sometimes a festival screening.
+    index = build_index([AnnEntry("1", "Thing", "TV", 2015)])
+    assert match(index, ["Thing"], year=2016, fmt="TV")[0] == "exact"
+
+
+def test_corroboration_is_skipped_when_either_side_is_unknown():
+    from pipeline.ann import corroborates
+
+    undated = AnnEntry("1", "Thing", None, None)
+    assert corroborates(undated, year=2015, fmt="TV") == ""
+    dated = AnnEntry("2", "Thing", "TV", 2015)
+    assert corroborates(dated, year=None, fmt=None) == ""

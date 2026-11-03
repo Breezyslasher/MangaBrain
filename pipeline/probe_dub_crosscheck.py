@@ -134,7 +134,7 @@ def main() -> None:
 
     log("=== 2. matching against ANN's bulk anime index ===")
     tally: dict[str, int] = {}
-    resolved: list[tuple[dict[str, Any], int, Any]] = []
+    resolved: list[tuple[dict[str, Any], int, Any, str]] = []
     with httpx.Client(timeout=90.0, follow_redirects=True, headers={"User-Agent": UA}) as client:
         entries = fetch_anime_index(client)
         index = build_index(entries)
@@ -147,33 +147,46 @@ def main() -> None:
             extra = f" ann={entry.ann_id} {entry.name[:30]!r}" if entry else ""
             log(f"  {verdict:<18} {media['id']:>7} chars={chars:>3} {shown}{extra}")
             if entry is not None:
-                resolved.append((media, chars, entry))
+                resolved.append((media, chars, entry, verdict))
 
         log("=== 3. what ANN says about the ones that resolved ===")
-        casts = fetch_casts(client, [e.ann_id for _, _, e in resolved])
+        casts = fetch_casts(client, [e.ann_id for _, _, e, _ in resolved])
 
-    dubbed = 0
-    for media, chars, entry in resolved:
+    # Exact and base matches are different claims and are counted apart. An
+    # exact match says "ANN's record for this entry has no English cast". A
+    # base match says "ANN's record for the parent series does", which is
+    # evidence about the franchise, not about this entry.
+    dubbed = {"exact": 0, "base": 0}
+    totals = {"exact": 0, "base": 0}
+    for media, chars, entry, how in resolved:
         english, langs = casts.get(entry.ann_id, (0, set()))
         # chars is AniList's cast size, printed so a zero there is visible.
-        dubbed += english > 0
+        kind = "base" if how == "base" else "exact"
+        totals[kind] += 1
+        dubbed[kind] += english > 0
         verdict = "DUBBED per ANN" if english else "no English cast"
         log(
-            f"  {verdict:<16} {media['id']:>7} ann={entry.ann_id} anilist_chars={chars:>3} "
-            f"en={english:>3} langs={sorted(langs)} {(media['title']['romaji'] or '')[:34]}"
+            f"  {verdict:<16} via={kind:<5} {media['id']:>7} ann={entry.ann_id} "
+            f"anilist_chars={chars:>3} en={english:>3} langs={sorted(langs)} "
+            f"{(media['title']['romaji'] or '')[:30]}"
         )
 
     log("=== 4. result ===")
     for verdict, count in sorted(tally.items(), key=lambda kv: -kv[1]):
         log(f"  {verdict:<18} {count}")
-    if resolved:
+    if totals["exact"]:
+        rate = 100.0 * dubbed["exact"] / totals["exact"]
         log(
-            f"false-negative rate: {dubbed}/{len(resolved)} "
-            f"({100.0 * dubbed / len(resolved):.0f}%) of AniList-silent titles are "
-            "dubbed per ANN"
+            f"false-negative rate (exact matches): {dubbed['exact']}/{totals['exact']} "
+            f"({rate:.0f}%) of AniList-silent titles are dubbed per ANN"
         )
     else:
-        log("nothing resolved; matching, not coverage, is still the blocker")
+        log("no exact match resolved; matching is still the blocker")
+    if totals["base"]:
+        log(
+            f"franchise evidence (base matches): {dubbed['base']}/{totals['base']} "
+            "resolved to a parent series ANN records an English cast for"
+        )
     unresolved = sum(v for k, v in tally.items() if k.startswith(("unmatched", "ambiguous")))
     log(f"unresolved (unmatched or ambiguous): {unresolved}")
     log(f"done in {time.time() - started:.0f}s")
