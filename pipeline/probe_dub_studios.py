@@ -193,6 +193,110 @@ def main() -> None:
             flush=True,
         )
 
+    # Companies whose BUSINESS is English-language licensing or dubbing.
+    #
+    # This list is mechanistic on purpose, and it is the one part of this
+    # probe that is not derived from the data - because the data is
+    # confounded. Yomiko Advertising scored 100%, Hakuhodo 80%, Lantis 65%,
+    # AT-X 57%, KADOKAWA 58%, Pony Canyon 45%. None of them dub anything.
+    # They attach to commercially significant titles, and commercially
+    # significant titles get dubbed, so they are a popularity proxy wearing a
+    # studio credit.
+    #
+    # Inferring a dub from them would put popularity into the dub filter,
+    # which the project forbids in scoring for exactly this reason: it would
+    # systematically favour well-known titles and bury the obscure ones the
+    # recommender exists to surface. So a studio qualifies on mechanism
+    # first - it must plausibly cause an English dub - and on measured
+    # precision second.
+    ENGLISH_LICENSORS = (
+        "funimation",
+        "sentai filmworks",
+        "viz media",
+        "central park media",
+        "the right stuf",
+        "media blasters",
+        "adv films",
+        "bandai entertainment",
+        "aniplex of america",
+        "discotek",
+        "nis america",
+        "geneon",
+        "pioneer entertainment",
+        "manga entertainment",
+        "crunchyroll",
+        "netflix",
+        "bang zoom",
+        "studiopolis",
+        "nyav post",
+        "ocean productions",
+        "ocean group",
+        "seraphim digital",
+        "new generation pictures",
+        "sound cadence",
+    )
+
+    def is_licensor(name: str) -> bool:
+        low = name.lower()
+        return any(hint in low for hint in ENGLISH_LICENSORS)
+
+    print()
+    print("=" * 72)
+    print("the confound: who scores well WITHOUT dubbing anything")
+    print("=" * 72)
+    confounded = [r for r in rows if r[0] >= 0.3 and not is_licensor(r[4])]
+    for lower, rate, _hits, support, name in confounded[:14]:
+        print(
+            f"   {name[:40]:<40} {rate * 100:>3.0f}% of {support:<3}  bound {lower * 100:>3.0f}%",
+            flush=True,
+        )
+    print(
+        "\n   These are ad agencies, music labels and TV networks. They predict"
+        "\n   a dub by predicting commercial significance, which is popularity -"
+        "\n   excluded from scoring by project rule, and self-defeating in a"
+        "\n   recommender built to surface obscure titles.",
+        flush=True,
+    )
+
+    print()
+    print("=" * 72)
+    print("actionable: English licensors, and how many titles they would FIX")
+    print("=" * 72)
+    # The inference target is a title crediting a licensor while having a
+    # cast recorded but no English cast - an AniList false negative.
+    targets: Counter = Counter()
+    for media in with_cast:
+        if has_english(media):
+            continue
+        for name in set(studios(media)):
+            if is_licensor(name):
+                targets[name] += 1
+    print(f"   {'studio':<40} {'precision':>10} {'support':>8} {'would fix':>10}")
+    for _lower, rate, _hits, support, name in rows:
+        if not is_licensor(name):
+            continue
+        fix = targets.get(name, 0)
+        print(
+            f"   {name[:40]:<40} {rate * 100:>9.0f}% {support:>8} {fix:>10}",
+            flush=True,
+        )
+    seen_titles = set()
+    for media in with_cast:
+        if has_english(media):
+            continue
+        if any(is_licensor(n) for n in studios(media)):
+            seen_titles.add(media["id"])
+    total_targets = len(seen_titles)
+    sampled = len(records) or 1
+    catalog = 22667
+    print(
+        f"\n   distinct titles a licensor credit would mark as dubbed:"
+        f" {total_targets}/{sampled}"
+        f"\n   extrapolated to the catalog: ~{round(catalog * total_targets / sampled)} titles"
+        f" ({100 * total_targets / sampled:.1f}%)",
+        flush=True,
+    )
+
     strong = [r for r in rows if r[0] >= 0.5]
     print()
     print("=" * 72)
