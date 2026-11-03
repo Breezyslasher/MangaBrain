@@ -40,6 +40,12 @@ on:
           before this came from a 15-40 title sample.
         required: false
         default: "false"
+      one_call:
+        description: can ONE unfiltered request return every dub language, by
+          reading languageV2 off each voice actor instead of filtering? Would
+          cut the language walk from ~4,000 requests to ~444.
+        required: false
+        default: "false"
       anidb:
         description: evaluate AniDB as a dub source. Sends only a handful of
           requests, because AniDB bans IPs for automated access and its terms
@@ -74,7 +80,7 @@ permissions:
 # and deleted by a reports probe queued while it was still working.
 concurrency:
   group: >-
-    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}
   cancel-in-progress: true
 
 jobs:
@@ -106,6 +112,10 @@ jobs:
           python -m pipeline.probe_dub_crosscheck \
             --per-stratum "${{ inputs.per_stratum || '10' }}" \
             --limit "${{ inputs.ann_lookups || '30' }}"
+
+      - name: Probe one-call language retrieval
+        if: inputs.one_call == 'true'
+        run: python -m pipeline.probe_dub_one_call
 
       - name: Evaluate AniDB
         if: inputs.anidb == 'true'
@@ -147,6 +157,7 @@ jobs:
         if: inputs.sources != 'true' && inputs.crosscheck != 'true'
           && inputs.paged_cast != 'true' && inputs.languages != 'true'
           && inputs.kitsu != 'true' && inputs.anidb != 'true'
+          && inputs.one_call != 'true'
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \

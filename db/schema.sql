@@ -295,3 +295,17 @@ ALTER TABLE media ADD COLUMN IF NOT EXISTS dub_languages_checked TEXT[] NOT NULL
 
 CREATE INDEX IF NOT EXISTS idx_media_measured_dub_languages
     ON media USING gin (measured_dub_languages);
+
+-- When a row was last measured for dub languages. One unfiltered request
+-- returns every language at once (voiceActors without a language argument,
+-- read via Staff.languageV2), so progress is a single timestamp per row
+-- rather than a set of languages asked about.
+--
+-- This supersedes dub_languages_checked, which was sized for a pass that
+-- asked one language per request. That column is left in place rather than
+-- dropped, because dropping it would discard data on a deployment that has
+-- already run the per-language pass; it is simply no longer written.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS measured_dub_checked_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_media_measured_dub_unchecked
+    ON media (id) WHERE measured_dub_checked_at IS NULL;
