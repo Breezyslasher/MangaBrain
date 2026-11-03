@@ -38,8 +38,12 @@ on:
 permissions:
   contents: read
 
+# Keyed by probe kind, not just the ref. Grouping every probe together meant
+# dispatching one cancelled another mid-run: the ANN cross-check was killed
+# and deleted by a reports probe queued while it was still working.
 concurrency:
-  group: dub-probe-${{ github.ref }}
+  group: >-
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}
   cancel-in-progress: true
 
 jobs:
