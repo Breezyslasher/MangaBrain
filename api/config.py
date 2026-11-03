@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # fill is a one-off `python -m pipeline.backfill_dub`; this only has
     # to keep up with newly synced entries. 0 disables it.
     dub_backfill_per_pass: int = 400
+    # A dub is often added months after a title airs, so a checked row
+    # goes stale rather than final. The nightly pass spends its budget on
+    # never-checked titles first and then on the stalest ones, so this is
+    # the age at which a row becomes eligible again. 0 disables rechecks.
+    dub_recheck_days: int = 90
     # Optional catalog snapshot to seed an empty database from (see
     # pipeline.restore). Best-effort: on failure the worker falls back to a
     # normal full sync.

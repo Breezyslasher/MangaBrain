@@ -71,7 +71,15 @@ CREATE TABLE IF NOT EXISTS dub_backfill_state (
 """
 
 # Unchecked rows first, then the stalest, so an interrupted run resumes
-# instead of restarting and a --recheck pass works oldest-first.
+# instead of restarting and a recheck pass works oldest-first.
+#
+# The id DESC tiebreak matters more than it looks. Every unchecked row has a
+# NULL dub_checked_at, so they all tie on the first key and the tiebreak picks
+# the order the catalog is filled in. Ascending by id walks the oldest entries
+# first, which starves newly synced titles of a dub flag for as long as the
+# backlog lasts - at a few hundred titles per nightly pass, weeks. AniList ids
+# increase over time, so descending checks the newest titles first, which is
+# also the half a dub filter is most likely to be pointed at.
 SELECT_SQL = """
     SELECT m.id
     FROM media m
@@ -79,7 +87,7 @@ SELECT_SQL = """
     WHERE m.media_type = 'ANIME'
       AND (m.dub_checked_at IS NULL OR m.dub_checked_at < %(stale_before)s)
       AND COALESCE(s.attempts, 0) < %(max_attempts)s
-    ORDER BY m.dub_checked_at ASC NULLS FIRST, m.id
+    ORDER BY m.dub_checked_at ASC NULLS FIRST, m.id DESC
 """
 
 UPDATE_SQL = """

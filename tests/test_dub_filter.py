@@ -159,6 +159,48 @@ def test_backfill_only_walks_anime():
     assert "dub_checked_at ASC NULLS FIRST" in SELECT_SQL
 
 
+def test_unchecked_titles_are_walked_newest_first():
+    """Every unchecked row ties on dub_checked_at, so the tiebreak decides.
+
+    Ascending by id walks the oldest catalog entries first and starves newly
+    synced titles of a dub flag for as long as the backlog lasts, which at a
+    few hundred per nightly pass is weeks. AniList ids grow over time, so
+    descending checks the newest first.
+    """
+    from pipeline.backfill_dub import SELECT_SQL
+
+    assert "m.id DESC" in SELECT_SQL
+
+
+def test_nightly_rechecks_stale_rows_so_a_later_dub_is_picked_up(monkeypatch):
+    """A dub is often added months after a title airs.
+
+    Without a recheck window a title checked once before its dub existed
+    stays flagged as having none forever.
+    """
+    import pipeline.nightly as nightly
+    from api.config import settings as cfg
+
+    captured: dict = {}
+
+    def fake_backfill(client, conn, limit=None, stale_before=None, **kwargs):
+        captured["limit"] = limit
+        captured["stale_before"] = stale_before
+
+    monkeypatch.setattr(nightly, "backfill_dub", fake_backfill)
+    monkeypatch.setattr(cfg, "dub_backfill_per_pass", 400)
+
+    monkeypatch.setattr(cfg, "dub_recheck_days", 90)
+    nightly._dub_pass(object(), object())
+    assert captured["limit"] == 400
+    assert captured["stale_before"] is not None
+
+    # 0 means never recheck: only never-checked titles are walked.
+    monkeypatch.setattr(cfg, "dub_recheck_days", 0)
+    nightly._dub_pass(object(), object())
+    assert captured["stale_before"] is None
+
+
 def test_dub_signal_is_not_a_scoring_input():
     """Popularity is banned from scoring; so is this.
 
