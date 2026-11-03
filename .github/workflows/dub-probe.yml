@@ -109,9 +109,16 @@ jobs:
       # rather than measuring through an assumed shape. It runs with the
       # same input because a measurement taken against the wrong resource
       # is worth less than knowing which resource is right.
+      # Read the spec before interrogating the server: the spec says which
+      # resource is current and what each filter is actually called, which
+      # is the thing three measurements have now guessed at.
+      - name: Read Kitsu's OpenAPI spec
+        if: inputs.kitsu == 'true'
+        run: python -m pipeline.probe_kitsu_spec --all-paths
+
       - name: Discover Kitsu's cast API shape
         if: inputs.kitsu == 'true'
-        run: python -m pipeline.probe_kitsu_shape
+        run: python -m pipeline.probe_kitsu_shape --skip-docs
 
       - name: Probe AniList's dub languages
         if: inputs.languages == 'true'
