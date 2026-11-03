@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 import api.main as main
 import api.routers.search as search
 from api.config import settings
-from tests.fake_db import FakePool
+from fake_db import FakePool
 
 # (raw title, media id, best ordinality) rows the catalog pass would return.
 # Ordinality 1-3 are the main titles, 4+ come from the synonyms array.

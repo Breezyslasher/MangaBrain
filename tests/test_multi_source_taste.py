@@ -10,7 +10,7 @@ import numpy as np
 
 from api.routers.foryou import round_robin
 from api.routers.recommend import _taste_profile, taste_sources, taste_weights
-from tests.fake_db import FakeConn
+from fake_db import FakeConn
 
 E1 = np.array([1.0, 0.0, 0.0], dtype=np.float32)
 E2 = np.array([0.0, 1.0, 0.0], dtype=np.float32)

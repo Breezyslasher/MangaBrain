@@ -18,7 +18,7 @@ import api.routers.search as search
 from api.config import settings
 from api.db import MAX_SYNONYMS, MEDIA_COLS, media_from_row
 from api.models import ExclusionStatus
-from tests.fake_db import FakePool
+from fake_db import FakePool
 
 
 @pytest.fixture
