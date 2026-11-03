@@ -196,19 +196,15 @@ def test_the_dataset_workflow_builds_dub_data_into_the_snapshot():
     ).read_text()
     assert "pipeline.backfill_dub_ann" in workflow
     assert "pipeline.propagate_dub" in workflow
-    # A failure there must resume like sync and embed, not strand the run.
-    assert "steps.dub_ann.outcome == 'failure'" in workflow
-    # And it must come after the checkpoint upload. The job header keeps
-    # sync + embed inside the job limit so the checkpoint step is always
-    # reachable; 40 more minutes ahead of it would break that and a cold run
-    # could die before checkpointing and lose everything.
+    # Runs regardless of the embed outcome: dub data is unrelated to
+    # embeddings, and without this a timed-out embed would skip it on every
+    # run of a long re-embed chain, so the languages would never arrive.
+    assert "if: always()" in workflow
+    # After the checkpoint upload, so it can never cost a run its checkpoint,
+    # and after the resume dispatch, because a job timeout kills the steps
+    # after it and losing the resume is worse than partial dub data.
     assert workflow.index("Upload checkpoint to cache") < workflow.index("id: dub_ann")
-    # And before the resume dispatch: a step's outcome is empty until it has
-    # run, so a dub failure evaluated after the dispatch could never trigger
-    # the resume its own condition asks for.
-    assert workflow.index("id: dub_ann") < workflow.index("Dispatch resume run")
-    # Pinned runner: ubuntu-latest rolled to 26.04, whose archive has no
-    # postgresql-client-16, and this job shells out to pg_dump/pg_restore
-    # against a pg16 service.
+    assert workflow.index("Dispatch resume run") < workflow.index("id: dub_ann")
+    assert workflow.index("id: dub_ann") < workflow.index("Dump snapshot")
     assert "runs-on: ubuntu-24.04" in workflow
     assert "runs-on: ubuntu-latest" not in workflow
