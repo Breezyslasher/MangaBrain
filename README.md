@@ -171,8 +171,10 @@ manhwa/manhua), `light_novel`, `one_shot`.
   `dubbed=true` is shorthand for `dub_lang=en`. Positive only: there is no
   sub-only option, because an absent cast is not evidence of one.
 - English has three sources and they fill at different rates. AniList is
-  measured per entry, fifty titles per request (~444 requests, about fifteen
-  minutes); ANN returns every language at once and covers the catalog in ~45
+  measured per entry, fifty titles per request (~444 requests, about an hour
+  measured - the heavy cast query is throttled past the local rate floor, so
+  not the fifteen minutes the floor alone implies); ANN returns every language
+  at once and covers the catalog in ~45
   minutes, but only for titles it can be matched to by name (~55-70%);
   propagation infers a dub from a dubbed sequel, prequel, parent or side
   story. Any of the three answers a `dub_lang=en` query. Other languages

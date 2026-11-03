@@ -4,7 +4,8 @@ The two sources divide cleanly, but not on cost - that was a mistake this
 module's first version was written around. AniList is asked about one
 language per aliased field and its enum covers ten, so it is the English
 source; it fetches fifty titles per request, so a full catalog is ~444
-requests and about fifteen minutes. ANN tags every cast entry with its
+requests and about an hour at the throttled rate those heavy queries
+actually get. ANN tags every cast entry with its
 language in the same response (58 of 58 on the sampled title, across nine
 languages), hands over its entire anime list in roughly 22 paged requests,
 and returns 20 casts per request, so it covers the catalog in about three

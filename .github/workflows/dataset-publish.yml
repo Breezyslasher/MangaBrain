@@ -162,8 +162,9 @@ jobs:
       # which voiceActors resolves to null on every edge, and the fix changed
       # the paging and the node together so the per-title shape took the
       # credit. A fifty-id request is served whole with every cast
-      # populated (pipeline.probe_paged_cast), so the pass is ~444 requests,
-      # about fifteen minutes, and belongs here after all.
+      # populated (pipeline.probe_paged_cast), so the pass is ~444 requests
+      # and about an hour measured on a real cold run, and belongs here
+      # after all.
       #
       # ANN gives the other eight languages, since AniList is asked about one
       # language per aliased field. It hands over its whole anime list in ~22
@@ -196,10 +197,19 @@ jobs:
       # a long re-embed chain, so the languages would never be fetched. The
       # pass is incremental, so each run adds to the last and it needs no
       # resume trigger of its own.
+      # 75, not 35. The 35 came from the ideal rate - fifty titles per
+      # request against the client's two-second floor is 25 titles/s, so
+      # 22,167 titles looks like fifteen minutes. Measured on a real cold
+      # pass it is 6.2 titles/s, fifty titles per 8.1s: a 50-id cast query
+      # is heavy in AniList's complexity budget and gets throttled well past
+      # the local floor. That is ~60 minutes for a full catalog. The pass is
+      # incremental, so a 35-minute cap would not have lost data, but it
+      # would never have finished one and the published dataset would have
+      # carried partly-null dub columns indefinitely.
       - name: English dub measurement from AniList
         id: dub_anilist
         if: always()
-        timeout-minutes: 35
+        timeout-minutes: 75
         run: python -m pipeline.backfill_dub
 
       - name: Dub languages from ANN
