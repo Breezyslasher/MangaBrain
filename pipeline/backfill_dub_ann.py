@@ -55,7 +55,7 @@ from pipeline.ann import (
 # matching the AniList walk, so a fresh entry gets a language set early.
 SELECT_SQL = """
     SELECT m.id, m.title_romaji, m.title_english, m.title_native, m.synonyms,
-           m.start_year, m.format
+           m.start_year, m.format, m.country_of_origin
     FROM media m
     WHERE m.media_type = 'ANIME'
       AND m.dub_languages_source IS DISTINCT FROM 'ann'
@@ -71,6 +71,63 @@ UPDATE_SQL = """
 """
 
 CAST_CHUNK = 200
+
+# A cast in the title's OWN language is not a dub, it is the original. ANN
+# tags every cast entry by language and makes no such distinction, so a
+# straight copy recorded Japanese as the most common "dub language" in the
+# catalog - 6,470 rows, more than twice English - and any row whose only ANN
+# cast was Japanese looked like a title with dub data when it has none.
+#
+# Which language is native depends on the title, not on the medium: a
+# Japanese cast on a Chinese donghua or a Korean webtoon adaptation genuinely
+# IS a dub, so this cannot simply drop 'ja'. It drops the language implied by
+# country_of_origin, and nothing else.
+NATIVE_LANGS: dict[str, set[str]] = {
+    "JP": {"ja"},
+    "CN": {"zh", "zh-cn", "zh-hans"},
+    "TW": {"zh", "zh-tw", "zh-hant"},
+    "HK": {"zh", "zh-hk", "zh-hant"},
+    "KR": {"ko"},
+}
+
+# Rows written before the above existed still carry their native language.
+# The correction needs no network - it is a function of columns already
+# stored - so it runs as a cheap idempotent pass at the start of every
+# backfill rather than as a one-off script somebody has to remember.
+STRIP_NATIVE_SQL = """
+    UPDATE media
+    SET dub_languages = (
+        SELECT COALESCE(array_agg(lang ORDER BY lang), '{}')
+        FROM unnest(dub_languages) AS lang
+        WHERE lang <> ALL(%(native)s)
+    )
+    WHERE media_type = 'ANIME'
+      AND country_of_origin = %(country)s
+      AND dub_languages && %(native)s
+"""
+
+
+def strip_native_languages(conn: psycopg.Connection) -> int:
+    """Remove each title's own language from its dub list. Idempotent."""
+    fixed = 0
+    for country, langs in NATIVE_LANGS.items():
+        native = sorted(langs)
+        cur = conn.execute(STRIP_NATIVE_SQL, {"country": country, "native": native})
+        fixed += cur.rowcount or 0
+    if fixed:
+        conn.commit()
+        print(
+            f"[dub-ann] removed a native-language entry from {fixed} rows"
+            " (a cast in the title's own language is not a dub)",
+            flush=True,
+        )
+    return fixed
+
+
+def dub_languages_for(langs: set[str], country: str | None) -> list[str]:
+    """ANN's languages minus the title's own, lowercased and sorted."""
+    native = NATIVE_LANGS.get((country or "").upper(), set())
+    return sorted({lang.lower() for lang in langs} - native)
 
 
 def candidate_titles(row: dict) -> list[str]:
@@ -95,6 +152,7 @@ def backfill(
 ) -> tuple[int, int]:
     """Returns (written, unresolved)."""
     with httpx.Client(timeout=90.0, follow_redirects=True, headers={"User-Agent": UA}) as client:
+        strip_native_languages(conn)
         print("[dub-ann] fetching ANN's anime index", flush=True)
         entries = fetch_anime_index(client)
         index = build_index(entries)
@@ -107,7 +165,7 @@ def backfill(
 
         # Match everything offline first, so the network is touched only for
         # the casts of entries that actually resolved.
-        matched: list[tuple[int, str]] = []
+        matched: list[tuple[int, str, str | None]] = []
         unresolved = 0
         verdicts: Counter[str] = Counter()
         # Which (AniList format, ANN type) pairs the format guard threw out.
@@ -135,7 +193,7 @@ def backfill(
             # Only exact: a base match resolves to a parent series, whose dub
             # languages are not this entry's.
             if verdict == "exact" and entry is not None:
-                matched.append((row["id"], entry.ann_id))
+                matched.append((row["id"], entry.ann_id, row["country_of_origin"]))
             else:
                 unresolved += 1
         pct = 100.0 * len(matched) / len(rows) if rows else 0.0
@@ -177,9 +235,14 @@ def backfill(
         written = 0
         for start in range(0, len(matched), CAST_CHUNK):
             chunk = matched[start : start + CAST_CHUNK]
-            casts = fetch_casts(client, [ann_id for _, ann_id in chunk])
-            for media_id, ann_id in chunk:
+            casts = fetch_casts(client, [ann_id for _, ann_id, _c in chunk])
+            for media_id, ann_id, country in chunk:
                 _english, langs = casts.get(ann_id, (0, set()))
+                # No cast at all means ANN has not filled this entry yet, so
+                # leave the source NULL and let a later pass retry it. A cast
+                # that is purely the title's own language is different: ANN
+                # answered, and the answer is "no dubs". Recording that stops
+                # ~6,470 Japanese-only entries being re-fetched every night.
                 if not langs:
                     continue
                 conn.execute(
@@ -187,7 +250,7 @@ def backfill(
                     {
                         "id": media_id,
                         "ann_id": int(ann_id),
-                        "langs": sorted(lang.lower() for lang in langs),
+                        "langs": dub_languages_for(langs, country),
                     },
                 )
                 written += 1
