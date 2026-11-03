@@ -241,15 +241,13 @@ def main() -> None:
                 if matches(studio_names(m), DUB_STUDIO_HINTS)
                 or matches(link_sites(m), DUB_LINK_HINTS)
             )
-            print(
-                f"   dub-studio credit    {s_hit:>4}/{len(no_cast)}  ({100 * s_hit / len(no_cast):.1f}%)"
-            )
-            print(
-                f"   dub-platform link    {l_hit:>4}/{len(no_cast)}  ({100 * l_hit / len(no_cast):.1f}%)"
-            )
-            print(
-                f"   either               {either:>4}/{len(no_cast)}  ({100 * either / len(no_cast):.1f}%)"
-            )
+            total = len(no_cast)
+            for label, hit in (
+                ("dub-studio credit", s_hit),
+                ("dub-platform link", l_hit),
+                ("either", either),
+            ):
+                print(f"   {label:<20} {hit:>4}/{total}  ({100 * hit / total:.1f}%)", flush=True)
         else:
             print("   no no-cast titles in this sample", flush=True)
 
