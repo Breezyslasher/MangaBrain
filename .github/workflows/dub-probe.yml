@@ -117,7 +117,12 @@ jobs:
   ann-match:
     if: inputs.ann_match == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # The anime-only sync took longer than a naive 22k/50 pages at the
+    # two-second floor suggests, because sync_anilist walks an id_in scan
+    # over a sparse id space - anime ids are interleaved with manga ids
+    # across the whole range, so the scan makes many more requests than the
+    # anime count divided by the page size.
+    timeout-minutes: 150
     services:
       db:
         image: pgvector/pgvector:pg16
@@ -150,7 +155,7 @@ jobs:
         run: pip install -e .
 
       - name: Sync the anime catalog
-        timeout-minutes: 35
+        timeout-minutes: 120
         run: python -m pipeline.sync_anilist --type anime
 
       - name: Measure ANN exact-match rate
