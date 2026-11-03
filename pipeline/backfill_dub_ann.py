@@ -29,6 +29,7 @@ Usage:
 """
 
 import argparse
+from collections import Counter
 
 import httpx
 import psycopg
@@ -95,6 +96,7 @@ def backfill(
         # the casts of entries that actually resolved.
         matched: list[tuple[int, str]] = []
         unresolved = 0
+        verdicts: Counter[str] = Counter()
         for row in rows:
             verdict, entry = match(
                 index,
@@ -102,6 +104,7 @@ def backfill(
                 year=row["start_year"],
                 fmt=row["format"],
             )
+            verdicts[verdict] += 1
             # Only exact: a base match resolves to a parent series, whose dub
             # languages are not this entry's.
             if verdict == "exact" and entry is not None:
@@ -113,6 +116,14 @@ def backfill(
             f"[dub-ann] {len(matched)} resolved exactly ({pct:.0f}%), {unresolved} not",
             flush=True,
         )
+        # The residue is not one thing, and the breakdown says whether it is
+        # worth attacking: `base` entries did find a parent series and are the
+        # franchise-propagation path, `rejected_*` are exact names the year or
+        # format contradicted, `unmatched` are absent from ANN or filed under a
+        # translated name. Collapsing all of it into one count hid which.
+        for verdict, count in verdicts.most_common():
+            share = 100.0 * count / len(rows) if rows else 0.0
+            print(f"[dub-ann]   {verdict:<20} {count:>6} ({share:.1f}%)", flush=True)
         if dry_run or not matched:
             return 0, unresolved
 
