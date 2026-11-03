@@ -30,30 +30,27 @@ Usage:
 """
 
 import argparse
-import re
 import time
 from typing import Any
-from xml.etree import ElementTree
 
 import httpx
 
+from pipeline.ann import (
+    build_index,
+    fetch_anime_index,
+    fetch_casts,
+    match,
+    normalize,
+)
 from pipeline.client import RateLimitedClient
 from pipeline.probe_dub_coverage import STRATA, fetch_cast, fetch_ids, page_for
 
-ANN_CDN = "https://cdn.animenewsnetwork.com/encyclopedia/api.xml"
-
-# ANN asks for at most one request a second and for caching. This stays well
-# clear of that, and the sample is tens of titles rather than thousands.
-ANN_MIN_INTERVAL = 2.5
 UA = "MangaBrain/0.1 (self-hosted recommendation engine; dub coverage probe)"
 
-# Mirrors api/routers/search.py's NORMALIZE: case-folded, punctuation and
-# whitespace dropped, non-ASCII kept so Japanese and Korean titles survive.
-NORMALIZE_RE = re.compile(r"[^a-z0-9\u0080-\U0010ffff]+")
-
-# ANN asks for roughly a request a second, so the number of names tried per
-# title is capped rather than walking every synonym.
-MAX_TITLE_TRIES = 3
+# ANN's search needed the query to be a prefix of a real title and returned
+# nothing for sequels, OVAs and Japanese script, so matching is done offline
+# against the bulk report instead. Names tried per title are still capped.
+MAX_TITLE_TRIES = 4
 MAX_SYNONYM_TRIES = 2
 
 
@@ -61,74 +58,14 @@ def log(message: str) -> None:
     print(f"[crosscheck] {message}", flush=True)
 
 
-def normalize(title: str | None) -> str:
-    return NORMALIZE_RE.sub("", (title or "").lower())
-
-
-def ann_titles(anime: ElementTree.Element) -> set[str]:
-    """Every name ANN knows this entry by, normalised."""
-    names = {anime.attrib.get("name", "")}
-    for info in anime.iter("info"):
-        if (info.attrib.get("type") or "").endswith("title"):
-            names.add(info.text or "")
-    return {n for n in (normalize(name) for name in names) if n}
-
-
-def ann_english_cast(anime: ElementTree.Element) -> tuple[int, set[str]]:
-    """(English cast entries, all languages the entry is cast in)."""
-    langs = {c.attrib.get("lang") for c in anime.iter("cast")}
-    english = sum(1 for c in anime.iter("cast") if c.attrib.get("lang") == "EN")
-    return english, {lang for lang in langs if lang}
-
-
-def ann_lookup(
-    client: httpx.Client, title: str
-) -> tuple[str, ElementTree.Element | None, set[str]]:
-    """Resolve one title on ANN. Returns (verdict, entry, languages).
-
-    Verdict is "matched", "ambiguous", "unmatched" or an error label. Only an
-    exact normalised match on a single anime entry counts: a near match would
-    attribute another show's dub to this one.
-    """
-    try:
-        resp = client.get(ANN_CDN, params={"title": f"~{title}"})
-        resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001 - a probe reports, it does not fail
-        return f"error:{type(exc).__name__}", None, set()
-    try:
-        root = ElementTree.fromstring(resp.text)
-    except ElementTree.ParseError:
-        return "error:ParseError", None, set()
-
-    wanted = normalize(title)
-    # Anime only: ANN returns <manga> entries for the same search, and a manga
-    # has no dub.
-    candidates = list(root.iter("anime"))
-    hits = [a for a in candidates if wanted in ann_titles(a)]
-    if not hits:
-        # "ANN has nothing for this query" and "ANN has entries but none match
-        # exactly" are completely different problems, and three rounds of
-        # guessing which one this was have cost more than reporting it would
-        # have. So say which, and name the near misses.
-        near = [a.attrib.get("name", "?") for a in candidates[:3]]
-        verdict = "no_results" if not candidates else "no_exact_match"
-        log(f"      {verdict}: searched {title!r}, ANN returned {len(candidates)}: {near}")
-        return verdict, None, set()
-    if len({a.attrib.get("id") for a in hits}) > 1:
-        return "ambiguous", None, set()
-    english, langs = ann_english_cast(hits[0])
-    return ("matched_dubbed" if english else "matched_no_english"), hits[0], langs
-
-
 def candidate_titles(media: dict[str, Any]) -> list[str]:
     """Every name worth trying on ANN, best bet first.
 
-    ANN is an English-language encyclopedia and indexes by release title, so
-    the English name resolves where romaji does not: "Shuumatsu no Harem" is
-    filed as "World's End Harem", "Hibike! Euphonium 2" as "Sound! Euphonium
-    2". An earlier run searched romaji only and failed to match 15 of 17
-    titles, which looked like ANN lacking the entries rather than the query
-    using the wrong name for them.
+    ANN is an English-language encyclopedia and files entries under their
+    release title, so the English name resolves where romaji does not:
+    "Shuumatsu no Harem" is filed as "World's End Harem". Romaji and native
+    still follow, because plenty of entries have no distinct English name -
+    capeta and Shadowverse both resolved on romaji alone.
     """
     title = media.get("title") or {}
     ordered = [title.get("english"), title.get("romaji"), title.get("native")]
@@ -144,24 +81,15 @@ def candidate_titles(media: dict[str, Any]) -> list[str]:
     return out
 
 
-def resolve_media(
-    client: httpx.Client, media: dict[str, Any]
-) -> tuple[str, ElementTree.Element | None, set[str], str]:
-    """Try each known name until one resolves. Returns the verdict and the name used."""
-    last = "no_results"
-    tried: list[str] = []
-    for name in candidate_titles(media)[:MAX_TITLE_TRIES]:
-        tried.append(name)
-        verdict, entry, langs = ann_lookup(client, name)
-        time.sleep(ANN_MIN_INTERVAL)
-        if verdict.startswith("matched"):
-            return verdict, entry, langs, name
-        # Ambiguity is a real answer about this name, not a reason to keep
-        # trying others and risk landing on a different show.
-        if verdict == "ambiguous":
-            return verdict, None, set(), name
-        last = verdict
-    return last, None, set(), " | ".join(tried)
+def resolve_media(index: dict, media: dict[str, Any]) -> tuple[str, Any]:
+    """Match one AniList entry against the local ANN index."""
+    year = (media.get("startDate") or {}).get("year")
+    return match(
+        index,
+        candidate_titles(media)[:MAX_TITLE_TRIES],
+        year=year,
+        fmt=media.get("format"),
+    )
 
 
 def collect_silent(client: RateLimitedClient, per_stratum: int) -> list[tuple[dict[str, Any], int]]:
@@ -204,33 +132,50 @@ def main() -> None:
         anilist.close()
     log(f"collected {len(silent)} silent titles; checking up to {args.limit} against ANN")
 
-    log("=== 2. what ANN says about them ===")
+    log("=== 2. matching against ANN's bulk anime index ===")
     tally: dict[str, int] = {}
-    with httpx.Client(timeout=30.0, follow_redirects=True, headers={"User-Agent": UA}) as client:
-        for media, chars in silent[: args.limit]:
-            verdict, entry, langs, used = resolve_media(client, media)
-            tally[verdict] = tally.get(verdict, 0) + 1
-            if entry is not None:
-                extra = f" ann={entry.attrib.get('id')} langs={sorted(langs)} via={used!r}"
-            else:
-                extra = f" tried={used!r}"
-            shown = (media["title"]["romaji"] or "")[:40]
-            log(f"  {verdict:<18} {media['id']:>7} chars={chars:>3} {shown}{extra}")
+    resolved: list[tuple[dict[str, Any], int, Any]] = []
+    with httpx.Client(timeout=90.0, follow_redirects=True, headers={"User-Agent": UA}) as client:
+        entries = fetch_anime_index(client)
+        index = build_index(entries)
+        log(f"index: {len(entries)} ANN anime entries, {len(index)} distinct keys")
 
-    log("=== 3. result ===")
+        for media, chars in silent[: args.limit]:
+            verdict, entry = resolve_media(index, media)
+            tally[verdict] = tally.get(verdict, 0) + 1
+            shown = (media["title"]["romaji"] or "")[:40]
+            extra = f" ann={entry.ann_id} {entry.name[:30]!r}" if entry else ""
+            log(f"  {verdict:<18} {media['id']:>7} chars={chars:>3} {shown}{extra}")
+            if entry is not None:
+                resolved.append((media, chars, entry))
+
+        log("=== 3. what ANN says about the ones that resolved ===")
+        casts = fetch_casts(client, [e.ann_id for _, _, e in resolved])
+
+    dubbed = 0
+    for media, chars, entry in resolved:
+        english, langs = casts.get(entry.ann_id, (0, set()))
+        # chars is AniList's cast size, printed so a zero there is visible.
+        dubbed += english > 0
+        verdict = "DUBBED per ANN" if english else "no English cast"
+        log(
+            f"  {verdict:<16} {media['id']:>7} ann={entry.ann_id} anilist_chars={chars:>3} "
+            f"en={english:>3} langs={sorted(langs)} {(media['title']['romaji'] or '')[:34]}"
+        )
+
+    log("=== 4. result ===")
     for verdict, count in sorted(tally.items(), key=lambda kv: -kv[1]):
         log(f"  {verdict:<18} {count}")
-    matched = tally.get("matched_dubbed", 0) + tally.get("matched_no_english", 0)
-    if matched:
-        dubbed = tally.get("matched_dubbed", 0)
+    if resolved:
         log(
-            f"false-negative rate: {dubbed}/{matched} "
-            f"({100.0 * dubbed / matched:.0f}%) of AniList-silent titles are dubbed per ANN"
+            f"false-negative rate: {dubbed}/{len(resolved)} "
+            f"({100.0 * dubbed / len(resolved):.0f}%) of AniList-silent titles are "
+            "dubbed per ANN"
         )
     else:
-        log("no title resolved on ANN; matching, not coverage, is the blocker")
-    unresolved = sum(v for k, v in tally.items() if not k.startswith("matched"))
-    log(f"unresolved (unmatched, ambiguous or errored): {unresolved}")
+        log("nothing resolved; matching, not coverage, is still the blocker")
+    unresolved = sum(v for k, v in tally.items() if k.startswith(("unmatched", "ambiguous")))
+    log(f"unresolved (unmatched or ambiguous): {unresolved}")
     log(f"done in {time.time() - started:.0f}s")
 
 
