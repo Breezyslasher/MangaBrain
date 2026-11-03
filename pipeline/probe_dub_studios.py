@@ -200,7 +200,12 @@ def main() -> None:
     print("=" * 72)
     if strong:
         for lower, rate, hits, support, name in strong:
-            print(f"   {name[:44]:<44} {hits}/{support} dubbed, bound {lower * 100:.0f}%")
+            lift = rate / base if base else 0.0
+            print(
+                f"   {name[:40]:<40} {hits}/{support} dubbed,"
+                f" bound {lower * 100:.0f}%, {lift:.1f}x base",
+                flush=True,
+            )
         print(
             "\n   These are the names to encode, with their measured bounds -"
             "\n   not a hand-written list of companies I believe dub things.",
