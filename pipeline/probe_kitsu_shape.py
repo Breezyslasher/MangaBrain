@@ -61,13 +61,85 @@ def probe(client: httpx.Client, label: str, path: str, params: dict | None = Non
     return body
 
 
+DOCS_HOSTS = [
+    "https://api-docs.kitsu.cloud/",
+    "https://api-docs.kitsu.cloud/openapi.json",
+    "https://api-docs.kitsu.cloud/openapi.yaml",
+    "https://api-docs.kitsu.cloud/swagger.json",
+]
+
+# Filters, resources and the fields that decide the cast model. A spec dump
+# of several hundred KB is useless in a log, so only lines mentioning these
+# are printed.
+DOC_TERMS = (
+    "casting",
+    "characterVoice",
+    "character-voices",
+    "mediaCharacter",
+    "media-characters",
+    "voiceActor",
+    "voice_actor",
+    "locale",
+    "externalSite",
+    "externalId",
+    "deprecat",
+    "page[limit]",
+    "maximum",
+)
+
+
+def probe_docs(client: httpx.Client) -> None:
+    """Fetch the docs from here, since this runs where the network is open.
+
+    api-docs.kitsu.cloud does not resolve from the development container's
+    egress proxy, and the older apiary and github.io hosts do not resolve at
+    all any more. A CI runner can reach it, so the spec is pulled here rather
+    than left undetermined.
+    """
+    print("=" * 72)
+    print("0. the published docs, fetched from a host that can reach them")
+    print("=" * 72)
+    for url in DOCS_HOSTS:
+        try:
+            resp = client.get(url, timeout=45.0)
+        except httpx.HTTPError as exc:
+            print(f"  {url:<48} {type(exc).__name__}", flush=True)
+            continue
+        if resp.status_code != 200:
+            print(f"  {url:<48} HTTP {resp.status_code}", flush=True)
+            continue
+        body = resp.text
+        print(f"  {url:<48} OK  {len(body)} bytes", flush=True)
+        # A Swagger/Redoc shell names the spec it loads; follow that.
+        for marker in ("openapi.json", "openapi.yaml", "swagger.json", "spec-url", "specUrl"):
+            if marker in body and url.endswith("/"):
+                idx = body.find(marker)
+                print(
+                    f"    references {marker}: ...{body[max(0, idx - 120) : idx + 80]}...",
+                    flush=True,
+                )
+        hits = [
+            line.strip() for line in body.splitlines() if any(term in line for term in DOC_TERMS)
+        ]
+        if hits:
+            print(f"    {len(hits)} line(s) mentioning cast/filter terms:", flush=True)
+            for line in hits[:40]:
+                print(f"      {line[:200]}", flush=True)
+        else:
+            print("    no cast/filter terms in this document", flush=True)
+    print()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Discover Kitsu's cast API shape")
     parser.add_argument("--anime", default="1", help="Kitsu anime id to inspect")
+    parser.add_argument("--skip-docs", action="store_true")
     args = parser.parse_args()
     anime = args.anime
 
     with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+        if not args.skip_docs:
+            probe_docs(client)
         print("=" * 72)
         print("1. filter spellings: camelCase vs snake_case, and comma lists")
         print("=" * 72)
