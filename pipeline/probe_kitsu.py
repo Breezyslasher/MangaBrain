@@ -25,6 +25,7 @@ how a probe ends up measuring the wrong thing.
 
 import argparse
 import json
+import random
 import time
 
 import httpx
@@ -262,6 +263,8 @@ def probe_density(client: httpx.Client, base: str, sample: int) -> None:
     with_cast = 0
     cast_failures = 0
     map_failures = 0
+    castings_seen = 0
+    truncated_titles = 0
     langs: dict[str, int] = {}
     titles_per_lang: dict[str, int] = {}
     for anilist_id in anilist_ids:
@@ -282,25 +285,51 @@ def probe_density(client: httpx.Client, base: str, sample: int) -> None:
             continue
         resolved += 1
         # voiceActor is an attribute, NOT a filterable one: filtering on it
-        # returns HTTP 400, which is how this step previously reported
-        # "0/200 had a cast" when what actually happened was 200 failed
-        # requests. Fetch unfiltered and select locally.
-        cast, err = get(
-            client,
-            f"{base}/castings",
-            {"filter[mediaId]": item["id"], "page[limit]": 20},
-        )
-        if err:
+        # returns HTTP 400, which is how this step once reported "0/200 had
+        # a cast" when what actually happened was 200 failed requests.
+        # Fetch unfiltered and select locally.
+        #
+        # And paginate. Kitsu caps page[limit] at 20 while Cowboy Bebop has
+        # 345 castings, so reading one page measured the first 20 only - with
+        # Japanese crowding the early rows at 8.2 credits per title, that
+        # undercounted every dub language by an unknown margin. The counts
+        # were lower bounds being read as coverage.
+        seen_here: set[str] = set()
+        offset = 0
+        truncated = False
+        failed = False
+        while offset < MAX_CASTINGS:
+            cast, err = get(
+                client,
+                f"{base}/castings",
+                {
+                    "filter[mediaId]": item["id"],
+                    "page[limit]": 20,
+                    "page[offset]": offset,
+                },
+            )
+            if err:
+                failed = True
+                break
+            rows = cast.get("data") or []
+            for row in rows:
+                attrs = row.get("attributes") or {}
+                if not attrs.get("voiceActor"):
+                    continue
+                lang = attrs.get("language") or "(none)"
+                langs[lang] = langs.get(lang, 0) + 1
+                seen_here.add(lang)
+            castings_seen += len(rows)
+            if len(rows) < 20:
+                break
+            offset += len(rows)
+        else:
+            truncated = True
+        if failed:
             cast_failures += 1
             continue
-        seen_here = set()
-        for row in cast.get("data") or []:
-            attrs = row.get("attributes") or {}
-            if not attrs.get("voiceActor"):
-                continue
-            lang = attrs.get("language") or "(none)"
-            langs[lang] = langs.get(lang, 0) + 1
-            seen_here.add(lang)
+        if truncated:
+            truncated_titles += 1
         if seen_here:
             with_cast += 1
         for lang in seen_here:
@@ -329,9 +358,26 @@ def probe_density(client: httpx.Client, base: str, sample: int) -> None:
         )
     else:
         print("   none resolved", flush=True)
-    print("   titles per language (first 20 castings each):", flush=True)
+    print(
+        f"   castings read            {castings_seen:>5}"
+        f"  ({castings_seen / resolved:.1f} per resolved title)"
+        if resolved
+        else "",
+        flush=True,
+    )
+    if truncated_titles:
+        print(
+            f"   NOTE {truncated_titles} title(s) hit the {MAX_CASTINGS}-casting"
+            " bound, so their later languages are unread",
+            flush=True,
+        )
+    print("   titles per language (fully paginated):", flush=True)
     for lang, count in sorted(titles_per_lang.items(), key=lambda kv: -kv[1]):
-        print(f"     {lang:<22} {count:>4} titles, {langs[lang]:>5} credits", flush=True)
+        share = 100.0 * count / resolved if resolved else 0.0
+        print(
+            f"     {lang:<22} {count:>4} titles ({share:>4.1f}%), {langs[lang]:>5} credits",
+            flush=True,
+        )
     print(
         "\n   Compare: ANN resolved 31.8% of the catalog by name. This number"
         "\n   is the id-join equivalent, and it has no wrong-match risk.",
@@ -340,35 +386,44 @@ def probe_density(client: httpx.Client, base: str, sample: int) -> None:
 
 
 ANILIST_IDS_QUERY = """
-query ($page: Int, $perPage: Int) {
-  Page(page: $page, perPage: $perPage) {
-    media(type: ANIME, sort: POPULARITY_DESC) { id }
+query ($ids: [Int]) {
+  Page(page: 1, perPage: 50) {
+    media(id_in: $ids, type: ANIME) { id }
   }
 }
 """
 
+# Kitsu caps page[limit] at 20, so a title with hundreds of castings needs
+# many requests. Bound it, and report how many titles hit the bound rather
+# than quietly truncating them as the previous version did.
+MAX_CASTINGS = 200
+
 
 def fetch_anilist_ids(client: httpx.Client, sample: int) -> list[int]:
-    """Spread across popularity, not the head: a head-only sample is how the
-    earlier ANN estimates came out at double the real rate."""
+    """A sample of the whole catalog, not of its popular head.
+
+    Sorting by popularity cannot reach past AniList's 5000-row offset cap, so
+    the earlier version measured the top ~5,000 titles and nothing else. Dub
+    coverage collapses in the tail - AniList English runs near 100% at the
+    head and 0% in the least popular strata - so a head sample overstates
+    every source, which is exactly how the ANN estimate came out at double
+    the measured rate.
+
+    Random ids across the id space are drawn instead, then filtered to the
+    ones AniList serves as anime, which is the same trick full_sync uses.
+    """
     out: list[int] = []
-    per_page = 50
-    # Pages chosen to straddle the head, the middle and the tail of what
-    # AniList will serve before its 5000-row offset cap.
-    for page in (1, 20, 60, 99):
-        if len(out) >= sample:
-            break
+    rng = random.Random(20261103)
+    while len(out) < sample:
+        ids = [rng.randint(1, 190_000) for _ in range(50)]
         try:
             resp = client.post(
                 "https://graphql.anilist.co",
-                json={
-                    "query": ANILIST_IDS_QUERY,
-                    "variables": {"page": page, "perPage": per_page},
-                },
+                json={"query": ANILIST_IDS_QUERY, "variables": {"ids": ids}},
             )
             media = ((resp.json().get("data") or {}).get("Page") or {}).get("media") or []
         except (httpx.HTTPError, ValueError):
-            continue
+            break
         out.extend(m["id"] for m in media)
         time.sleep(2.0)
     return out[:sample]
