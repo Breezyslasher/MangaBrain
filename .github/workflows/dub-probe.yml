@@ -13,18 +13,14 @@ on:
     branches: [claude/work-in-progress-1dzs1q]
   workflow_dispatch:
     inputs:
-      strata:
-        description: popularity-ranked pages to sample (perPage 25, comma separated)
+      per_stratum:
+        description: titles sampled per popularity stratum
         required: false
-        default: "1,40,120,280,480,700"
+        default: "10"
       cross_check:
         description: AniList-silent titles to re-check against MAL (0 to skip)
         required: false
-        default: "40"
-      full:
-        description: run the sampling pass as well as the raw dump
-        required: false
-        default: "false"
+        default: "15"
 
 permissions:
   contents: read
@@ -52,12 +48,8 @@ jobs:
       - name: Install httpx
         run: pip install "httpx>=0.27"
 
-      - name: Raw dump (checks the extraction against the API)
-        run: python -m pipeline.probe_dub_coverage --debug-id 1
-
       - name: Probe
-        if: inputs.full == 'true'
         run: |
           python -m pipeline.probe_dub_coverage \
-            --strata "${{ inputs.strata || '1,40,120,280,480,700' }}" \
-            --cross-check "${{ inputs.cross_check || '40' }}"
+            --per-stratum "${{ inputs.per_stratum || '10' }}" \
+            --cross-check "${{ inputs.cross_check || '15' }}"
