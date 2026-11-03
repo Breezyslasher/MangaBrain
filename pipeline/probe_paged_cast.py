@@ -143,9 +143,79 @@ def report(label: str, got: dict, headers: dict) -> None:
     print(f"  rate limit remaining: {headers.get('X-RateLimit-Remaining')}", flush=True)
 
 
+IDS_QUERY = """
+query ($page: Int, $perPage: Int) {
+  Page(page: $page, perPage: $perPage) {
+    media(type: ANIME, sort: POPULARITY_DESC) { id title { romaji } }
+  }
+}
+"""
+
+
+def probe_real_batch(client, count: int, chars: int, min_interval: float) -> None:
+    """A real batch is 50 ids x 25 characters, which the 8-id test never sized.
+
+    AniList enforces a query complexity limit, so the chunk size the walk can
+    actually use is an empirical question, not simply 50 because perPage allows
+    it. A batch silently truncated or served with null casts would reintroduce
+    the catalog-wide false zero this probe exists to rule out.
+    """
+    payload, _ = post(client, IDS_QUERY, {"page": 1, "perPage": count})
+    media = ((payload.get("data") or {}).get("Page") or {}).get("media") or []
+    ids = [m["id"] for m in media]
+    print(f"\nfetched {len(ids)} real anime ids to request in ONE call", flush=True)
+    if not ids:
+        print("  could not fetch ids; skipping", flush=True)
+        return
+
+    time.sleep(min_interval)
+    query = PAGED.replace("CAST_FIELDS", CAST_FIELDS_WITH_NODE)
+    payload, headers = post(client, query, {"ids": ids, "perPage": len(ids), "chars": chars})
+    if payload.get("errors"):
+        print("  ERRORS:", json.dumps(payload["errors"])[:600], flush=True)
+    returned = ((payload.get("data") or {}).get("Page") or {}).get("media") or []
+    print(f"  requested {len(ids)} ids, got {len(returned)} media back", flush=True)
+
+    populated = null_edges = empty_cast = 0
+    for m in returned:
+        edges = (m.get("characters") or {}).get("edges") or []
+        if any(e.get("voiceActors") is None for e in edges):
+            null_edges += 1
+            continue
+        if sum(len(e.get("voiceActors") or []) for e in edges):
+            populated += 1
+        elif edges:
+            empty_cast += 1
+    print(
+        f"  {populated} have an English cast, {empty_cast} have characters but"
+        f" no English cast, {null_edges} returned NULL voiceActors",
+        flush=True,
+    )
+    print(f"  rate limit remaining: {headers.get('X-RateLimit-Remaining')}", flush=True)
+    if len(returned) < len(ids):
+        print(
+            f"  WARNING: truncated by {len(ids) - len(returned)}. The walk must"
+            " chunk smaller than this or it will silently skip titles.",
+            flush=True,
+        )
+    elif null_edges:
+        print("  WARNING: null voiceActors at this batch size.", flush=True)
+    else:
+        print(
+            f"  OK: a {len(ids)}-id batch is served whole, so the walk costs"
+            f" ceil(N/{len(ids)}) requests.",
+            flush=True,
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Probe paged cast retrieval")
     parser.add_argument("--chars", type=int, default=25)
+    parser.add_argument(
+        "--batches",
+        default="50,25",
+        help="real-id batch sizes to request in a single call",
+    )
     parser.add_argument("--min-interval", type=float, default=2.0)
     parser.add_argument(
         "--sizes",
@@ -199,6 +269,14 @@ def main() -> None:
         print("=" * 72)
         single_no_node, headers = run_single(client, ids[:3], args.chars, False, args.min_interval)
         report("single_without_node (first 3)", single_no_node, headers)
+
+        print()
+        print("=" * 72)
+        print("how many real ids can one call actually carry?")
+        print("=" * 72)
+        for count in [int(b) for b in args.batches.split(",") if b.strip()]:
+            time.sleep(args.min_interval)
+            probe_real_batch(client, count, args.chars, args.min_interval)
 
 
 if __name__ == "__main__":
