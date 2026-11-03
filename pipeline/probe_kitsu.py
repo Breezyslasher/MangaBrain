@@ -458,6 +458,162 @@ def fetch_anilist_ids(client: httpx.Client, sample: int) -> list[int]:
     return out[:sample]
 
 
+def normalise_locale(locale: str) -> str:
+    """ja_jp -> ja, pt_br -> pt-br. Kitsu mixes bare codes and locales."""
+    code = locale.strip().lower().replace("_", "-")
+    if not code:
+        return "(none)"
+    head, _, tail = code.partition("-")
+    # Keep a region only where it distinguishes a real dub market, as
+    # Portuguese/Brazilian does; otherwise collapse to the language.
+    if head in {"pt", "zh"} and tail:
+        return f"{head}-{tail}"
+    return head
+
+
+def voices_for_anime(client: httpx.Client, base: str, kitsu_id: str) -> tuple[set[str], int, bool]:
+    """Every cast locale for one anime, via the include path.
+
+    castings carries a free-text `language` ("Brazilian"); character-voices
+    carries a `locale` code and is denser - 345 castings against roughly 600
+    character-voices on Cowboy Bebop. character-voices cannot be filtered by
+    media or locale at all ("not allowed"), so the only route in is
+    /anime/{id}/characters?include=voices, paginated at the hard cap of 20.
+    """
+    locales: set[str] = set()
+    seen = 0
+    offset = 0
+    truncated = False
+    while offset < MAX_CASTINGS:
+        data, err = get(
+            client,
+            f"{base}/anime/{kitsu_id}/characters",
+            {"include": "voices", "page[limit]": 20, "page[offset]": offset},
+        )
+        if err:
+            return locales, seen, True
+        rows = data.get("data") or []
+        for item in data.get("included") or []:
+            if item.get("type") != "characterVoices":
+                continue
+            raw = (item.get("attributes") or {}).get("locale")
+            if raw:
+                locales.add(normalise_locale(raw))
+                seen += 1
+        if len(rows) < 20:
+            break
+        offset += len(rows)
+    else:
+        truncated = True
+    return locales, seen, truncated
+
+
+def resolve_mappings(client: httpx.Client, base: str, anilist_ids: list[int]) -> dict[int, str]:
+    """AniList id -> Kitsu anime id, batched.
+
+    filter[externalId] honours a comma list, which an earlier run wrote off
+    after a 400 that was actually caused by an invalid voiceActor filter in
+    the same request. page[limit] caps at 20, so that is the batch size.
+    """
+    out: dict[int, str] = {}
+    for start in range(0, len(anilist_ids), 20):
+        batch = anilist_ids[start : start + 20]
+        data, err = get(
+            client,
+            f"{base}/mappings",
+            {
+                "filter[externalSite]": "anilist/anime",
+                "filter[externalId]": ",".join(str(i) for i in batch),
+                "include": "item",
+                "page[limit]": 20,
+            },
+        )
+        if err:
+            continue
+        items = {i["id"]: i for i in (data.get("included") or []) if i.get("type") == "anime"}
+        for row in data.get("data") or []:
+            ext = (row.get("attributes") or {}).get("externalId")
+            rel = ((row.get("relationships") or {}).get("item") or {}).get("data") or {}
+            if ext and rel.get("id") in items:
+                try:
+                    out[int(ext)] = rel["id"]
+                except (TypeError, ValueError):
+                    continue
+    return out
+
+
+def probe_voices(client: httpx.Client, base: str, sample: int) -> None:
+    """The same measurement as step 5, through character-voices instead.
+
+    Deliberately over the SAME sampled ids, because the castings figures and
+    these differ only by resource - two separate samples would confound the
+    resource with the draw, which is how the head-biased run overstated
+    everything by a factor of three.
+    """
+    print()
+    print("=" * 72)
+    print("6. the same titles through character-voices, not castings")
+    print("=" * 72)
+    anilist_ids = fetch_anilist_ids(client, sample)
+    if not anilist_ids:
+        print("   could not sample AniList ids", flush=True)
+        return
+    resolved = resolve_mappings(client, base, anilist_ids)
+    print(
+        f"   sampled {len(anilist_ids)} ids, resolved {len(resolved)}"
+        f" ({100 * len(resolved) / len(anilist_ids):.1f}%) via batched mappings",
+        flush=True,
+    )
+
+    titles_per_locale: dict[str, int] = {}
+    credits_per_locale: dict[str, int] = {}
+    with_voices = 0
+    failures = 0
+    truncations = 0
+    total_credits = 0
+    for kitsu_id in resolved.values():
+        locales, seen, failed = voices_for_anime(client, base, kitsu_id)
+        if failed:
+            failures += 1
+            continue
+        if seen >= MAX_CASTINGS:
+            truncations += 1
+        total_credits += seen
+        if locales:
+            with_voices += 1
+        for code in locales:
+            titles_per_locale[code] = titles_per_locale.get(code, 0) + 1
+            credits_per_locale[code] = credits_per_locale.get(code, 0) + seen
+
+    n = len(resolved)
+    if failures:
+        print(
+            f"   CANNOT REPORT: {failures}/{n} character requests failed."
+            " Fix the request before reading these numbers.",
+            flush=True,
+        )
+        return
+    print(f"   voice credits read       {total_credits:>5}", flush=True)
+    print(
+        f"   titles with any voices   {with_voices:>5}/{n}  ({100 * with_voices / n:.1f}%)"
+        if n
+        else "   nothing resolved",
+        flush=True,
+    )
+    if truncations:
+        print(f"   NOTE {truncations} title(s) hit the {MAX_CASTINGS} bound", flush=True)
+    print("   titles per locale:", flush=True)
+    for code, count in sorted(titles_per_locale.items(), key=lambda kv: -kv[1]):
+        share = 100.0 * count / n if n else 0.0
+        print(f"     {code:<10} {count:>4} titles ({share:>4.1f}%)", flush=True)
+    print(
+        "\n   Step 5 measured the same titles through castings. A locale here"
+        "\n   that beats its castings language is the floor lifting; one that"
+        "\n   does not means castings was not the limitation.",
+        flush=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Probe Kitsu as a dub source")
     parser.add_argument("--sample", type=int, default=200)
@@ -472,6 +628,7 @@ def main() -> None:
         probe_cast(client, base)
         probe_bulk(client, base)
         probe_density(client, base, args.sample)
+        probe_voices(client, base, args.sample)
         if args.raw:
             data, _err = get(
                 client, f"{base}/castings", {"filter[voiceActor]": "true", "page[limit]": 1}
