@@ -40,6 +40,13 @@ on:
           before this came from a 15-40 title sample.
         required: false
         default: "false"
+      paged_cast:
+        description: can a cast be fetched for a PAGE of media rather than one
+          title per request? Decides the English walk's cost by 50x. The probe
+          that ruled it out also omitted node, which nulls voiceActors on its
+          own, so the two were never separated.
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -49,7 +56,7 @@ permissions:
 # and deleted by a reports probe queued while it was still working.
 concurrency:
   group: >-
-    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}-${{ inputs.paged_cast || 'n' }}
   cancel-in-progress: true
 
 jobs:
@@ -82,6 +89,10 @@ jobs:
             --per-stratum "${{ inputs.per_stratum || '10' }}" \
             --limit "${{ inputs.ann_lookups || '30' }}"
 
+      - name: Probe paged cast retrieval
+        if: inputs.paged_cast == 'true'
+        run: python -m pipeline.probe_paged_cast --chars 25
+
       - name: Probe other sources
         if: inputs.sources == 'true'
         run: |
@@ -89,6 +100,7 @@ jobs:
 
       - name: Probe
         if: inputs.sources != 'true' && inputs.crosscheck != 'true'
+          && inputs.paged_cast != 'true'
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \
@@ -105,7 +117,12 @@ jobs:
   ann-match:
     if: inputs.ann_match == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # The anime-only sync took longer than a naive 22k/50 pages at the
+    # two-second floor suggests, because sync_anilist walks an id_in scan
+    # over a sparse id space - anime ids are interleaved with manga ids
+    # across the whole range, so the scan makes many more requests than the
+    # anime count divided by the page size.
+    timeout-minutes: 150
     services:
       db:
         image: pgvector/pgvector:pg16
@@ -138,7 +155,7 @@ jobs:
         run: pip install -e .
 
       - name: Sync the anime catalog
-        timeout-minutes: 35
+        timeout-minutes: 120
         run: python -m pipeline.sync_anilist --type anime
 
       - name: Measure ANN exact-match rate

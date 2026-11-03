@@ -173,8 +173,9 @@ def _row(**overrides) -> dict:
 def test_the_walk_roots_on_either_direct_source():
     """Rooting on AniList alone made propagation a no-op without the walk.
 
-    AniList's cast costs one request per title, so any environment that has
-    not spent twelve hours on it has english_va_count NULL everywhere -
+    Either source can be the one a given database is missing, so rooting on
+    one alone makes propagation a no-op there. A snapshot may be taken while
+    a pass is partway through, leaving english_va_count NULL on rows -
     including the CI job that builds the published dataset, where ANN is the
     only dub source there is time for. Rooting on ANN as well is what makes
     the published snapshot carry inferred dubs at all.

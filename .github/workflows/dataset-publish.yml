@@ -152,25 +152,37 @@ jobs:
             --ref "$GITHUB_REF_NAME" \
             -f resume_attempt=$((ATTEMPT + 1))
 
-      # The published dataset carries dub data so nobody restoring it has to
-      # spend twelve hours on AniList's cast, which costs one request per
-      # title because it will not populate a nested connection across a page
-      # of parents. ANN instead hands over its whole anime list in ~22 paged
-      # requests and 20 casts per request, which is the catalog in about
-      # three quarters of an hour, and tags every cast entry with its
-      # language so all nine arrive together.
+      # The published dataset carries dub data from both sources so nobody
+      # restoring it has to fetch either themselves.
       #
-      # It is incremental (rows already sourced from ANN are skipped), so a
-      # timeout here resumes on the next run like sync and embed do.
-      # Propagation then runs off whichever direct source exists, which on
-      # CI is ANN alone.
+      # AniList gives the English measurement. This used to be excluded as a
+      # twelve-hour job - one request per title, on the belief that AniList
+      # would not populate a nested connection across a page of parents.
+      # That was wrong: the probe behind it omitted node { id }, without
+      # which voiceActors resolves to null on every edge, and the fix changed
+      # the paging and the node together so the per-title shape took the
+      # credit. A fifty-id request is served whole with every cast
+      # populated (pipeline.probe_paged_cast), so the pass is ~444 requests,
+      # about fifteen minutes, and belongs here after all.
+      #
+      # ANN gives the other eight languages, since AniList is asked about one
+      # language per aliased field. It hands over its whole anime list in ~22
+      # paged requests and 20 casts per request and tags every cast entry
+      # with its language.
+      #
+      # Both are incremental - AniList skips rows with a dub_checked_at and
+      # ANN skips rows already sourced from it - so a timeout in either
+      # resumes on the next run like sync and embed do. Propagation then runs
+      # off whichever direct source exists.
       #
       # Last, and always. Three constraints land it here.
       #
       # After the checkpoint upload, because the job budget note above keeps
       # sync + embed (280 + 70) inside the 358-minute job limit precisely so
-      # the checkpoint always gets saved; 40 minutes ahead of it would let a
-      # cold run die before checkpointing and lose everything.
+      # the checkpoint always gets saved; putting this ahead of it would let
+      # a cold run die before checkpointing and lose everything. On a cold
+      # run these steps are cut off by the job timeout and simply resume on
+      # the next one; on a warm run sync is a no-op and they have hours.
       #
       # After the resume dispatch, because a worst-case run reaching here at
       # minute 350 would have this step cut off by the job timeout, and a
@@ -184,6 +196,12 @@ jobs:
       # a long re-embed chain, so the languages would never be fetched. The
       # pass is incremental, so each run adds to the last and it needs no
       # resume trigger of its own.
+      - name: English dub measurement from AniList
+        id: dub_anilist
+        if: always()
+        timeout-minutes: 35
+        run: python -m pipeline.backfill_dub
+
       - name: Dub languages from ANN
         id: dub_ann
         if: always()
@@ -205,10 +223,40 @@ jobs:
         # consumers download through the stable /releases/latest/download/
         # URL, which follows the release marked latest with no 404 window.
         run: |
-          NOTES="Weekly catalog snapshot: media, relations, embeddings, and sync checkpoints. Restore with pipeline.restore or set SEED_SNAPSHOT_URL; the nightly incremental sync continues from this snapshot's checkpoint. Stable download URL: releases/latest/download/mangabrain-dataset.dump. Data sourced from the AniList API."
+          # A notes file, not --notes: the dub section needs paragraphs, and
+          # a multi-line shell string inside this block scalar does not
+          # survive YAML parsing.
+          cat > notes.md <<'NOTES'
+          Weekly catalog snapshot: media, relations, embeddings, and sync
+          checkpoints. Restore with pipeline.restore or set SEED_SNAPSHOT_URL;
+          the nightly incremental sync continues from this snapshot's
+          checkpoint. Stable download URL:
+          releases/latest/download/mangabrain-dataset.dump. Data sourced from
+          the AniList API and Anime News Network.
+
+          Dub data: `dub_languages` comes from ANN and covers every language
+          ANN credits a cast in; `english_dub_inferred` is propagated from
+          those across sequel, prequel, parent and side-story relations.
+
+          `english_va_count` is AniList's own English measurement: the number
+          of distinct English voice actors credited across a title's cast. A
+          value above zero means an English dub exists; zero means none was
+          found and is NOT the same as "sub only", because AniList records no
+          cast at all for much of the long tail. Null means not yet checked,
+          and is kept distinct from zero for that reason.
+
+          Both dub passes are incremental and a snapshot may be taken
+          mid-pass, so some rows can still be null. The filters accept either
+          source as a yes, so a null row is covered whenever ANN matched it.
+
+          Restoring over a populated database REPLACES it. pg_restore
+          --clean drops the media table, so any local backfill_dub pass is
+          lost; pipeline.restore refuses unless the catalog is empty or
+          --force is given.
+          NOTES
           TAG="dataset-$(date -u +%Y%m%d-%H%M%S)"
           gh release create "$TAG" mangabrain-dataset.dump --latest \
-            --title "Catalog snapshot $(date -u +%F)" --notes "$NOTES"
+            --title "Catalog snapshot $(date -u +%F)" --notes-file notes.md
 
       - name: Prune old snapshots
         env:

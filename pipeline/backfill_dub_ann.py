@@ -1,13 +1,18 @@
 """Fill dub languages from ANN, as a second source beside AniList.
 
-The two sources divide cleanly. AniList is asked about one language per
-aliased field and its enum covers ten, so it is the English source and is
-measured per entry at one request per title - around 22k requests and twelve
-hours for a full catalog. ANN tags every cast entry with its language in the
-same response (58 of 58 on the sampled title, across nine languages), hands
-over its entire anime list in roughly 22 paged requests, and returns 20 casts
-per request. So ANN supplies the languages AniList was never asked about, and
-backs up entries AniList left silent, in about three quarters of an hour.
+The two sources divide cleanly, but not on cost - that was a mistake this
+module's first version was written around. AniList is asked about one
+language per aliased field and its enum covers ten, so it is the English
+source; it fetches fifty titles per request, so a full catalog is ~444
+requests and about fifteen minutes. ANN tags every cast entry with its
+language in the same response (58 of 58 on the sampled title, across nine
+languages), hands over its entire anime list in roughly 22 paged requests,
+and returns 20 casts per request, so it covers the catalog in about three
+quarters of an hour.
+
+So ANN is here for the languages AniList was never asked about, and as a
+second opinion where AniList is silent - not because AniList is too slow to
+run.
 
 ANN publishes no MyAnimeList or AniList id and offers no lookup by one, so
 entries are matched on title against the bulk index (pipeline/ann.py). That

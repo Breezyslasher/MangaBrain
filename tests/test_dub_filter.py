@@ -425,11 +425,13 @@ class _LockConn:
 def test_a_second_concurrent_walk_declines_instead_of_duplicating():
     """Two walks halve each other's share of AniList's rate limit.
 
-    Running for twelve hours detached makes "did I already start it?" a real
-    question, and re-running after a restart that did not kill the first one
-    produces two walks doing the same work. Seen in the wild as interleaved
-    progress lines, one counting to 22167 and one to 11717 - the second
-    having built its candidate list once the first was 10450 titles in.
+    Re-running after a restart that did not kill the first walk produces two
+    walks doing the same work. Seen in the wild as interleaved progress
+    lines, one counting to 22167 and one to 11717 - the second having built
+    its candidate list once the first was 10450 titles in. That run was the
+    per-title walk and had twelve hours in which to be started twice; the
+    paged walk is short enough that it is less likely, and cheap enough that
+    the lock costs nothing when it is not needed.
     """
     from pipeline.backfill_dub import backfill
 
