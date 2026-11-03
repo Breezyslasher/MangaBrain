@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     anilist_min_interval: float = 2.0
     jikan_min_interval: float = 0.5
     sync_interval_hours: float = 24.0
+    # Titles the nightly pass checks for an English dub, one AniList
+    # request each. A full anime catalog is ~20k titles, so the initial
+    # fill is a one-off `python -m pipeline.backfill_dub`; this only has
+    # to keep up with newly synced entries. 0 disables it.
+    dub_backfill_per_pass: int = 400
     # Optional catalog snapshot to seed an empty database from (see
     # pipeline.restore). Best-effort: on failure the worker falls back to a
     # normal full sync.

@@ -43,6 +43,40 @@ CREATE TABLE IF NOT EXISTS media (
 -- applied idempotently on every service start.
 ALTER TABLE media ADD COLUMN IF NOT EXISTS synonyms TEXT[] NOT NULL DEFAULT '{}';
 
+-- English dub signal, backfilled by pipeline.backfill_dub from AniList's
+-- cast-by-voice-actor-language data (AniList has no dub field). Measured
+-- coverage: 100% of the most popular titles credit an English voice actor,
+-- ~93% at rank 1000, ~60-67% at rank 3000-5000, and 0% in the least popular
+-- strata, where entries have no cast recorded at all.
+--
+-- This supports a POSITIVE filter only. english_va_count > 0 is a reliable
+-- "has an English dub"; english_va_count = 0 is NOT a reliable "sub only",
+-- because midlist titles with real dubs come back empty (Berserk 2 (2017):
+-- 21 characters, 0 English voice actors). Never invert this column into a
+-- sub-only filter. NULL means not yet checked, which is distinct from 0.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS english_va_count INTEGER;
+-- Cast edges seen when checking, so "no cast recorded" (0) is
+-- distinguishable from "cast recorded, no English voice actor".
+ALTER TABLE media ADD COLUMN IF NOT EXISTS cast_character_count INTEGER;
+-- AniList dubGroup values, e.g. {4Kids,Odex} on One Piece. Usually empty.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS dub_groups TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE media ADD COLUMN IF NOT EXISTS dub_checked_at TIMESTAMPTZ;
+
+-- Partial index: the filter only ever asks for titles known to be dubbed.
+CREATE INDEX IF NOT EXISTS idx_media_english_dub
+    ON media (id) WHERE english_va_count > 0;
+
+-- Per-entry failure record for the dub backfill, mirroring
+-- jikan_backfill_state: an entry that failed is skipped on the next pass
+-- unless --retry-failed is given, so one bad id cannot stall a 20k-title
+-- walk that takes hours.
+CREATE TABLE IF NOT EXISTS dub_backfill_state (
+    media_id        INTEGER PRIMARY KEY REFERENCES media (id) ON DELETE CASCADE,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    last_status     TEXT,
+    last_attempt    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_media_medium ON media (medium);
 CREATE INDEX IF NOT EXISTS idx_media_id_mal ON media (id_mal);
 CREATE INDEX IF NOT EXISTS idx_media_is_adult ON media (is_adult);

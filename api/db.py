@@ -107,7 +107,8 @@ MEDIA_COLS = """
     m.description_clean AS description, m.genres, m.tags, m.format,
     m.episodes, m.chapters, m.volumes, m.country_of_origin, m.start_year,
     m.status, m.average_score, m.cover_image_medium, m.cover_image_large,
-    m.is_adult, m.synonyms, m.popularity, m.favourites
+    m.is_adult, m.synonyms, m.popularity, m.favourites,
+    m.english_va_count, m.dub_groups
 """
 
 
@@ -140,4 +141,8 @@ def media_from_row(row: dict[str, Any]) -> MediaOut:
         synonyms=(row["synonyms"] or [])[:MAX_SYNONYMS],
         popularity=row["popularity"],
         favourites=row["favourites"],
+        has_english_dub=(
+            None if row.get("english_va_count") is None else row["english_va_count"] > 0
+        ),
+        dub_groups=row.get("dub_groups") or [],
     )

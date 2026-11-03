@@ -77,6 +77,7 @@ pip install -e ".[dev]"
 python -m pipeline.sync_anilist                  # full catalog, both types in one resumable id scan
 python -m pipeline.embed                         # generate/update embeddings
 python -m pipeline.backfill_jikan                # optional: fill missing synopses from MAL
+python -m pipeline.backfill_dub                  # optional: English dub flag from AniList cast data
 
 # quality benchmark: AniList's human-voted recommendation pairs as ground
 # truth (evaluation only - the pairs never enter scoring). fetch once, then
@@ -137,6 +138,7 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 | `POST /yamtrack/refresh` | Pull the configured Yamtrack instance's anime + manga lists into the `yamtrack` exclusion list (configure via the Accounts panel or `YAMTRACK_URL`/`YAMTRACK_TOKEN`) |
 | `POST /kitsu/refresh` | Pull the configured Kitsu user's public anime + manga library into the `kitsu` exclusion list via Kitsu's MAL/AniList id mappings (set the Kitsu username in the Accounts panel; no token needed) |
 | `GET` / `PUT /settings` | Account settings (AniList/MAL/Kitsu usernames, Yamtrack endpoint and token) persisted server-side; the token is write-only |
+| `GET /dub/coverage` | How far the English dub backfill has got over anime rows: `total`, `checked`, `dubbed`, `without_cast`, and `complete`. While `complete` is false the `dubbed` filter is still hiding unchecked titles |
 | `GET /healthz` | Liveness check |
 
 Medium groups match Anibrain's recommenders: `anime`, `manga` (includes
@@ -162,6 +164,14 @@ manhwa/manhua), `light_novel`, `one_shot`.
   (a filter the user opts into; popularity still never enters ranking)
 - `max_episodes=<n>` / `max_chapters=<n>` — length caps (unknown lengths stay
   included)
+- `dubbed=true` — only anime AniList credits with an English voice actor.
+  Positive only, by design: there is no sub-only option, because an empty
+  English cast is not evidence of one. Measured coverage runs 100% at the
+  top of the catalog but ~60-67% around rank 3000-5000, and the misses are
+  real dubs (Berserk 2 (2017): 21 characters, 0 English voice actors), so
+  inverting it would hide dubbed titles from exactly the obscure end this
+  engine exists to surface. Titles the backfill has not reached yet are
+  excluded while the filter is on - see `GET /dub/coverage`
 - `adult=true` — include adult entries (excluded at the SQL level by default)
 - `mal_user=<username>` — exclude everything on the cached MAL anime + manga
   lists (any status)
@@ -199,6 +209,7 @@ All settings come from environment variables (see `.env.example`):
 | `ANILIST_MIN_INTERVAL` | `2.0` | seconds between AniList requests |
 | `JIKAN_MIN_INTERVAL` | `0.5` | seconds between Jikan requests |
 | `SYNC_INTERVAL_HOURS` | `24` | worker pass interval |
+| `DUB_BACKFILL_PER_PASS` | `400` | titles the nightly pass checks for an English dub (one AniList request each); 0 disables. The initial fill is a one-off `python -m pipeline.backfill_dub` |
 | `MANGABRAIN_EMBED_THREADS` | `0` | torch threads while embedding; 0 = cores minus one (the worker also runs at reduced CPU weight so other apps win under contention) |
 | `AUTH_TOKEN` | empty | when set, every API request must carry `Authorization: Bearer <token>`; the web app asks once and remembers it. Set this before exposing the app publicly |
 | `RATE_LIMIT_PER_MINUTE` | `0` (off) | per-client-IP cap on API requests (reads `CF-Connecting-IP` behind Cloudflare) |
@@ -279,7 +290,7 @@ signals (popularity, favourites, members, trending).
 
 ```
 /api        FastAPI app: routers /search, /recommend/{id}, /random, /mal/{username}
-/pipeline   sync_anilist.py, embed.py, backfill_jikan.py, nightly.py (worker loop)
+/pipeline   sync_anilist.py, embed.py, backfill_jikan.py, backfill_dub.py, nightly.py (worker loop)
 /web        vanilla SPA: medium tabs, search, sliders, filter panel, surprise button
 /db         schema.sql
 ```

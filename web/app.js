@@ -121,6 +121,10 @@ function filterParams() {
     if (state.medium === "anime") params.max_episodes = maxLen;
     else params.max_chapters = maxLen;
   }
+  // Positive filter only, and only for anime: on means "known to have an
+  // English dub", off means no dub filtering at all. There is deliberately no
+  // sub-only option, because an empty English cast is not evidence of one.
+  if (state.medium === "anime" && $("dubbed").checked) params.dubbed = "true";
   if (isChecked("malExclude") && $("malUser").value.trim()) {
     params.mal_user = $("malUser").value.trim();
   }
@@ -671,6 +675,8 @@ function populateFormats() {
     select.appendChild(opt);
   }
   $("formatWrap").style.display = state.medium === "anime" ? "" : "none";
+  // Print media has no dub, so the toggle is hidden rather than ignored.
+  $("dubbedRow").style.display = state.medium === "anime" ? "" : "none";
 }
 
 function renderGenreChips() {
@@ -898,7 +904,7 @@ function bindEvents() {
     on(slider, "change", rerunActive);
   }
 
-  for (const id of ["adult", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
+  for (const id of ["adult", "dubbed", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
                     "minScore", "country", "status", "format", "maxPop", "maxLen",
                     "malExclude", "alExclude", "kitsuExclude", "ytExclude", "keepPlanned"]) {
     on(id, "change", rerunActive);

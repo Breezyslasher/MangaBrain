@@ -1,6 +1,7 @@
 """Worker loop: incremental AniList sync for both media types, then an
-embedding pass for anything new. Runs forever, sleeping SYNC_INTERVAL_HOURS
-between passes; intended as the `worker` container's entry point.
+embedding pass for anything new, then a bounded English-dub check for titles
+that have never had one. Runs forever, sleeping SYNC_INTERVAL_HOURS between
+passes; intended as the `worker` container's entry point.
 
 Usage:
     python -m pipeline.nightly            # loop forever
@@ -14,6 +15,7 @@ import traceback
 import psycopg
 
 from api.config import settings
+from pipeline.backfill_dub import backfill as backfill_dub
 from pipeline.client import RateLimitedClient
 from pipeline.embed import embed_missing, prune_stale
 from pipeline.sync_anilist import full_sync, get_state, incremental_sync, set_state
@@ -45,6 +47,7 @@ def run_once(client: RateLimitedClient) -> None:
             full_sync(client, conn, None)
             embed_missing()
             prune_stale()
+            _dub_pass(client, conn)
             return
         try:
             for media_type in ("ANIME", "MANGA"):
@@ -77,9 +80,34 @@ def run_once(client: RateLimitedClient) -> None:
     # embedding, so retiring older versions cannot leave a coverage gap.
     embed_missing()
     prune_stale()
+    if sync_error is None:
+        # Skipped after a failed sync: the dub walk shares the AniList client,
+        # and if AniList just refused the sync it will refuse this too.
+        with psycopg.connect(settings.database_url) as conn:
+            _dub_pass(client, conn)
     if sync_error is not None:
         # Surfaces the traceback and puts the loop on its shorter retry.
         raise sync_error
+
+
+def _dub_pass(client: RateLimitedClient, conn: psycopg.Connection) -> None:
+    """Check a bounded slice of never-checked titles for an English dub.
+
+    Bounded because it is one AniList request per title: the initial fill is
+    a one-off `python -m pipeline.backfill_dub`, and this only keeps up with
+    newly synced entries. A failure here must not cost the pass its sync or
+    its embeddings, so it is caught and reported.
+    """
+    if settings.dub_backfill_per_pass <= 0:
+        return
+    try:
+        backfill_dub(client, conn, limit=settings.dub_backfill_per_pass)
+    except Exception as exc:  # noqa: BLE001 - freshness of a filter, not of the catalog
+        print(
+            f"[nightly] dub backfill failed ({type(exc).__name__});"
+            " the dubbed filter keeps its current coverage",
+            flush=True,
+        )
 
 
 def main() -> None:
