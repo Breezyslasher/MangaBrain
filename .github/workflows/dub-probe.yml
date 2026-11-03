@@ -21,9 +21,17 @@ on:
         description: AniList-silent titles to re-check against MAL (0 to skip)
         required: false
         default: "40"
+      full:
+        description: run the sampling pass as well as the raw dump
+        required: false
+        default: "false"
 
 permissions:
   contents: read
+
+concurrency:
+  group: dub-probe-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   probe:
@@ -48,6 +56,7 @@ jobs:
         run: python -m pipeline.probe_dub_coverage --debug-id 1
 
       - name: Probe
+        if: inputs.full == 'true'
         run: |
           python -m pipeline.probe_dub_coverage \
             --strata "${{ inputs.strata || '1,40,120,280,480,700' }}" \
