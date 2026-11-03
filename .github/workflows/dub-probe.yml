@@ -40,6 +40,12 @@ on:
           before this came from a 15-40 title sample.
         required: false
         default: "false"
+      wikidata:
+        description: the last untried source. Joins by MyAnimeList id and
+          answers in one SPARQL query, so it is cheap to rule in or out.
+          Property ids are discovered, not recalled.
+        required: false
+        default: "false"
       studios:
         description: derive which studios actually predict an English dub,
           ranked by a 95% lower bound so thin support cannot top the list.
@@ -92,7 +98,7 @@ permissions:
 # and deleted by a reports probe queued while it was still working.
 concurrency:
   group: >-
-    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}
   cancel-in-progress: true
 
 jobs:
@@ -124,6 +130,10 @@ jobs:
           python -m pipeline.probe_dub_crosscheck \
             --per-stratum "${{ inputs.per_stratum || '10' }}" \
             --limit "${{ inputs.ann_lookups || '30' }}"
+
+      - name: Evaluate Wikidata
+        if: inputs.wikidata == 'true'
+        run: python -m pipeline.probe_wikidata
 
       - name: Derive dub-predicting studios
         if: inputs.studios == 'true'
@@ -177,7 +187,7 @@ jobs:
         if: inputs.sources != 'true' && inputs.crosscheck != 'true'
           && inputs.paged_cast != 'true' && inputs.languages != 'true'
           && inputs.kitsu != 'true' && inputs.anidb != 'true'
-          && inputs.one_call != 'true' && inputs.signals != 'true' && inputs.studios != 'true'
+          && inputs.one_call != 'true' && inputs.signals != 'true' && inputs.studios != 'true' && inputs.wikidata != 'true'
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \
