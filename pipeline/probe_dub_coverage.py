@@ -105,8 +105,11 @@ query ($id: Int) {
   Media(id: $id, type: ANIME) {
     id
     characters(perPage: CHARACTERS_PER_PAGE, sort: ROLE) {
-      pageInfo { total }
       edges {
+        # node is load-bearing: without it AniList resolves voiceActors to
+        # null on every edge instead of erroring, which silently reads as
+        # "no English cast" for every title in the catalog.
+        node { id }
         voiceActors(language: ENGLISH) { id }
         voiceActorRoles(language: ENGLISH) { dubGroup }
       }
@@ -141,6 +144,9 @@ class Cast:
     """What AniList records about one title's cast."""
 
     def __init__(self, characters: int, english: int, groups: set[str]) -> None:
+        # characters is how many cast edges came back, capped by
+        # CHARACTERS_PER_PAGE. pageInfo.total is not usable here: AniList
+        # reported a flat 500 for titles with a handful of characters.
         self.characters = characters
         self.english = english
         self.groups = groups
@@ -166,12 +172,14 @@ def fetch_cast(client: RateLimitedClient, media_id: int) -> Cast:
     actors: set[int] = set()
     groups: set[str] = set()
     for edge in connection["edges"]:
+        if edge.get("voiceActors") is None and edge.get("node"):
+            raise RuntimeError("voiceActors resolved to null; the query lost its node selection")
         for actor in edge.get("voiceActors") or []:
             actors.add(actor["id"])
         for role in edge.get("voiceActorRoles") or []:
             if role.get("dubGroup"):
                 groups.add(role["dubGroup"])
-    return Cast(connection["pageInfo"]["total"] or 0, len(actors), groups)
+    return Cast(len(connection["edges"]), len(actors), groups)
 
 
 def fetch_ids(
