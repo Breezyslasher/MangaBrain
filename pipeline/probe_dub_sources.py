@@ -23,8 +23,10 @@ Usage:
 """
 
 import argparse
+import re
 import time
 from collections import Counter
+from html import unescape
 from xml.etree import ElementTree
 
 import httpx
@@ -56,8 +58,7 @@ CANDIDATES: tuple[tuple[str, str, bool], ...] = (
 # dubbed, so a response that cannot show an English cast for it tells us the
 # source is unusable regardless of coverage elsewhere.
 ANN_DUMPS: tuple[tuple[str, str], ...] = (
-    ("anime by id", f"{ANN_CDN}?anime=4658"),
-    ("anime by title", f"{ANN_CDN}?title=~cowboy+bebop"),
+    ("Cowboy Bebop: The Movie (id 353)", f"{ANN_CDN}?anime=353"),
 )
 
 # ANN asks for no more than one request per second and for caching; this stays
@@ -119,16 +120,125 @@ def describe_xml(body: str) -> None:
         log(f"    <{child.tag}> attrs={dict(child.attrib)}")
         log(f"      children: {dict(kids)}")
 
-    # The whole question: is cast recorded per language?
+    # The whole question: is CAST recorded per language? An earlier pass
+    # printed the first lang-bearing elements in document order and they were
+    # all <info> (titles, websites), which says nothing about the cast.
     lang_bearing = [el for el in root.iter() if any("lang" in k.lower() for k in el.attrib)]
-    log(f"    elements with a lang-ish attribute: {len(lang_bearing)}")
-    for el in lang_bearing[:6]:
-        text = (el.text or "").strip()[:60]
-        inner = {sub.tag: (sub.text or "").strip()[:40] for sub in list(el)[:3]}
-        log(f"      <{el.tag} {dict(el.attrib)}> text={text!r} children={inner}")
+    by_tag = Counter(el.tag for el in lang_bearing)
+    log(f"    lang-bearing elements by tag: {dict(by_tag)}")
+
+    casts = list(root.iter("cast"))
+    log(f"    <cast> elements: {len(casts)}")
+    tagged = [c for c in casts if any("lang" in k.lower() for k in c.attrib)]
+    log(f"    <cast> carrying a lang attribute: {len(tagged)}/{len(casts)}")
+    log(f"    lang values on <cast>: {dict(Counter(c.attrib.get('lang') for c in casts))}")
+    for cast in casts[:4]:
+        inner = {sub.tag: (sub.text or "").strip()[:36] for sub in list(cast)[:3]}
+        log(f"      <cast {dict(cast.attrib)}> {inner}")
+
+    # <release> may name the dubbed release instead; worth seeing either way.
+    for rel in list(root.iter("release"))[:3]:
+        log(f"      <release {dict(rel.attrib)}> text={(rel.text or '').strip()[:60]!r}")
+
+    # Does ANN carry a cross-reference to another database? If it does, this
+    # can be joined on an id we already store instead of matched by title,
+    # which is the difference between a reliable join and a guess. Most <info>
+    # elements have no lang attribute and went unexamined until now.
+    infos = list(root.iter("info"))
+    log(f"    <info> types present: {dict(Counter(i.attrib.get('type') for i in infos))}")
+    external = []
+    for info in infos:
+        haystack = " ".join([info.attrib.get("href", ""), (info.text or "")]).lower()
+        if any(k in haystack for k in ("myanimelist", "anilist", "anidb", "kitsu", "mal.")):
+            external.append(info)
+    log(f"    <info> mentioning another database: {len(external)}")
+    for info in external[:8]:
+        log(f"      <info {dict(info.attrib)}> text={(info.text or '').strip()[:70]!r}")
 
     gross = Counter(el.tag for el in root.iter())
     log(f"    every tag seen: {dict(gross)}")
+
+
+DOCS_URL = "https://www.animenewsnetwork.com/encyclopedia/api.php"
+ANN_REPORTS = "https://cdn.animenewsnetwork.com/encyclopedia/reports.xml"
+
+
+def run_reports() -> None:
+    """See whether ANN can hand over its anime list in bulk.
+
+    ANN exposes no MyAnimeList or AniList id (confirmed: zero <info> elements
+    reference another database, and the documented lookups are by ANN id or by
+    title only), so joining our catalog to ANN means matching on title. Doing
+    that with one search request per title is thousands of requests against a
+    source that asks for one per second.
+
+    A bulk report would turn it into a single local join instead, and would
+    also show how often titles collide across the whole ANN corpus rather than
+    one query at a time. nlist is kept small here: the point is the shape, and
+    asking for everything to learn the shape would be rude.
+    """
+    log("=== ANN bulk report shape ===")
+    with httpx.Client(timeout=60.0, follow_redirects=True, headers={"User-Agent": UA}) as client:
+        for label, params in (
+            ("anime report, 50 rows", {"id": "155", "type": "anime", "nlist": "50"}),
+            (
+                "anime report, skip 1000",
+                {"id": "155", "type": "anime", "nskip": "1000", "nlist": "5"},
+            ),
+        ):
+            try:
+                resp = client.get(ANN_REPORTS, params=params)
+                body, status = resp.text, resp.status_code
+            except Exception as exc:  # noqa: BLE001 - a probe reports, it does not fail
+                log(f"  {label}: {type(exc).__name__}: {exc}")
+                continue
+            time.sleep(MIN_INTERVAL)
+            log(f"--- {label}: HTTP {status} ({len(body)} bytes) ---")
+            if status != 200:
+                log(f"    body: {body[:200]!r}")
+                continue
+            try:
+                root = ElementTree.fromstring(body)
+            except ElementTree.ParseError as exc:
+                log(f"    not XML: {exc}; first 300 chars: {body[:300]!r}")
+                continue
+            log(f"    root <{root.tag}> attrs={dict(root.attrib)}")
+            rows = list(root)
+            log(f"    rows: {len(rows)}; tags: {dict(Counter(r.tag for r in rows))}")
+            for row in rows[:4]:
+                inner = {sub.tag: (sub.text or "").strip()[:40] for sub in list(row)[:6]}
+                log(f"      <{row.tag} {dict(row.attrib)}> {inner}")
+
+
+PARAM_HINTS = ("api.xml", "reports.xml", "?anime=", "?manga=", "title=", "id=", "nlist")
+
+
+def run_docs() -> None:
+    """Print only the parameter-ish lines of ANN's API docs.
+
+    The whole page is a 60kB web page that buried everything else in CI's log
+    last time, but it is also the only statement of which lookups the API
+    supports, which is not something to assume.
+    """
+    log("=== ANN API documented parameters (markup stripped) ===")
+    with httpx.Client(timeout=30.0, follow_redirects=True, headers={"User-Agent": UA}) as client:
+        status, _, body = get(client, DOCS_URL)
+    if status != 200:
+        log(f"    HTTP {status}")
+        return
+    text = re.sub(r"<(script|style)\b.*?</\1>", " ", body, flags=re.S | re.I)
+    text = re.sub(r"<[^>]+>", "\n", text)
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        line = unescape(raw).strip()
+        if not (8 < len(line) < 240):
+            continue
+        if not any(hint in line for hint in PARAM_HINTS):
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        log(f"    {line}")
 
 
 def run_dump() -> None:
@@ -148,13 +258,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Probe other dub data sources")
     parser.add_argument("--reachability", action="store_true")
     parser.add_argument("--dump", action="store_true")
+    parser.add_argument("--docs", action="store_true", help="ANN's documented parameters")
+    parser.add_argument("--reports", action="store_true", help="ANN bulk report shape")
     args = parser.parse_args()
-    if not (args.reachability or args.dump):
-        parser.error("pass --reachability and/or --dump")
+    if not (args.reachability or args.dump or args.docs or args.reports):
+        parser.error("pass --reachability, --dump, --docs and/or --reports")
     # Dump first, reachability last: CI serves only the tail of a job log,
     # so the summary table has to be the final thing printed.
     if args.dump:
         run_dump()
+    if args.docs:
+        run_docs()
+    if args.reports:
+        run_reports()
     if args.reachability:
         run_reachability()
 

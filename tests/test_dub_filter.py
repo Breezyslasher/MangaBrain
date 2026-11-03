@@ -302,3 +302,103 @@ def test_coverage_only_counts_anime():
     assert "media_type = 'ANIME'" in COVERAGE_SQL
     # count(english_va_count) skips NULLs, which is what "checked" means.
     assert "count(english_va_count)" in COVERAGE_SQL
+
+
+def test_dub_lang_filters_on_the_language_array():
+    sql, params = build_filters(dub_lang="de")
+    assert "m.dub_languages @> ARRAY[%(f_dub_lang)s]::text[]" in sql
+    assert params["f_dub_lang"] == "de"
+
+
+def test_dub_lang_is_normalised():
+    _, params = build_filters(dub_lang="  DE ")
+    assert params["f_dub_lang"] == "de"
+
+
+def test_dubbed_true_is_shorthand_for_english():
+    assert build_filters(dubbed=True)[0] == build_filters(dub_lang="en")[0]
+
+
+def test_an_explicit_language_wins_over_the_shorthand():
+    # dubbed=true must not quietly override a chosen language.
+    sql, params = build_filters(dubbed=True, dub_lang="fr")
+    assert params["f_dub_lang"] == "fr"
+    assert "ARRAY['en']" not in sql
+
+
+def test_non_english_does_not_fall_back_to_anilist_columns():
+    """AniList was only ever asked about English.
+
+    english_va_count says nothing about a German dub, so letting it answer a
+    dub_lang=de query would report every English-dubbed title as German.
+    """
+    sql, _ = build_filters(dub_lang="de")
+    assert "english_va_count" not in sql
+    assert "english_dub_inferred" not in sql
+
+
+def test_no_language_filters_nothing():
+    assert "dub_languages" not in build_filters()[0]
+
+
+def test_dub_languages_are_exposed_on_results():
+    row = _media_row()
+    row["dub_languages"] = ["en", "fr", "ja"]
+    assert media_from_row(row).dub_languages == ["en", "fr", "ja"]
+
+
+def test_ann_can_answer_english_when_anilist_has_not_been_asked():
+    row = _media_row()
+    row["english_va_count"] = None
+    row["dub_languages"] = ["en", "it"]
+    out = media_from_row(row)
+    assert out.has_english_dub is True
+    assert out.dub_source == "ann"
+
+
+def test_a_measured_cast_outranks_an_ann_match_as_the_reported_source():
+    row = _media_row()
+    row["english_va_count"] = 12
+    row["dub_languages"] = ["en", "es"]
+    assert media_from_row(row).dub_source == "measured"
+
+
+def test_non_english_ann_languages_do_not_imply_an_english_dub():
+    row = _media_row()
+    row["english_va_count"] = 0
+    row["dub_languages"] = ["it", "ja"]
+    out = media_from_row(row)
+    assert out.has_english_dub is False
+    assert out.dub_source is None
+
+
+def test_the_dub_walk_reports_rate_and_eta():
+    """A twelve-hour job printing a bare count tells you nothing.
+
+    The walk is one AniList request per title over ~22k titles, so the
+    progress line borrows the embed pass's rate and ETA rather than leaving
+    the operator to work out from a raw count whether it will finish tonight.
+    """
+    from pipeline.embed import progress_line
+
+    line = progress_line(250, 22167, 500.0, label="dub")
+    assert line.startswith("[dub] 250/22167")
+    assert "(1.1%)" in line
+    assert "ETA" in line
+    # The embed pass keeps its own prefix.
+    assert progress_line(50, 200, 10.0).startswith("[embed]")
+
+
+def test_the_dub_walk_prints_progress_without_torch_installed():
+    """backfill_dub imports from pipeline.embed, which must stay torch-free.
+
+    embed_missing imports torch lazily on purpose; if that ever moved to
+    module scope, importing it here would drag torch into a walk that has no
+    use for it.
+    """
+    import pipeline.backfill_dub as walk
+
+    assert walk.progress_line is not None
+    import pipeline.embed as embed_module
+
+    assert "torch" not in dir(embed_module)

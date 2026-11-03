@@ -78,6 +78,8 @@ python -m pipeline.sync_anilist                  # full catalog, both types in o
 python -m pipeline.embed                         # generate/update embeddings
 python -m pipeline.backfill_jikan                # optional: fill missing synopses from MAL
 python -m pipeline.backfill_dub                  # optional: English dub flag from AniList cast data
+python -m pipeline.propagate_dub                 # infer dubs across franchises from a measured sibling
+python -m pipeline.backfill_dub_ann              # dub languages from ANN (all languages, ~45 min)
 
 # quality benchmark: AniList's human-voted recommendation pairs as ground
 # truth (evaluation only - the pairs never enter scoring). fetch once, then
@@ -164,7 +166,24 @@ manhwa/manhua), `light_novel`, `one_shot`.
   (a filter the user opts into; popularity still never enters ranking)
 - `max_episodes=<n>` / `max_chapters=<n>` — length caps (unknown lengths stay
   included)
-- `dubbed=true` — only anime AniList credits with an English voice actor.
+- `dub_lang=<code>` — only anime known to be dubbed in that language,
+  lowercase ISO-639-1 (`en`, `de`, `es`, `fr`, `it`, `ko`, `pt`, `ru`, `tl`).
+  `dubbed=true` is shorthand for `dub_lang=en`. Positive only: there is no
+  sub-only option, because an absent cast is not evidence of one.
+- English has three sources and they fill at different rates. AniList is
+  measured per entry but costs one request per title (~22k, around twelve
+  hours) because it will not populate a nested connection across a page of
+  parents; ANN returns every language at once and covers the catalog in ~45
+  minutes, but only for titles it can be matched to by name (~55-70%);
+  propagation infers a dub from a dubbed sequel, prequel, parent or side
+  story. Any of the three answers a `dub_lang=en` query. Other languages
+  come from ANN alone, since AniList was only ever asked about English.
+  `dub_source` on each result says which supplied it (`measured`, `ann` or
+  `franchise`), and `dub_languages` lists every language ANN knows of.
+- Measured against ANN, AniList's silence is right for standalone entries
+  and wrong for side entries: 2 of 30 exactly-matched silent titles turned
+  out to be dubbed (~7%), and the misses were seasons and OVAs of dubbed
+  franchises. See `pipeline.probe_dub_crosscheck`.
   Positive only, by design: there is no sub-only option, because an empty
   English cast is not evidence of one. Measured coverage runs 100% at the
   top of the catalog but ~60-67% around rank 3000-5000, and the misses are
@@ -291,7 +310,8 @@ signals (popularity, favourites, members, trending).
 
 ```
 /api        FastAPI app: routers /search, /recommend/{id}, /random, /mal/{username}
-/pipeline   sync_anilist.py, embed.py, backfill_jikan.py, backfill_dub.py, nightly.py (worker loop)
+/pipeline   sync_anilist.py, embed.py, backfill_jikan.py, backfill_dub.py,
+            backfill_dub_ann.py, propagate_dub.py, ann.py, nightly.py (worker loop)
 /web        vanilla SPA: medium tabs, search, sliders, filter panel, surprise button
 /db         schema.sql
 ```

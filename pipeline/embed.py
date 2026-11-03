@@ -115,6 +115,7 @@ def progress_line(
     elapsed: float,
     already: int = 0,
     catalog_total: int | None = None,
+    label: str = "embed",
 ) -> str:
     """Human-readable progress: fraction, percent, rate and ETA.
 
@@ -127,7 +128,7 @@ def progress_line(
     total = catalog_total if catalog_total is not None else pending
     position = already + done
     rate = done / elapsed if elapsed > 0 else 0.0
-    parts = [f"[embed] {position}/{total}"]
+    parts = [f"[{label}] {position}/{total}"]
     if total > 0:
         parts.append(f"({100.0 * position / total:.1f}%)")
     if rate > 0:

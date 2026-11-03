@@ -121,10 +121,13 @@ function filterParams() {
     if (state.medium === "anime") params.max_episodes = maxLen;
     else params.max_chapters = maxLen;
   }
-  // Positive filter only, and only for anime: on means "known to have an
-  // English dub", off means no dub filtering at all. There is deliberately no
-  // sub-only option, because an empty English cast is not evidence of one.
-  if (state.medium === "anime" && $("dubbed").checked) params.dubbed = "true";
+  // Positive filter only, and only for anime: a chosen language means "known
+  // to be dubbed in it", and "Any" means no dub filtering at all. There is
+  // deliberately no sub-only option, because an absent cast is not evidence
+  // of one. English can be answered by AniList, ANN or franchise inference;
+  // the other languages exist only where ANN matched the entry.
+  const dubLang = $("dubLang").value;
+  if (state.medium === "anime" && dubLang) params.dub_lang = dubLang;
   if (isChecked("malExclude") && $("malUser").value.trim()) {
     params.mal_user = $("malUser").value.trim();
   }
@@ -189,7 +192,42 @@ function mediaMeta(media) {
   const members = formatMembers(media.popularity);
   if (members) parts.push(members);
   if (media.medium && media.medium !== state.medium) parts.push(media.medium.replaceAll("_", " "));
+  // Measured and inherited dubs are labelled differently: "dub" means AniList
+  // credits an English voice actor for this entry, "dub (series)" means a
+  // relative is dubbed and this entry inherited it, which is a weaker claim.
+  if (media.has_english_dub) {
+    parts.push(media.dub_source === "franchise" ? "dub (series)" : "dub");
+  }
   return parts.join(" / ");
+}
+
+// The dubbed filter keeps only titles known to be dubbed, so a title the
+// backfill has not checked yet is excluded while the filter is on. That is
+// the right behaviour for a positive filter and a confusing one to meet
+// unannounced, so the coverage is shown next to the toggle until it is
+// complete. Checked once per session; a failure leaves the note empty rather
+// than blocking the panel.
+async function loadDubCoverage() {
+  if (state.dubCoverageLoaded) return;
+  state.dubCoverageLoaded = true;
+  const note = $("dubNote");
+  if (!note) return;
+  try {
+    const data = await api("/dub/coverage", {});
+    if (!data || data.complete || !data.total) {
+      note.textContent = "";
+      return;
+    }
+    const pct = Math.round((100 * data.checked) / data.total);
+    note.textContent = `English: ${pct}% checked`;
+    note.title =
+      `${data.checked} of ${data.total} anime checked against AniList for an` +
+      ` English cast; ${data.dubbed} have one. Titles not yet checked are` +
+      " hidden while a dub language is selected. Other languages come from" +
+      " ANN and cover only the titles it could be matched to.";
+  } catch {
+    note.textContent = "";
+  }
 }
 
 function anilistUrl(media) {
@@ -677,6 +715,7 @@ function populateFormats() {
   $("formatWrap").style.display = state.medium === "anime" ? "" : "none";
   // Print media has no dub, so the toggle is hidden rather than ignored.
   $("dubbedRow").style.display = state.medium === "anime" ? "" : "none";
+  if (state.medium === "anime") loadDubCoverage();
 }
 
 function renderGenreChips() {
@@ -904,7 +943,7 @@ function bindEvents() {
     on(slider, "change", rerunActive);
   }
 
-  for (const id of ["adult", "dubbed", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
+  for (const id of ["adult", "dubLang", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
                     "minScore", "country", "status", "format", "maxPop", "maxLen",
                     "malExclude", "alExclude", "kitsuExclude", "ytExclude", "keepPlanned"]) {
     on(id, "change", rerunActive);

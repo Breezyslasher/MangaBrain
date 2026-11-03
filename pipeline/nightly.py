@@ -19,6 +19,7 @@ from api.config import settings
 from pipeline.backfill_dub import backfill as backfill_dub
 from pipeline.client import RateLimitedClient
 from pipeline.embed import embed_missing, prune_stale
+from pipeline.propagate_dub import propagate as propagate_dub
 from pipeline.sync_anilist import full_sync, get_state, incremental_sync, set_state
 
 # Overlap re-syncs a little history so entries updated while a pass was
@@ -114,6 +115,9 @@ def _dub_pass(client: RateLimitedClient, conn: psycopg.Connection) -> None:
             limit=settings.dub_backfill_per_pass,
             stale_before=stale_before,
         )
+        # One query, so it runs every pass: a newly measured dub should reach
+        # its franchise without waiting for a separate job.
+        propagate_dub(conn)
     except Exception as exc:  # noqa: BLE001 - freshness of a filter, not of the catalog
         print(
             f"[nightly] dub backfill failed ({type(exc).__name__});"

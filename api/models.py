@@ -42,6 +42,15 @@ class MediaOut(BaseModel):
     # AniList dubGroup values when more than one English dub exists, e.g.
     # ["4Kids", "Odex"] for One Piece. Usually empty.
     dub_groups: list[str] = []
+    # Every language a dub is known in, lowercase ISO-639-1, from ANN. Empty
+    # until the ANN pass has matched this entry; English can still be true
+    # through AniList alone.
+    dub_languages: list[str] = []
+    # "measured" when AniList credits an English voice actor for this entry,
+    # "ann" when ANN's record supplied it, "franchise" when a related entry
+    # is dubbed and this one inherited the flag, None when unknown. A client
+    # showing a dub badge can qualify it.
+    dub_source: str | None = None
 
 
 class ScoreComponents(BaseModel):
