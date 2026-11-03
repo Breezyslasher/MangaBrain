@@ -1,0 +1,53 @@
+name: dub-probe
+
+# Research probe: is English voice-actor data a usable dub signal, and does
+# its coverage survive into the long tail? AniList has no dub field, so the
+# candidate signal is "an English voice actor is credited". This runs on CI
+# because CI can reach AniList; api.jikan.moe is NOT reachable from GitHub's
+# runners, so the MAL cross-check has to run from the NAS. Results appear in
+# the "Probe" step log; nothing is written anywhere.
+on:
+  workflow_dispatch:
+    inputs:
+      per_stratum:
+        description: titles sampled per popularity stratum
+        required: false
+        default: "15"
+      cross_check:
+        description: AniList-silent titles to re-check against MAL (0 to skip;
+          api.jikan.moe is unreachable from GitHub runners, so this only works
+          from the NAS)
+        required: false
+        default: "0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dub-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Without this the probe's streaming log stays empty until it exits.
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install httpx
+        run: pip install "httpx>=0.27"
+
+      - name: Probe
+        run: |
+          python -m pipeline.probe_dub_coverage \
+            --per-stratum "${{ inputs.per_stratum || '15' }}" \
+            --cross-check "${{ inputs.cross_check || '0' }}"

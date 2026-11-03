@@ -19,6 +19,7 @@ def build_filters(
     max_popularity: int | None = None,
     max_episodes: int | None = None,
     max_chapters: int | None = None,
+    dubbed: bool = False,
     mal_user: str | None = None,
     anilist_user: str | None = None,
     exclude_lists: list[str] | None = None,
@@ -82,6 +83,16 @@ def build_filters(
     if max_chapters is not None:
         clauses.append("(m.chapters IS NULL OR m.chapters <= %(f_max_chapters)s)")
         params["f_max_chapters"] = max_chapters
+    if dubbed:
+        # Positive only, and deliberately not invertible. english_va_count > 0
+        # means AniList credits an English voice actor, which is a reliable
+        # "has an English dub". A zero is NOT a reliable "sub only": midlist
+        # titles with real dubs come back empty (Berserk 2 (2017): 21
+        # characters, 0 English voice actors), and NULL just means not yet
+        # backfilled. There is no dubbed=False branch for that reason, and
+        # adding one would quietly hide dubbed titles from the obscure end of
+        # the catalog this project exists to surface.
+        clauses.append("m.english_va_count > 0")
     # keep_planned: plan-to-watch/plan-to-read entries stop excluding, so
     # planned titles can still be recommended; started and finished entries
     # (watching/reading, completed, on hold, dropped) always exclude.

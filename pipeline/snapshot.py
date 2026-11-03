@@ -25,6 +25,7 @@ USER_TABLES = (
     "anilist_list_entries",
     "anilist_list_state",
     "jikan_backfill_state",
+    "dub_backfill_state",
     "custom_exclusion_entries",
     "custom_exclusion_state",
     "app_settings",

@@ -16,6 +16,7 @@ from api.db import close_pool, ensure_schema, get_pool
 from api.routers import (
     anilist,
     app_settings,
+    dub,
     exclusions,
     foryou,
     kitsu,
@@ -153,6 +154,7 @@ app.include_router(exclusions.router)
 app.include_router(yamtrack.router)
 app.include_router(kitsu.router)
 app.include_router(app_settings.router)
+app.include_router(dub.router)
 
 
 @app.get("/healthz")

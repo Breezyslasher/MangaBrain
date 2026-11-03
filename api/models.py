@@ -35,6 +35,13 @@ class MediaOut(BaseModel):
     # Display-only audience-size fields. These are never inputs to scoring.
     popularity: int | None = None
     favourites: int | None = None
+    # True when AniList credits an English voice actor, None when the title
+    # has not been checked yet. False means "checked, none found", which is
+    # NOT the same as "sub only" - see the dubbed filter in api/filters.py.
+    has_english_dub: bool | None = None
+    # AniList dubGroup values when more than one English dub exists, e.g.
+    # ["4Kids", "Odex"] for One Piece. Usually empty.
+    dub_groups: list[str] = []
 
 
 class ScoreComponents(BaseModel):
@@ -176,3 +183,18 @@ class AppSettingsOut(BaseModel):
     yamtrack_url: str = ""
     # The token itself is never returned, only whether one is configured.
     yamtrack_token_set: bool = False
+
+
+class DubCoverageOut(BaseModel):
+    """How far the English dub backfill has got, over ANIME rows only."""
+
+    total: int
+    # Rows with a non-null english_va_count: checked at least once.
+    checked: int
+    dubbed: int
+    # Checked but with no cast recorded upstream at all, which is most of the
+    # least-popular tail (music videos, kids shorts, educational OVAs) and is
+    # not evidence either way about a dub.
+    without_cast: int
+    # False means the dubbed filter is still hiding unchecked titles.
+    complete: bool
