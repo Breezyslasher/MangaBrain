@@ -22,8 +22,15 @@ voiceActors resolves to null on every edge, and the fix changed both the
 paging and the node selection at once, so the per-title shape got credit
 that belonged to the node. Measured since: a page of fifty returns
 byte-identical cast data to fifty single requests, and omitting node
-zeroes the single-title shape too. The pass is ceil(N/CAST_CHUNK)
-requests, about fifteen minutes.
+zeroes the single-title shape too.
+
+The pass is ceil(N/CAST_CHUNK) requests. That is ~444 for a full anime
+catalog, but not the fifteen minutes the local two-second floor implies:
+measured on a cold pass the realized rate is 6.2 titles/s, fifty titles
+per 8.1 seconds, because a fifty-id cast query is heavy in AniList's
+complexity budget and is throttled well past the client's own interval.
+Call it an hour for 22k titles - still sixteen times faster than the
+per-title walk, which took twelve.
 
 The walk is resumable: every checked row gets dub_checked_at, so a rerun
 picks up where it stopped, and failures are recorded per entry in

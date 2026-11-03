@@ -282,7 +282,15 @@ def test_coverage_counts_checked_separately_from_dubbed(monkeypatch):
         dub_router,
         "get_pool",
         lambda: FakePool(
-            lambda sql, params: [{"total": 100, "checked": 40, "dubbed": 25, "without_cast": 6}]
+            lambda sql, params: [
+                {
+                    "total": 100,
+                    "checked": 40,
+                    "dubbed": 25,
+                    "without_cast": 6,
+                    "unreachable": 0,
+                }
+            ]
         ),
     )
     body = TestClient(main.app, raise_server_exceptions=False).get("/dub/coverage").json()
@@ -291,17 +299,80 @@ def test_coverage_counts_checked_separately_from_dubbed(monkeypatch):
         "checked": 40,
         "dubbed": 25,
         "without_cast": 6,
+        "unreachable": 0,
         # 40 of 100 checked: the filter is still hiding unchecked titles.
         "complete": False,
     }
 
 
+def test_coverage_is_complete_once_only_unreachable_rows_remain(monkeypatch):
+    """A row AniList will never answer for must not hold `complete` false.
+
+    Seen on the real catalog at 22,666 checked of 22,667 with the walk
+    genuinely finished: one title had been deleted upstream or reclassified
+    out of ANIME, so its retries were exhausted and its english_va_count
+    would stay NULL for good. Defined as checked >= total, the flag could
+    never become true again and the UI would warn about a thin result set
+    forever.
+    """
+    from fake_db import FakePool
+    from fastapi.testclient import TestClient
+
+    import api.main as main
+    import api.routers.dub as dub_router
+    from api.config import settings as cfg
+
+    monkeypatch.setattr(cfg, "auth_token", "")
+    monkeypatch.setattr(cfg, "rate_limit_per_minute", 0)
+    main._rate_windows.clear()
+    monkeypatch.setattr(
+        dub_router,
+        "get_pool",
+        lambda: FakePool(
+            lambda sql, params: [
+                {
+                    "total": 22667,
+                    "checked": 22666,
+                    "dubbed": 4077,
+                    "without_cast": 8650,
+                    "unreachable": 1,
+                }
+            ]
+        ),
+    )
+    body = TestClient(main.app, raise_server_exceptions=False).get("/dub/coverage").json()
+    assert body["complete"] is True
+    assert body["unreachable"] == 1
+
+    # But a genuinely pending row still reads as incomplete.
+    monkeypatch.setattr(
+        dub_router,
+        "get_pool",
+        lambda: FakePool(
+            lambda sql, params: [
+                {
+                    "total": 22667,
+                    "checked": 22665,
+                    "dubbed": 4077,
+                    "without_cast": 8650,
+                    "unreachable": 1,
+                }
+            ]
+        ),
+    )
+    body = TestClient(main.app, raise_server_exceptions=False).get("/dub/coverage").json()
+    assert body["complete"] is False
+
+
 def test_coverage_only_counts_anime():
     from api.routers.dub import COVERAGE_SQL
 
-    assert "media_type = 'ANIME'" in COVERAGE_SQL
-    # count(english_va_count) skips NULLs, which is what "checked" means.
-    assert "count(english_va_count)" in COVERAGE_SQL
+    assert "m.media_type = 'ANIME'" in COVERAGE_SQL
+    # count(...) skips NULLs, which is what "checked" means.
+    assert "count(m.english_va_count)" in COVERAGE_SQL
+    # Exhausted retries are read from the backfill state, not guessed.
+    assert "dub_backfill_state" in COVERAGE_SQL
+    assert "max_attempts" in COVERAGE_SQL
 
 
 def test_dub_lang_filters_on_the_language_array():

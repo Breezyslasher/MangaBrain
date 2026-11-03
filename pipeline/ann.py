@@ -240,6 +240,37 @@ def match(
     return "unmatched", None
 
 
+def rejected_against(
+    index: dict[str, list[AnnEntry]],
+    candidates: list[str],
+    year: int | None = None,
+    fmt: str | None = None,
+) -> AnnEntry | None:
+    """The entry an exact name match was rejected against. Reporting only.
+
+    match() returns None alongside a rejection on purpose, so that a
+    rejected match cannot be written by mistake - the invariant exists
+    because a Suntory mineral-water advert was once stored as 'your name.',
+    and tests pin it. Diagnosing which format or year pair was contradicted
+    still needs the entry, so it is looked up here instead, by a function
+    whose name says plainly that it is not a match and must not be stored.
+
+    Returns None unless the verdict really was a rejection, so a caller
+    cannot use this to smuggle an unresolved title past the guard.
+    """
+    verdict, _ = match(index, candidates, year=year, fmt=fmt)
+    if not verdict.startswith("rejected_"):
+        return None
+    for name in candidates:
+        key = normalize(name)
+        if not key:
+            continue
+        unique = {h.ann_id: h for h in narrow(index.get(key, []), year, fmt)}
+        if len(unique) == 1:
+            return next(iter(unique.values()))
+    return None
+
+
 def fetch_casts(client: httpx.Client, ann_ids: list[str]) -> dict[str, tuple[int, set[str]]]:
     """English cast size and all cast languages, per ANN id, in batches."""
     out: dict[str, tuple[int, set[str]]] = {}

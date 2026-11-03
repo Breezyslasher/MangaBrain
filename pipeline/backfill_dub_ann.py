@@ -4,7 +4,8 @@ The two sources divide cleanly, but not on cost - that was a mistake this
 module's first version was written around. AniList is asked about one
 language per aliased field and its enum covers ten, so it is the English
 source; it fetches fifty titles per request, so a full catalog is ~444
-requests and about fifteen minutes. ANN tags every cast entry with its
+requests and about an hour at the throttled rate those heavy queries
+actually get. ANN tags every cast entry with its
 language in the same response (58 of 58 on the sampled title, across nine
 languages), hands over its entire anime list in roughly 22 paged requests,
 and returns 20 casts per request, so it covers the catalog in about three
@@ -41,7 +42,14 @@ import psycopg
 from psycopg.rows import dict_row
 
 from api.config import settings
-from pipeline.ann import UA, build_index, fetch_anime_index, fetch_casts, match
+from pipeline.ann import (
+    UA,
+    build_index,
+    fetch_anime_index,
+    fetch_casts,
+    match,
+    rejected_against,
+)
 
 # Anime only, and only rows not already carrying ANN languages. Newest first,
 # matching the AniList walk, so a fresh entry gets a language set early.
@@ -102,6 +110,12 @@ def backfill(
         matched: list[tuple[int, str]] = []
         unresolved = 0
         verdicts: Counter[str] = Counter()
+        # Which (AniList format, ANN type) pairs the format guard threw out.
+        # FORMAT_TO_ANN is hand-written against ANN's vocabulary, and a pair
+        # it is missing - or has in the wrong case, since the check is
+        # case-sensitive - rejects good matches in bulk. The verdict count
+        # alone says how many; this says which to add.
+        rejected_pairs: Counter[tuple[str, str]] = Counter()
         for row in rows:
             verdict, entry = match(
                 index,
@@ -110,6 +124,14 @@ def backfill(
                 fmt=row["format"],
             )
             verdicts[verdict] += 1
+            if verdict == "rejected_format":
+                # match() withholds the entry on a rejection by design, so
+                # the contradicting entry is looked up separately.
+                against = rejected_against(
+                    index, candidate_titles(row), year=row["start_year"], fmt=row["format"]
+                )
+                if against is not None:
+                    rejected_pairs[(row["format"] or "?", against.kind or "?")] += 1
             # Only exact: a base match resolves to a parent series, whose dub
             # languages are not this entry's.
             if verdict == "exact" and entry is not None:
@@ -129,6 +151,26 @@ def backfill(
         for verdict, count in verdicts.most_common():
             share = 100.0 * count / len(rows) if rows else 0.0
             print(f"[dub-ann]   {verdict:<20} {count:>6} ({share:.1f}%)", flush=True)
+        if rejected_pairs:
+            print(
+                "[dub-ann] format rejections by (AniList format -> ANN type);"
+                " a pair here that should be allowed is a bug in FORMAT_TO_ANN:",
+                flush=True,
+            )
+            for (fmt, kind), count in rejected_pairs.most_common(15):
+                print(f"[dub-ann]   {fmt:<12} -> {kind:<16} {count:>6}", flush=True)
+        # ANN is smaller than the catalog, so most of the residue can never
+        # match. Stating the ceiling keeps the exact rate from being read as
+        # a matcher score.
+        if rows:
+            ceiling = 100.0 * len(entries) / len(rows)
+            print(
+                f"[dub-ann] ANN holds {len(entries)} anime against {len(rows)} catalog"
+                f" rows, so no matcher can exceed {ceiling:.1f}%;"
+                f" this resolved {100.0 * len(matched) / len(rows):.1f}% of the catalog"
+                f" and {100.0 * len(matched) / len(entries):.1f}% of ANN's entries",
+                flush=True,
+            )
         if dry_run or not matched:
             return 0, unresolved
 

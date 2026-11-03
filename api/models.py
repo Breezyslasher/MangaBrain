@@ -205,5 +205,10 @@ class DubCoverageOut(BaseModel):
     # least-popular tail (music videos, kids shorts, educational OVAs) and is
     # not evidence either way about a dub.
     without_cast: int
+    # Rows AniList will never answer for: deleted upstream or reclassified out
+    # of ANIME, so their retries are exhausted and english_va_count stays NULL
+    # for good. Counted as settled rather than pending, or a single one holds
+    # `complete` false forever.
+    unreachable: int = 0
     # False means the dubbed filter is still hiding unchecked titles.
     complete: bool
