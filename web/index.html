@@ -165,8 +165,13 @@
     </aside>
 
     <section id="content">
+      <!-- The button applies the filter panel, which the search box alone
+           never did: typing searched titles by name and ignored every
+           filter, so the catalog could only be reached through a seed
+           title. With an empty box it browses on filters alone. -->
       <div class="searchbar">
         <input id="search" type="search" placeholder="Search titles..." autocomplete="off">
+        <button id="browseBtn" type="button" title="Apply the filters below to the whole catalog, with or without a search term">Search with filters</button>
       </div>
       <div id="seed"></div>
       <div id="related"></div>

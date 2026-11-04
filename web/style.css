@@ -107,9 +107,26 @@ button {
 button.secondary { background: var(--card); border: 1px solid var(--border); }
 button:hover { filter: brightness(1.1); }
 
+/* The input grows, the button keeps its label, and the pair wraps on a
+   narrow screen rather than squeezing the input to nothing. */
+.searchbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .searchbar input {
   font-size: 1.05rem;
   padding: 0.7rem 1rem;
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.searchbar button {
+  flex: 0 0 auto;
+  padding: 0.7rem 1rem;
+  white-space: nowrap;
 }
 
 #seed { margin-top: 1rem; }
