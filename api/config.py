@@ -24,6 +24,20 @@ class Settings(BaseSettings):
     http_cache_dir: str = ""
     anilist_min_interval: float = 2.0
     jikan_min_interval: float = 0.5
+    # A list refresh is somebody waiting on a button, so it must fail fast.
+    # RateLimitedClient defaults to 5 retries with 2s doubling backoff and a
+    # 30s timeout, which is right for an unattended batch and badly wrong
+    # here: against a host that HANGS rather than refuses, those defaults
+    # spend 62s of backoff plus up to 6x30s of connect timeout, so the
+    # endpoint cannot even answer "unreachable" for about four minutes. That
+    # is long enough that every layer in front of it - a browser fetch, a
+    # reverse proxy, a curl the user gives up on - gives up first and reports
+    # nothing, which reads as a silent failure rather than as a blocked host.
+    # Two attempts and a 15s timeout bound the worst case at roughly 32s and
+    # still ride out a single blip. Retries are per request, so a long list
+    # paged over many requests is unaffected.
+    interactive_max_retries: int = 1
+    interactive_timeout: float = 15.0
     sync_interval_hours: float = 24.0
     # Titles the nightly pass checks for an English dub. Fifty per AniList
     # request since the walk was paged, so 400 titles is 8 requests - the

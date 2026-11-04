@@ -17,6 +17,7 @@ the Accounts panel. No token needed: libraries are public on Kitsu.
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from api.config import settings
 from api.models import ExclusionStatus
 from api.routers.app_settings import read_settings
 from api.routers.exclusions import EntryState, get_status, merge_entry, store_exclusion_list
@@ -161,6 +162,8 @@ def external_keys_for(
         return out
     client = RateLimitedClient(
         min_interval=0.2,
+        max_retries=settings.interactive_max_retries,
+        timeout=settings.interactive_timeout,
         extra_headers={"Accept": "application/vnd.api+json"},
     )
     try:
@@ -210,6 +213,8 @@ def refresh_kitsu() -> ExclusionStatus:
         raise HTTPException(status_code=422, detail="set the Kitsu username in settings first")
     client = RateLimitedClient(
         min_interval=0.2,
+        max_retries=settings.interactive_max_retries,
+        timeout=settings.interactive_timeout,
         extra_headers={"Accept": "application/vnd.api+json"},
     )
     all_entries: dict[tuple[str, int], tuple[bool, int | None]] = {}

@@ -110,7 +110,11 @@ def refresh_anilist_lists(username: str) -> UserListsStatus:
     username = username.strip()
     if not username:
         raise HTTPException(status_code=422, detail="empty username")
-    client = RateLimitedClient(min_interval=settings.anilist_min_interval)
+    client = RateLimitedClient(
+        min_interval=settings.anilist_min_interval,
+        max_retries=settings.interactive_max_retries,
+        timeout=settings.interactive_timeout,
+    )
     try:
         lists = {lt: _fetch_list(client, username, mt) for lt, mt in LIST_TYPES.items()}
     finally:

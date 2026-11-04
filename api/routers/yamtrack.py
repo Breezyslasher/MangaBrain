@@ -14,6 +14,7 @@ Configure YAMTRACK_URL (e.g. http://192.168.1.5:8000) and YAMTRACK_TOKEN
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from api.config import settings
 from api.models import ExclusionStatus
 from api.routers.app_settings import effective_yamtrack_config
 from api.routers.exclusions import get_status, store_exclusion_list
@@ -54,6 +55,8 @@ def refresh_yamtrack() -> ExclusionStatus:
     base = url.rstrip("/")
     client = RateLimitedClient(
         min_interval=0.05,
+        max_retries=settings.interactive_max_retries,
+        timeout=settings.interactive_timeout,
         extra_headers={"Authorization": f"Bearer {token}"},
     )
     entries: dict[tuple[str, int], tuple[bool, int | None]] = {}

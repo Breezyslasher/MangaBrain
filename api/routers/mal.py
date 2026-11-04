@@ -79,7 +79,11 @@ def refresh_mal_lists(username: str) -> UserListsStatus:
     username = username.strip().lower()
     if not username:
         raise HTTPException(status_code=422, detail="empty username")
-    client = RateLimitedClient(min_interval=settings.jikan_min_interval)
+    client = RateLimitedClient(
+        min_interval=settings.jikan_min_interval,
+        max_retries=settings.interactive_max_retries,
+        timeout=settings.interactive_timeout,
+    )
     try:
         lists = {lt: _fetch_list(client, username, lt) for lt in LIST_TYPES}
     finally:
