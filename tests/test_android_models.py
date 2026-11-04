@@ -163,3 +163,31 @@ def test_the_two_spellings_of_the_exclusion_parameter_are_both_honoured():
     assert '@Query("exclude_lists")' in search_block
     recommend_block = api[api.index("fun recommend(") : api.index("fun recommendMix(")]
     assert '@Query("exclude_list")' in recommend_block
+
+
+def test_tag_autocomplete_matches_the_web_client():
+    """Same ranking and the same cap in both clients.
+
+    Android's stock ArrayAdapter filter matches only the start of a string
+    or of a word inside it, so "rav" would miss "Time Travel" entirely. The
+    client ships a filter that mirrors the web one - prefix matches first,
+    then substring - and this pins the cap so the two cannot drift into
+    showing different numbers of suggestions for the same typing.
+    """
+    adapter = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/filters/TagSuggestionAdapter.kt"
+    )
+    assert adapter.exists(), "TagSuggestionAdapter.kt is missing"
+    kotlin = adapter.read_text()
+    javascript = (ROOT / "web/app.js").read_text()
+
+    kotlin_cap = re.search(r"MAX_SUGGESTIONS\s*=\s*(\d+)", kotlin)
+    web_cap = re.search(r"MAX_TAG_SUGGESTIONS\s*=\s*(\d+)", javascript)
+    assert kotlin_cap and web_cap, "both clients must declare a suggestion cap"
+    assert kotlin_cap.group(1) == web_cap.group(1), (
+        f"suggestion caps differ: Kotlin {kotlin_cap.group(1)}, web {web_cap.group(1)}"
+    )
+
+    # Both rank prefix matches above substring matches.
+    assert "startsWith(query)" in kotlin and "contains(query)" in kotlin
+    assert "startsWith(q)" in javascript and "includes(q)" in javascript

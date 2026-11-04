@@ -274,12 +274,12 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
         val api = ServiceLocator.api(requireContext()) ?: return
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val tags = api.tags().tags
-                input.setAdapter(
-                    ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, tags)
-                )
+                val adapter = TagSuggestionAdapter(requireContext())
+                adapter.setVocabulary(api.tags().tags)
+                input.setAdapter(adapter)
             } catch (e: Exception) {
-                // Autocomplete is a convenience; typing a tag still works.
+                // Autocomplete is a convenience; typing a tag still works,
+                // and the server matches the exact name either way.
             }
         }
     }
