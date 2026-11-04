@@ -34,12 +34,6 @@ on:
         description: max ANN title lookups in a crosscheck run
         required: false
         default: "30"
-      ann_match:
-        description: measure ANN's exact-match rate over the WHOLE anime
-          catalog (syncs anime only, then matches dry-run). Every match figure
-          before this came from a 15-40 title sample.
-        required: false
-        default: "false"
       wikidata:
         description: the last untried source. Joins by MyAnimeList id and
           answers in one SPARQL query, so it is cheap to rule in or out.
@@ -98,12 +92,11 @@ permissions:
 # and deleted by a reports probe queued while it was still working.
 concurrency:
   group: >-
-    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.ann_match || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}
   cancel-in-progress: true
 
 jobs:
   probe:
-    if: inputs.ann_match != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -192,67 +185,3 @@ jobs:
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \
             --cross-check "${{ inputs.cross_check || '0' }}"
-
-  # The ANN match rate is the one number the sampled probes cannot give: every
-  # figure so far came from 15-40 titles, and the residue is exactly the kind
-  # of thing a small sample gets wrong. It was supposed to arrive from the
-  # dataset-publish run, but that pass sits behind a 280-minute full sync and
-  # a 70-minute embed inside a 358-minute job, so on a cold cache the dub step
-  # has no room left to run. Nothing in the measurement needs embeddings or
-  # the manga catalog, so it runs here instead: anime-only sync, then a
-  # dry-run match that touches ANN for its index and nothing else.
-  ann-match:
-    if: inputs.ann_match == 'true'
-    runs-on: ubuntu-24.04
-    # Sized from the scan, not from the catalog size. full_sync walks the
-    # whole AniList id space in id_in batches of PER_PAGE=50, from id 1 to
-    # max_id, because AniList rejects a paginated query past a 5000-row
-    # offset. max_id is around 190k, so that is ~3,800 requests at the
-    # two-second floor: a little over two hours, not the fifteen minutes
-    # that 22k anime over fifty-per-page suggests. Two earlier caps here
-    # (35 then 120) were sized against the catalog instead of the scan and
-    # would both have killed the run just short of the measurement.
-    timeout-minutes: 215
-    services:
-      db:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: mangabrain
-          POSTGRES_PASSWORD: mangabrain
-          POSTGRES_DB: mangabrain
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U mangabrain -d mangabrain"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-    env:
-      DATABASE_URL: postgresql://mangabrain:mangabrain@localhost:5432/mangabrain
-      PYTHONUNBUFFERED: "1"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      # No torch and no sentence-transformers: the match is title arithmetic
-      # against ANN's index, so the embedding stack would only slow the job.
-      - name: Install project (no embedding stack)
-        run: pip install -e .
-
-      - name: Sync the anime catalog
-        timeout-minutes: 180
-        run: python -m pipeline.sync_anilist --type anime
-
-      # always() because a partial catalog still measures a match rate. The
-      # scan checkpoints in sync_state after every batch, so whatever it got
-      # through is coherent data rather than a half-written row, and a cap
-      # that fired would otherwise throw away a usable measurement.
-      - name: Measure ANN exact-match rate
-        if: always()
-        timeout-minutes: 25
-        run: python -m pipeline.backfill_dub_ann --dry-run
