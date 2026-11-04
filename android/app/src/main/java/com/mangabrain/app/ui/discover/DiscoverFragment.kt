@@ -1,31 +1,26 @@
 package com.mangabrain.app.ui.discover
 
 import android.os.Bundle
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
-import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import coil.load
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.mangabrain.app.R
 import com.mangabrain.app.data.FilterState
 import com.mangabrain.app.data.MixStore
 import com.mangabrain.app.data.ServiceLocator
-import com.mangabrain.app.ui.GridAdapter
-import com.mangabrain.app.ui.RelatedAdapter
 import com.mangabrain.app.data.api.MangaBrainApi
 import com.mangabrain.app.data.api.MediaOut
 import com.mangabrain.app.data.api.RecommendResponse
+import com.mangabrain.app.ui.GridAdapter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -36,6 +31,13 @@ import kotlinx.coroutines.launch
  * The web client works the same way and for the same reason: a seed and its
  * results are the same view with the seed card added, so drilling in does
  * not lose the medium, the filters, or the place in the list.
+ *
+ * The grid is the only scrolling container here. The seed card, related
+ * titles and match count are a full-span header item concatenated in front
+ * of it, rather than siblings inside a ScrollView wrapped around the grid -
+ * that arrangement stopped the results scrolling at all, and forced every
+ * result to be inflated at once, which for a 200-result recommendation
+ * meant 200 posters all fetching images.
  */
 class DiscoverFragment : Fragment(R.layout.fragment_discover) {
 
@@ -47,7 +49,7 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
     )
 
     private lateinit var grid: GridAdapter
-    private lateinit var related: RelatedAdapter
+    private lateinit var header: DiscoverHeaderAdapter
     private var searchJob: Job? = null
 
     /** What is on screen, so a filter change knows what to re-run. */
@@ -59,28 +61,27 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
     }
 
     private var mode: Mode? = null
-    private var lastSeedMedia: MediaOut? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         grid = GridAdapter(
             onClick = { media -> loadRecommendations(media.id) },
-            onAddToMix = { media ->
-                val added = MixStore.add(media)
-                status(
-                    if (added) getString(R.string.mix_added, media.displayTitle)
-                    else getString(R.string.mix_full, MixStore.MAX)
-                )
-            }
+            onAddToMix = ::addToMix
         )
-        view.findViewById<RecyclerView>(R.id.resultsGrid).apply {
-            layoutManager = GridLayoutManager(requireContext(), 3)
-            adapter = grid
-        }
+        header = DiscoverHeaderAdapter(
+            onAddToMix = ::addToMix,
+            onRelatedClick = { id -> loadRecommendations(id) }
+        )
 
-        related = RelatedAdapter { id -> loadRecommendations(id) }
-        view.findViewById<RecyclerView>(R.id.relatedList).apply {
-            layoutManager = LinearLayoutManager(requireContext(), RecyclerView.HORIZONTAL, false)
-            adapter = related
+        val columns = 3
+        val manager = GridLayoutManager(requireContext(), columns)
+        manager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+            // The header is one row wide; everything after it is one cell.
+            override fun getSpanSize(position: Int): Int =
+                if (position < header.itemCount) columns else 1
+        }
+        view.findViewById<RecyclerView>(R.id.resultsGrid).apply {
+            layoutManager = manager
+            adapter = ConcatAdapter(header, grid)
         }
 
         buildMediumChips(view.findViewById(R.id.mediumChips))
@@ -102,7 +103,14 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         }
         view.findViewById<Button>(R.id.forYouButton).setOnClickListener { loadForYou() }
         view.findViewById<Button>(R.id.surpriseButton).setOnClickListener { surprise() }
-        view.findViewById<Button>(R.id.seedAddToMix).setOnClickListener { addSeedToMix() }
+    }
+
+    private fun addToMix(media: MediaOut) {
+        val added = MixStore.add(media)
+        status(
+            if (added) getString(R.string.mix_added, media.displayTitle)
+            else getString(R.string.mix_full, MixStore.MAX)
+        )
     }
 
     private fun buildMediumChips(group: ChipGroup) {
@@ -139,7 +147,6 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
     private suspend fun runSearch(query: String, withFilters: Boolean) {
         val api = api() ?: return
         mode = Mode.Browse(query, withFilters)
-        showSeed(null)
         status(getString(R.string.searching))
         call {
             val response = if (withFilters) {
@@ -152,7 +159,8 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
                 api.search(query, mapOf("medium" to FilterState.medium, "limit" to "60"))
             }
             grid.submit(response.results.map { GridAdapter.Row(it) })
-            count(response.results.size)
+            // No seed in browse mode: the header carries only the count.
+            header.show(null, emptyList(), response.results.size)
             status(if (response.results.isEmpty()) getString(R.string.no_matches) else null)
         }
     }
@@ -248,46 +256,9 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
     // --------------------------------------------------------------- render
 
     private fun render(data: RecommendResponse) {
-        showSeed(data)
+        header.show(data.seed, data.related, data.results.size)
         grid.submit(data.results.map { GridAdapter.Row(it.media, it.similarity) })
-        count(data.results.size)
         status(if (data.results.isEmpty()) getString(R.string.no_recommendations) else null)
-    }
-
-    private fun showSeed(data: RecommendResponse?) {
-        val view = view ?: return
-        val card = view.findViewById<View>(R.id.seedCard)
-        val relatedList = view.findViewById<RecyclerView>(R.id.relatedList)
-        if (data == null) {
-            card.visibility = View.GONE
-            relatedList.visibility = View.GONE
-            lastSeedMedia = null
-            return
-        }
-        lastSeedMedia = data.seed
-        card.visibility = View.VISIBLE
-        view.findViewById<TextView>(R.id.seedTitle).text = data.seed.displayTitle
-        view.findViewById<TextView>(R.id.seedMeta).text = data.seed.displayMeta
-        val cover = data.seed.coverUrl
-        val image = view.findViewById<ImageView>(R.id.seedCover)
-        if (cover.isNullOrBlank()) image.setImageDrawable(null) else image.load(cover)
-        related.submit(data.related)
-        relatedList.visibility = if (data.related.isEmpty()) View.GONE else View.VISIBLE
-    }
-
-    private fun addSeedToMix() {
-        val media = lastSeedMedia ?: return
-        val added = MixStore.add(media)
-        status(
-            if (added) getString(R.string.mix_added, media.displayTitle)
-            else getString(R.string.mix_full, MixStore.MAX)
-        )
-    }
-
-    private fun count(value: Int) {
-        val label = view?.findViewById<TextView>(R.id.resultCount) ?: return
-        label.visibility = if (value == 0) View.GONE else View.VISIBLE
-        label.text = getString(R.string.matches, value)
     }
 
     private fun status(message: String?) {
@@ -301,17 +272,20 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         try {
             block()
         } catch (e: retrofit2.HttpException) {
-            grid.submit(emptyList())
-            count(0)
+            clear()
             status(
                 if (e.code() == 401) getString(R.string.error_token)
                 else getString(R.string.error_http, e.code())
             )
         } catch (e: Exception) {
-            grid.submit(emptyList())
-            count(0)
+            clear()
             status(getString(R.string.error_unreachable, e.message ?: ""))
         }
+    }
+
+    private fun clear() {
+        grid.submit(emptyList())
+        header.show(null, emptyList(), 0)
     }
 }
 

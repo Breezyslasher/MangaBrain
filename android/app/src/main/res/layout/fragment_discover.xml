@@ -53,120 +53,27 @@
             android:text="@string/browse" />
     </LinearLayout>
 
-    <ScrollView
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="8dp"
+        android:textColor="@color/muted"
+        android:visibility="gone" />
+
+    <!-- The only scroller on this screen. The seed card, related titles and
+         match count ride along as a full-span header item (see
+         DiscoverHeaderAdapter) instead of sitting in a ScrollView wrapped
+         around this, which both broke scrolling and defeated recycling. -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/resultsGrid"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <!-- Seed card: present only while showing recommendations. -->
-            <LinearLayout
-                android:id="@+id/seedCard"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:background="@color/panel"
-                android:padding="16dp"
-                android:layout_marginHorizontal="16dp"
-                android:visibility="gone">
-
-                <ImageView
-                    android:id="@+id/seedCover"
-                    android:layout_width="80dp"
-                    android:layout_height="120dp"
-                    android:scaleType="centerCrop"
-                    android:background="@color/card"
-                    android:contentDescription="@null" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="12dp"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/seedLabel"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/seed"
-                        android:textAllCaps="true"
-                        android:textColor="@color/muted"
-                        android:textSize="10sp" />
-
-                    <TextView
-                        android:id="@+id/seedTitle"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/text"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/seedMeta"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:textColor="@color/muted"
-                        android:textSize="13sp" />
-
-                    <Button
-                        android:id="@+id/seedAddToMix"
-                        style="?attr/borderlessButtonStyle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:minHeight="44dp"
-                        android:paddingHorizontal="0dp"
-                        android:text="@string/add_to_mix"
-                        android:textColor="@color/accent" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/relatedList"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingHorizontal="16dp"
-                android:paddingTop="8dp"
-                android:clipToPadding="false"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/resultCount"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingHorizontal="16dp"
-                android:paddingTop="12dp"
-                android:textColor="@color/text"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/statusText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:padding="16dp"
-                android:textColor="@color/muted"
-                android:visibility="gone" />
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/resultsGrid"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingHorizontal="16dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:clipToPadding="false"
-                android:nestedScrollingEnabled="false" />
-        </LinearLayout>
-    </ScrollView>
+        android:clipToPadding="false"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="8dp" />
 
     <LinearLayout
         android:layout_width="match_parent"

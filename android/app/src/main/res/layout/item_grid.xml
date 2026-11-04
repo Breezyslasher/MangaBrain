@@ -10,10 +10,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <ImageView
+        <com.mangabrain.app.ui.PosterImageView
             android:id="@+id/cover"
             android:layout_width="match_parent"
-            android:layout_height="160dp"
+            android:layout_height="wrap_content"
             android:scaleType="centerCrop"
             android:background="@color/card"
             android:contentDescription="@null" />
