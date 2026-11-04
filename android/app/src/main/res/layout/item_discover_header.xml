@@ -79,6 +79,17 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- Genres then the first ten tags, the same set and the same order
+             the web client's seed card shows. Tapping one requires it as a
+             filter and re-ranks, which is the web behaviour; on a phone it
+             also saves a trip to the Filters tab and back. -->
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/seedChips"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:visibility="gone" />
+
         <!-- Clamped, because a full AniList synopsis is long enough to push
              every result off the screen. The toggle expands it in place;
              both it and the text are hidden when the catalog has no

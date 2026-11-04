@@ -6,17 +6,20 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import com.mangabrain.app.R
 import com.mangabrain.app.data.api.MediaOut
 import com.mangabrain.app.data.api.RelatedItem
 import com.mangabrain.app.ui.RelatedAdapter
 
 /**
- * Zero or one item: the seed card, its synopsis, its related titles, and the
- * match count.
+ * Zero or one item: the seed card, its genres and tags, its synopsis, its
+ * related titles, and the match count.
  *
  * Concatenated in front of the result grid rather than placed above it in a
  * ScrollView. That is what lets the grid be the only scrolling container -
@@ -25,7 +28,9 @@ import com.mangabrain.app.ui.RelatedAdapter
  */
 class DiscoverHeaderAdapter(
     private val onAddToMix: (MediaOut) -> Unit,
-    private val onRelatedClick: (Int) -> Unit
+    private val onRelatedClick: (Int) -> Unit,
+    private val onRequireGenre: (String) -> Unit,
+    private val onRequireTag: (String) -> Unit
 ) : RecyclerView.Adapter<DiscoverHeaderAdapter.Holder>() {
 
     private var seed: MediaOut? = null
@@ -67,6 +72,7 @@ class DiscoverHeaderAdapter(
         private val title: TextView = view.findViewById(R.id.seedTitle)
         private val meta: TextView = view.findViewById(R.id.seedMeta)
         private val addToMix: Button = view.findViewById(R.id.seedAddToMix)
+        private val chips: ChipGroup = view.findViewById(R.id.seedChips)
         private val description: TextView = view.findViewById(R.id.seedDescription)
         private val descriptionToggle: Button =
             view.findViewById(R.id.seedDescriptionToggle)
@@ -94,6 +100,7 @@ class DiscoverHeaderAdapter(
                 val url = seed.coverUrl
                 if (url.isNullOrBlank()) cover.setImageDrawable(null) else cover.load(url)
                 addToMix.setOnClickListener { onAddToMix(seed) }
+                bindChips(seed)
                 bindDescription(seed.description)
             }
             relatedAdapter.submit(related)
@@ -101,6 +108,35 @@ class DiscoverHeaderAdapter(
             countLabel.visibility = if (count == 0) View.GONE else View.VISIBLE
             countLabel.text = itemView.context.getString(R.string.matches, count)
         }
+
+        /**
+         * Genres first, then the first ten tags: the same set, the same
+         * order and the same cap as the web client's seed card.
+         *
+         * The tag list the API returns is ordered by AniList rank, so the
+         * cap keeps the ten the title is best known for rather than ten
+         * arbitrary ones.
+         */
+        private fun bindChips(seed: MediaOut) {
+            chips.removeAllViews()
+            for (genre in seed.genres) {
+                chips.addView(facetChip(genre, R.color.text) { onRequireGenre(genre) })
+            }
+            for (tag in seed.tags.take(MAX_TAGS)) {
+                chips.addView(facetChip(tag, R.color.muted) { onRequireTag(tag) })
+            }
+            chips.visibility = if (chips.childCount == 0) View.GONE else View.VISIBLE
+        }
+
+        /** Tags are dimmer than genres, the way the web card distinguishes them. */
+        private fun facetChip(label: String, textColor: Int, onClick: () -> Unit): Chip =
+            Chip(itemView.context).apply {
+                text = label
+                isCheckable = false
+                isClickable = true
+                setTextColor(ContextCompat.getColor(context, textColor))
+                setOnClickListener { onClick() }
+            }
 
         /**
          * The server already returns description_clean, so this is plain
@@ -148,5 +184,8 @@ class DiscoverHeaderAdapter(
     private companion object {
         /** Enough to tell what a title is about without burying the results. */
         const val COLLAPSED_LINES = 4
+
+        /** Matches the web client's seed card, which slices tags at ten. */
+        const val MAX_TAGS = 10
     }
 }

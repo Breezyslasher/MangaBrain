@@ -248,3 +248,48 @@ def test_the_client_needs_no_html_stripping():
     the raw column, every synopsis in the app grows visible <br> markup.
     """
     assert "m.description_clean AS description" in (ROOT / "api/db.py").read_text()
+
+
+def test_the_seed_card_shows_genres_and_tags():
+    """Same facets, same order, same cap as the web client's seed card.
+
+    The API sorts tags by AniList rank and caps them at 15, so a client cap
+    decides which ranks a reader sees. Two clients capping differently would
+    describe the same title differently, which is the kind of drift a second
+    client exists to avoid.
+    """
+    layout = ROOT / "android/app/src/main/res/layout/item_discover_header.xml"
+    adapter = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverHeaderAdapter.kt"
+    )
+    markup = layout.read_text()
+    kotlin = adapter.read_text()
+    javascript = (ROOT / "web/app.js").read_text()
+
+    assert 'android:id="@+id/seedChips"' in markup, "the chip group is missing"
+    assert "R.id.seedChips" in kotlin, "the chip group is never bound"
+    assert "seed.genres" in kotlin and "seed.tags" in kotlin
+
+    kotlin_cap = re.search(r"MAX_TAGS\s*=\s*(\d+)", kotlin)
+    seed_card = javascript[javascript.index("function renderSeedCard(") :]
+    web_cap = re.search(r"seed\.tags \|\| \[\]\)\.slice\(0, (\d+)\)", seed_card)
+    assert kotlin_cap and web_cap, "both clients must cap the seed card's tags"
+    assert kotlin_cap.group(1) == web_cap.group(1), (
+        f"seed tag caps differ: Kotlin {kotlin_cap.group(1)}, web {web_cap.group(1)}"
+    )
+
+
+def test_tapping_a_facet_requires_it_the_way_the_web_chip_does():
+    """A chip tap writes the same tri-state the filter panel writes.
+
+    genreState/tagState hold "inc" or "exc" per name, and the parameter
+    builders read that map. Writing anything else here would be a filter the
+    panel cannot see and the user cannot clear.
+    """
+    fragment = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
+    )
+    source = fragment.read_text()
+    assert "FilterState.genreState" in source and "FilterState.tagState" in source
+    assert 'state[name] = "inc"' in source, "a chip tap must require, not exclude"
+    assert "rerun()" in source, "requiring a facet must re-rank"

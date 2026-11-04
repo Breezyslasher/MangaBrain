@@ -12,6 +12,8 @@
     <string name="add_to_mix">+ Add to mix</string>
     <string name="read_more">Read more</string>
     <string name="read_less">Read less</string>
+    <string name="requiring_genre">Requiring genre: %1$s</string>
+    <string name="requiring_tag">Requiring tag: %1$s</string>
     <string name="for_you">For you</string>
     <string name="surprise_me">Surprise me</string>
     <string name="plus">+</string>
