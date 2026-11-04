@@ -32,6 +32,15 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
 
     private val spinnerValues = mutableMapOf<Int, List<String>>()
 
+    // Every fragment is added in MainActivity.onCreate, so this binds at app
+    // start - on a first run that is BEFORE the server has been configured,
+    // and ServiceLocator.api() is null. The old code returned early there and
+    // never tried again, so the tag list and the dub picker stayed empty for
+    // the life of the process. These flags make the fetch retry whenever the
+    // tab is shown, until it actually succeeds.
+    private var tagsLoaded = false
+    private var dubLoaded = false
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         bindWeights(view)
         bindTextFields(view)
@@ -52,7 +61,23 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
                 main.discoverFragment().rerun()
             }
         }
-        loadDubLanguages()
+        loadRemoteVocabularies()
+    }
+
+    /**
+     * Fragments here are shown and hidden rather than replaced, so onResume
+     * does not fire when a tab becomes visible - onHiddenChanged does. This
+     * is the only hook that runs when the user actually opens Filters.
+     */
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (!hidden) loadRemoteVocabularies()
+    }
+
+    private fun loadRemoteVocabularies() {
+        val input = view?.findViewById<AutoCompleteTextView>(R.id.tagInput)
+        if (!tagsLoaded && input != null) loadTagVocabulary(input)
+        if (!dubLoaded) loadDubLanguages()
     }
 
     private fun bindWeights(view: View) {
@@ -263,25 +288,43 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
                     response.languages.map { "${it.code.uppercase()} (${it.titles})" }
                 val spinner = view?.findViewById<Spinner>(R.id.dubSpinner) ?: return@launch
                 bindSpinner(spinner, codes, labels, FilterState.dubLang) { FilterState.dubLang = it }
+                dubLoaded = true
             } catch (e: Exception) {
-                // A missing picker is better than a wrong one; English stays
-                // reachable through the server's own default behaviour.
+                // Left unloaded on purpose: loadRemoteVocabularies retries on
+                // the next visit rather than leaving a one-option picker for
+                // the rest of the session.
             }
         }
     }
 
     private fun loadTagVocabulary(input: AutoCompleteTextView) {
-        val api = ServiceLocator.api(requireContext()) ?: return
+        val api = ServiceLocator.api(requireContext())
+        if (api == null) {
+            tagStatus(getString(R.string.tags_need_server))
+            return
+        }
         viewLifecycleOwner.lifecycleScope.launch {
             try {
+                val tags = api.tags().tags
                 val adapter = TagSuggestionAdapter(requireContext())
-                adapter.setVocabulary(api.tags().tags)
+                adapter.setVocabulary(tags)
                 input.setAdapter(adapter)
+                tagsLoaded = tags.isNotEmpty()
+                // Silent on success: a permanent "412 tags loaded" line is
+                // noise. Only the broken case needs saying.
+                tagStatus(if (tags.isEmpty()) getString(R.string.tags_empty) else null)
             } catch (e: Exception) {
-                // Autocomplete is a convenience; typing a tag still works,
-                // and the server matches the exact name either way.
+                // Previously swallowed, which is why an unreachable server
+                // looked exactly like autocomplete simply not being wired.
+                tagStatus(getString(R.string.tags_failed, e.message ?: ""))
             }
         }
+    }
+
+    private fun tagStatus(message: String?) {
+        val label = view?.findViewById<TextView>(R.id.tagStatus) ?: return
+        label.text = message ?: ""
+        label.visibility = if (message == null) View.GONE else View.VISIBLE
     }
 }
 

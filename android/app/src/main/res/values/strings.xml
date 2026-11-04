@@ -36,6 +36,9 @@
     <string name="genres_hint">Genres · tap to require, again to exclude</string>
     <string name="tags">Tags</string>
     <string name="tag_hint">e.g. Time Travel</string>
+    <string name="tags_need_server">Tag suggestions need the server URL.</string>
+    <string name="tags_empty">The server returned no tags.</string>
+    <string name="tags_failed">Tag suggestions unavailable: %1$s. Typing an exact tag still works.</string>
     <string name="require">Require</string>
     <string name="exclude">Exclude</string>
     <string name="hide_sequels">Hide sequels and spin-offs</string>

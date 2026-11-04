@@ -30,6 +30,8 @@ import kotlinx.coroutines.launch
  */
 class ListsFragment : Fragment(R.layout.fragment_lists) {
 
+    private var settingsLoaded = false
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         bindExcludeToggles(view)
 
@@ -57,6 +59,17 @@ class ListsFragment : Fragment(R.layout.fragment_lists) {
         }
 
         loadSettings()
+    }
+
+    /**
+     * Same reason as FiltersFragment: every fragment is added at app start,
+     * so this first ran before the server was configured and the usernames
+     * stayed blank for the session. Shown and hidden fragments get
+     * onHiddenChanged, not onResume.
+     */
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (!hidden && !settingsLoaded) loadSettings()
     }
 
     private fun bindExcludeToggles(view: View) {
@@ -88,6 +101,7 @@ class ListsFragment : Fragment(R.layout.fragment_lists) {
                 if (settings.yamtrack_token_set == true) {
                     view.findViewById<EditText>(R.id.ytToken).hint = getString(R.string.saved)
                 }
+                settingsLoaded = true
             } catch (e: Exception) {
                 status(R.id.accountsStatus, message(e))
             }
