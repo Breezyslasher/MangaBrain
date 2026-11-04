@@ -1,11 +1,16 @@
 <resources>
-    <!-- Mirrors web/style.css so the two clients look like one product. -->
-    <color name="bg">#12141A</color>
+    <!-- Mirrors the web client's palette so the two look like one product. -->
+    <color name="bg">#0E1015</color>
+    <color name="surface">#141821</color>
     <color name="panel">#1A1E27</color>
     <color name="card">#202634</color>
     <color name="text">#E6E9F0</color>
+    <color name="text_2">#CDD3E0</color>
     <color name="muted">#8B93A7</color>
     <color name="accent">#5B8DEF</color>
     <color name="accent_2">#37C9A5</color>
-    <color name="border">#2B3245</color>
+    <color name="border">#232A3A</color>
+    <color name="ok_bg">#1D3B2A</color>
+    <color name="bad">#E05C6E</color>
+    <color name="bad_bg">#3B1D22</color>
 </resources>

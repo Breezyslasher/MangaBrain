@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/tab_filters"
+            android:textColor="@color/text"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/resetButton"
+            style="?attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:text="@string/reset"
+            android:textColor="@color/accent" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:id="@+id/filtersBody"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingBottom="16dp">
+
+            <TextView style="@style/SectionLabel" android:text="@string/weights" />
+
+            <include layout="@layout/row_weight" android:id="@+id/weightSemantic" />
+            <include layout="@layout/row_weight" android:id="@+id/weightTags" />
+            <include layout="@layout/row_weight" android:id="@+id/weightGenres" />
+            <include layout="@layout/row_weight" android:id="@+id/weightTaste" />
+
+            <TextView style="@style/SectionLabel" android:text="@string/tab_filters" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/yearMin"
+                    style="@style/FilterField"
+                    android:hint="@string/year_from"
+                    android:inputType="number" />
+
+                <EditText
+                    android:id="@+id/yearMax"
+                    style="@style/FilterField"
+                    android:layout_marginStart="8dp"
+                    android:hint="@string/year_to"
+                    android:inputType="number" />
+
+                <EditText
+                    android:id="@+id/minScore"
+                    style="@style/FilterField"
+                    android:layout_marginStart="8dp"
+                    android:hint="@string/min_score"
+                    android:inputType="number" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/minLen"
+                    style="@style/FilterField"
+                    android:hint="@string/min_length"
+                    android:inputType="number" />
+
+                <EditText
+                    android:id="@+id/maxLen"
+                    style="@style/FilterField"
+                    android:layout_marginStart="8dp"
+                    android:hint="@string/max_length"
+                    android:inputType="number" />
+            </LinearLayout>
+
+            <TextView style="@style/FieldLabel" android:text="@string/format" />
+            <Spinner android:id="@+id/formatSpinner" style="@style/FilterSpinner" />
+
+            <TextView style="@style/FieldLabel" android:text="@string/origin" />
+            <Spinner android:id="@+id/countrySpinner" style="@style/FilterSpinner" />
+
+            <TextView style="@style/FieldLabel" android:text="@string/status" />
+            <Spinner android:id="@+id/statusSpinner" style="@style/FilterSpinner" />
+
+            <TextView style="@style/FieldLabel" android:text="@string/max_popularity" />
+            <Spinner android:id="@+id/popularitySpinner" style="@style/FilterSpinner" />
+
+            <TextView android:id="@+id/dubLabel" style="@style/FieldLabel" android:text="@string/dub_language" />
+            <Spinner android:id="@+id/dubSpinner" style="@style/FilterSpinner" />
+
+            <TextView style="@style/SectionLabel" android:text="@string/genres_hint" />
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/genreChips"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView style="@style/SectionLabel" android:text="@string/tags" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <AutoCompleteTextView
+                    android:id="@+id/tagInput"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="@string/tag_hint"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:minHeight="48dp"
+                    android:textColor="@color/text"
+                    android:textColorHint="@color/muted"
+                    android:textSize="16sp"
+                    android:completionThreshold="1"
+                    android:autofillHints="" />
+
+                <Button
+                    android:id="@+id/tagRequire"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:minHeight="48dp"
+                    android:text="@string/require" />
+
+                <Button
+                    android:id="@+id/tagExclude"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:minHeight="48dp"
+                    android:text="@string/exclude" />
+            </LinearLayout>
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/tagChips"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/excludeFranchiseSwitch"
+                style="@style/FilterSwitch"
+                android:text="@string/hide_sequels" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/crossMediaSwitch"
+                style="@style/FilterSwitch"
+                android:text="@string/cross_media" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/adultSwitch"
+                style="@style/FilterSwitch"
+                android:text="@string/include_adult" />
+        </LinearLayout>
+    </ScrollView>
+
+    <Button
+        android:id="@+id/applyButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="12dp"
+        android:minHeight="48dp"
+        android:text="@string/apply_filters" />
+</LinearLayout>

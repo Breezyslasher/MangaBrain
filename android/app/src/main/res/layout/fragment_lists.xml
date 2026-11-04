@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/tab_lists"
+            android:textColor="@color/text"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="12dp"
+            android:text="@string/lists_subtitle"
+            android:textColor="@color/muted"
+            android:textSize="13sp" />
+
+        <LinearLayout style="@style/AccountCard">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/account_anilist"
+                    android:textColor="@color/text"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/anilistSync"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minHeight="44dp"
+                    android:text="@string/sync" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/anilistStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="@color/muted"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/anilistUser"
+                style="@style/AccountField"
+                android:hint="@string/hint_username"
+                android:inputType="text" />
+
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/anilistExclude"
+                style="@style/FilterSwitch"
+                android:text="@string/exclude_this_list" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/AccountCard">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/account_mal"
+                    android:textColor="@color/text"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/malSync"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minHeight="44dp"
+                    android:text="@string/sync" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/malStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="@color/muted"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/malUser"
+                style="@style/AccountField"
+                android:hint="@string/hint_username"
+                android:inputType="text" />
+
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/malExclude"
+                style="@style/FilterSwitch"
+                android:text="@string/exclude_this_list" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/AccountCard">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/account_kitsu"
+                    android:textColor="@color/text"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/kitsuSync"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minHeight="44dp"
+                    android:text="@string/sync" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/kitsuStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="@color/muted"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/kitsuUser"
+                style="@style/AccountField"
+                android:hint="@string/hint_username"
+                android:inputType="text" />
+
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/kitsuExclude"
+                style="@style/FilterSwitch"
+                android:text="@string/exclude_this_list" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/AccountCard">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/account_yamtrack"
+                    android:textColor="@color/text"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/yamtrackSync"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minHeight="44dp"
+                    android:text="@string/sync" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/yamtrackStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="@color/muted"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/ytUrl"
+                style="@style/AccountField"
+                android:hint="@string/hint_yamtrack_url"
+                android:inputType="textUri" />
+
+            <EditText
+                android:id="@+id/ytToken"
+                style="@style/AccountField"
+                android:hint="@string/hint_yamtrack_token"
+                android:inputType="textPassword" />
+
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/yamtrackExclude"
+                style="@style/FilterSwitch"
+                android:text="@string/exclude_this_list" />
+        </LinearLayout>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/keepPlannedSwitch"
+            style="@style/FilterSwitch"
+            android:text="@string/keep_planned" />
+
+        <Button
+            android:id="@+id/saveAccounts"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:minHeight="48dp"
+            android:text="@string/save_accounts" />
+
+        <Button
+            android:id="@+id/openServerSettings"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="48dp"
+            android:text="@string/server_settings" />
+
+        <TextView
+            android:id="@+id/accountsStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="@color/muted"
+            android:textSize="13sp" />
+    </LinearLayout>
+</ScrollView>

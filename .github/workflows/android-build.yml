@@ -35,6 +35,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # actions: write is what the Gradle cache needs. The first run logged
+      # "cache write denied: token has no writable scopes" and saved nothing,
+      # so every build paid the full ~85s instead of reusing the dependency
+      # cache. An explicit permissions block drops every scope it does not
+      # name, which is what removed it.
+      actions: write
     defaults:
       run:
         working-directory: android

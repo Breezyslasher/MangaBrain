@@ -1,6 +1,75 @@
 <resources>
     <string name="app_name">MangaBrain</string>
+
+    <string name="tab_discover">Discover</string>
+    <string name="tab_filters">Filters</string>
+    <string name="tab_mix">Mix</string>
+    <string name="tab_lists">Lists</string>
+
     <string name="search_hint">Search titles…</string>
+    <string name="browse">Browse</string>
+    <string name="seed">Seed</string>
+    <string name="add_to_mix">+ Add to mix</string>
+    <string name="for_you">For you</string>
+    <string name="surprise_me">Surprise me</string>
+    <string name="plus">+</string>
+    <string name="minus">−</string>
+    <string name="remove_x">×</string>
+
+    <string name="weights">Weights</string>
+    <string name="reset">Reset</string>
+    <string name="apply_filters">Apply filters</string>
+    <string name="weight_synopsis">Synopsis</string>
+    <string name="weight_tags">Tags</string>
+    <string name="weight_genres">Genres</string>
+    <string name="weight_taste">My taste</string>
+    <string name="year_from">Year from</string>
+    <string name="year_to">Year to</string>
+    <string name="min_score">Min score</string>
+    <string name="min_length">Min length</string>
+    <string name="max_length">Max length</string>
+    <string name="format">Format</string>
+    <string name="origin">Origin</string>
+    <string name="status">Status</string>
+    <string name="max_popularity">Max popularity</string>
+    <string name="dub_language">Dub language</string>
+    <string name="genres_hint">Genres · tap to require, again to exclude</string>
+    <string name="tags">Tags</string>
+    <string name="tag_hint">e.g. Time Travel</string>
+    <string name="require">Require</string>
+    <string name="exclude">Exclude</string>
+    <string name="hide_sequels">Hide sequels and spin-offs</string>
+    <string name="cross_media">Cross-media suggestions</string>
+    <string name="include_adult">Include adult content</string>
+    <string name="any">Any</string>
+
+    <string name="mix_subtitle">Titles added from any card. Recommendations blend all of them.</string>
+    <string name="mix_empty">No titles yet. Tap + on any result to add one.</string>
+    <string name="recommend_from_mix">Recommend from mix</string>
+    <string name="seed_count">Seeds from your list</string>
+    <string name="weight_by_ratings">Weight For you by my ratings</string>
+    <string name="mix_full">The mix holds at most %1$d titles.</string>
+    <string name="mix_added">Added %1$s to the mix.</string>
+
+    <string name="lists_subtitle">Synced lists hide what you have seen and feed My taste.</string>
+    <string name="account_anilist">AniList</string>
+    <string name="account_mal">MyAnimeList</string>
+    <string name="account_kitsu">Kitsu</string>
+    <string name="account_yamtrack">Yamtrack</string>
+    <string name="sync">Sync</string>
+    <string name="exclude_this_list">Exclude this list</string>
+    <string name="hint_username">Username</string>
+    <string name="hint_yamtrack_url">http://host:port</string>
+    <string name="hint_yamtrack_token">Token from your Yamtrack profile</string>
+    <string name="keep_planned">Keep planned titles</string>
+    <string name="save_accounts">Save accounts</string>
+    <string name="server_settings">Server settings</string>
+    <string name="saved">Saved.</string>
+    <string name="syncing">Syncing…</string>
+    <string name="not_connected">Not connected</string>
+    <string name="needs_username">Enter the username first.</string>
+    <string name="entries_cached">%1$d entries cached</string>
+
     <string name="settings">Settings</string>
     <string name="server_url">Server URL</string>
     <string name="server_url_hint">http://192.168.1.10:8009</string>
@@ -9,16 +78,14 @@
     <string name="save">Save</string>
 
     <string name="similarity_percent">%1$d%%</string>
-
-    <!-- Status and errors. Each names what the user can do about it. -->
+    <string name="matches">%1$d matches</string>
     <string name="needs_server">Set the server URL first.</string>
     <string name="searching">Searching…</string>
     <string name="loading">Loading…</string>
     <string name="checking">Checking…</string>
     <string name="connected">Connected. The catalog answered with %1$d result(s).</string>
     <string name="no_matches">No matches.</string>
-    <string name="no_recommendations">No recommendations for this title.</string>
-    <string name="error_no_seed">No title was passed in.</string>
+    <string name="no_recommendations">No recommendations pass the active filters.</string>
     <string name="error_url_required">Enter the server URL, for example http://192.168.1.10:8009</string>
     <string name="error_url_scheme">The URL has to start with http:// or https://</string>
     <string name="error_token">This server requires an access token. Enter it in Settings.</string>

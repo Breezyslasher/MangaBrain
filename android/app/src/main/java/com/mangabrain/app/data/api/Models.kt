@@ -93,3 +93,54 @@ data class RecommendResponse(
     val related: List<RelatedItem> = emptyList(),
     val seeds: List<MediaOut> = emptyList()
 )
+
+// ---------------------------------------------------------------------
+// Accounts, lists and vocabulary. Same rule as above: API names verbatim.
+// ---------------------------------------------------------------------
+
+data class AppSettingsOut(
+    val anilist_username: String? = null,
+    val mal_username: String? = null,
+    val kitsu_username: String? = null,
+    val yamtrack_url: String? = null,
+    val yamtrack_token_set: Boolean? = null
+)
+
+data class AppSettingsIn(
+    val anilist_username: String? = null,
+    val mal_username: String? = null,
+    val kitsu_username: String? = null,
+    val yamtrack_url: String? = null,
+    val yamtrack_token: String? = null
+)
+
+data class UserListStatus(
+    val list_type: String,
+    val entry_count: Int,
+    val fetched_at: String
+)
+
+data class UserListsStatus(
+    val username: String,
+    val lists: List<UserListStatus> = emptyList()
+)
+
+data class ExclusionStatus(
+    val name: String,
+    val entry_count: Int,
+    val updated_at: String,
+    val skipped: Int? = null
+)
+
+data class DubLanguageOut(
+    val code: String,
+    val titles: Int
+)
+
+data class DubLanguagesOut(
+    val languages: List<DubLanguageOut> = emptyList()
+)
+
+data class TagsResponse(
+    val tags: List<String> = emptyList()
+)

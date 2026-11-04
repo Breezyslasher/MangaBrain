@@ -96,21 +96,70 @@ def test_optional_fields_have_kotlin_defaults(name):
     assert undefaulted == [], f"{name} optional fields need defaults: {undefaulted}"
 
 
-def test_query_parameters_exist_on_the_server():
+ENDPOINTS = {
+    "search": "/search",
+    "recommend": "/recommend/{media_id}",
+    "recommendMix": "/recommend",
+    "forYou": "/foryou",
+    "random": "/random",
+}
+
+FILTER_STATE = ROOT / "android/app/src/main/java/com/mangabrain/app/data/FilterState.kt"
+
+
+def server_params(path: str) -> set[str]:
+    from api.main import app
+
+    return {p["name"] for p in app.openapi()["paths"][path]["get"].get("parameters", [])}
+
+
+@pytest.mark.parametrize("method,path", sorted(ENDPOINTS.items()))
+def test_query_parameters_exist_on_the_server(method, path):
     """A @Query name the server does not read is silently ignored.
 
     FastAPI drops unknown query parameters rather than erroring, so a typo
-    here would mean the app quietly asks for something else - a dub filter
-    that does not filter, say.
+    here means the app quietly asks for something else - a dub filter that
+    does not filter. /search spells it exclude_lists while /recommend spells
+    it exclude_list, which is exactly the kind of difference this catches.
     """
-    from api.main import app
-
-    spec = app.openapi()
     source = API_FILE.read_text()
-    for path, method in [("/search", "search"), ("/recommend/{media_id}", "recommend")]:
-        known = {p["name"] for p in spec["paths"][path]["get"].get("parameters", [])}
-        block = source[source.index(f"fun {method}(") :]
-        block = block[: block.index("):")]
-        used = set(re.findall(r'@Query\("([^"]+)"\)', block))
-        unknown = sorted(used - known)
-        assert unknown == [], f"{path} has no such query parameter(s): {unknown}"
+    block = source[source.index(f"fun {method}(") :]
+    block = block[: block.index("):")]
+    used = set(re.findall(r'@Query\("([^"]+)"\)', block))
+    unknown = sorted(used - server_params(path))
+    assert unknown == [], f"{path} has no such query parameter(s): {unknown}"
+
+
+def test_filter_state_only_builds_parameters_the_server_reads():
+    """The scalar half of every request, which no @Query annotation covers.
+
+    FilterState assembles twenty-odd parameters into a QueryMap, so they are
+    plain strings in Kotlin and nothing in the type system checks them.
+    Checked against the union of the endpoints that receive that map.
+    """
+    assert FILTER_STATE.exists(), "FilterState.kt is missing"
+    known: set[str] = set()
+    for path in ENDPOINTS.values():
+        known |= server_params(path)
+    source = FILTER_STATE.read_text()
+    # params["x"] = ... and "x" to ... are the two shapes that file uses.
+    used = set(re.findall(r'params\["([a-z_]+)"\]', source))
+    used |= set(re.findall(r'"([a-z_]+)" to ', source))
+    unknown = sorted(used - known)
+    assert unknown == [], f"FilterState sends parameters no endpoint reads: {unknown}"
+
+
+def test_the_two_spellings_of_the_exclusion_parameter_are_both_honoured():
+    """A real bug this pair of names already caused.
+
+    The web client sent exclude_list to /search, which declares
+    exclude_lists, so Kitsu and Yamtrack exclusions were silently dropped
+    from every filtered browse. Both clients now spell it per endpoint.
+    """
+    assert "exclude_lists" in server_params("/search")
+    assert "exclude_list" in server_params("/recommend/{media_id}")
+    api = API_FILE.read_text()
+    search_block = api[api.index("fun search(") : api.index("fun recommend(")]
+    assert '@Query("exclude_lists")' in search_block
+    recommend_block = api[api.index("fun recommend(") : api.index("fun recommendMix(")]
+    assert '@Query("exclude_list")' in recommend_block
