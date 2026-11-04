@@ -191,3 +191,24 @@ def test_tag_autocomplete_matches_the_web_client():
     # Both rank prefix matches above substring matches.
     assert "startsWith(query)" in kotlin and "contains(query)" in kotlin
     assert "startsWith(q)" in javascript and "includes(q)" in javascript
+
+
+def test_responses_are_compressed():
+    """Large JSON over a phone connection has to be gzipped.
+
+    /recommend returns up to 200 MediaOut objects and each carries its full
+    synopsis, so an uncompressed response is a few hundred kilobytes for one
+    tap. FastAPI adds no compression on its own, and the omission is silent:
+    everything works, just slowly, and only over a slow link.
+    """
+    from api.main import app
+
+    assert "GZipMiddleware" in [m.cls.__name__ for m in app.user_middleware]
+
+
+def test_the_android_client_does_not_ask_for_more_than_it_shows():
+    """The grid has no paging, so a large limit is pure download cost."""
+    source = FILTER_STATE.read_text()
+    limit = re.search(r"fun recommendParams\(limit: Int = (\d+)\)", source)
+    assert limit, "recommendParams must declare a default limit"
+    assert int(limit.group(1)) <= 60, f"limit {limit.group(1)} is more than the grid shows"

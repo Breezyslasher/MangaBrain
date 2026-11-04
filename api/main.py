@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -38,6 +39,18 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="MangaBrain", version="0.1.0", lifespan=lifespan)
+
+# FastAPI compresses nothing by default, and these responses are large and
+# extremely compressible. /recommend returns up to 200 MediaOut objects and
+# every one carries its full synopsis, so a single tap was pulling a few
+# hundred kilobytes of JSON over a phone connection - which is most of why
+# opening a title took about ten seconds rather than one.
+#
+# JSON of this shape compresses roughly an order of magnitude, and the cost
+# is a few milliseconds of CPU on a response that already cost a vector
+# search. minimum_size keeps it off the small ones, where the gzip header
+# would be most of the payload.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # Without Cache-Control, browsers heuristically cache the SPA assets and keep

@@ -129,7 +129,14 @@ object FilterState {
         return params
     }
 
-    fun recommendParams(limit: Int = 200): Map<String, String> =
+    /**
+     * 60, not the web client's 200. The web asks for 200 and reveals them
+     * 60 at a time behind a "show more" button; this grid has no paging, so
+     * 200 would mean downloading - and parsing - 140 results nobody scrolls
+     * to. Every MediaOut carries its full synopsis, so the difference is
+     * most of the payload on a phone connection.
+     */
+    fun recommendParams(limit: Int = 60): Map<String, String> =
         weightParams() + filterParams() + mapOf(
             "cross_media" to crossMedia.toString(),
             "exclude_franchise" to excludeFranchise.toString(),
