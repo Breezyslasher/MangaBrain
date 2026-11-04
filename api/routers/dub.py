@@ -16,10 +16,10 @@ counted as accounted for rather than pending, and reported separately so the
 number is not simply hidden.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from api.db import get_pool
-from api.models import DubCoverageOut
+from api.models import DubCoverageOut, DubLanguageOut, DubLanguagesOut
 from pipeline.backfill_dub import MAX_ATTEMPTS
 
 router = APIRouter()
@@ -55,4 +55,52 @@ def dub_coverage() -> DubCoverageOut:
         unreachable=unreachable,
         # A row AniList will never answer for is settled, not outstanding.
         complete=total > 0 and checked + unreachable >= total,
+    )
+
+
+# Both sources, unioned, counted by distinct title. The two differ in kind -
+# measured_dub_languages is AniList answering for the id it was given,
+# dub_languages is ANN matched on title - but a language is offerable if
+# either knows about it, which is the same rule the filter applies.
+LANGUAGES_SQL = """
+    SELECT lang, count(DISTINCT id) AS titles
+    FROM (
+        SELECT id, unnest(dub_languages) AS lang
+        FROM media WHERE media_type = 'ANIME'
+        UNION ALL
+        SELECT id, unnest(measured_dub_languages) AS lang
+        FROM media WHERE media_type = 'ANIME'
+    ) t
+    WHERE lang <> ''
+    GROUP BY lang
+    HAVING count(DISTINCT id) >= %(min_titles)s
+    ORDER BY titles DESC, lang
+"""
+
+
+@router.get("/dub/languages", response_model=DubLanguagesOut)
+def dub_languages(
+    min_titles: int = Query(
+        10,
+        ge=1,
+        le=10000,
+        description="omit languages with fewer titles than this",
+    ),
+) -> DubLanguagesOut:
+    """Which dub languages the catalog actually has, and how many titles each.
+
+    The UI picker offered nine hardcoded languages while the database held
+    29, so no, th, he, id, zh, hi, fi, tr, ca and vi existed and could not be
+    selected. A hardcoded list drifts the moment coverage changes, and it
+    already had: the list was written when ANN was the only source and
+    AniList had been asked about English alone.
+
+    A floor rather than everything, because a language with one title is
+    noise in a dropdown - vi and zh-tw each have exactly one. The caller
+    chooses it, so a client that wants the full tail can ask for it.
+    """
+    with get_pool().connection() as conn:
+        rows = conn.execute(LANGUAGES_SQL, {"min_titles": min_titles}).fetchall()
+    return DubLanguagesOut(
+        languages=[DubLanguageOut(code=row["lang"], titles=row["titles"] or 0) for row in rows]
     )
