@@ -417,18 +417,35 @@ function renderPending() {
   }
 }
 
-async function runSearch(query) {
+// Typing searches titles by name only, which is what the box has always
+// done and is the right behaviour for picking a seed quickly. Pass
+// withFilters to apply the filter panel as well, which is what the button
+// does - and with an empty query that becomes a browse over the catalog,
+// since /search no longer requires a term.
+async function runSearch(query, withFilters = false) {
   state.mode = null;
   clearResults();
-  if (!query.trim()) return;
-  setStatus("Searching...");
+  const term = query.trim();
+  if (!term && !withFilters) return;
+  setStatus(term ? "Searching..." : "Browsing...");
   try {
-    const data = await api("/search", {
-      q: query.trim(),
+    const params = {
       medium: state.medium,
       adult: $("adult").checked ? "true" : "",
-    });
-    setStatus(data.results.length ? "" : "No matches.");
+      limit: "60",
+    };
+    if (term) params.q = term;
+    if (withFilters) Object.assign(params, filterParams());
+    const data = await api("/search", params);
+    if (data.results.length) {
+      setStatus("");
+    } else {
+      setStatus(
+        withFilters
+          ? "No titles match those filters."
+          : "No matches."
+      );
+    }
     const grid = $("results");
     for (const media of data.results) {
       grid.appendChild(card(media, null, () => loadRecommendations(media.id)));
@@ -1022,6 +1039,16 @@ function bindEvents() {
   }
 
   on("search", "input", debounce((e) => runSearch(e.target.value), 300));
+
+  // The button is the only way to apply the filter panel to the catalog;
+  // typing stays a plain title lookup so picking a seed is not slowed down
+  // by a dozen filter clauses on every keystroke.
+  on("browseBtn", "click", () => runSearch($("search").value, true));
+  // Enter in the box means "I have finished typing", which is the natural
+  // moment to honour the filters too.
+  on("search", "keydown", (e) => {
+    if (e.key === "Enter") runSearch($("search").value, true);
+  });
 
   for (const [slider, label] of [
     ["wSemantic", "wSemanticVal"],

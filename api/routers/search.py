@@ -1,6 +1,22 @@
-"""Title search within a medium group (trigram-ranked substring match), the
-tag vocabulary used by the tag filter autocomplete, and the two exact-match
-lookups a library client needs to map its own records onto catalog ids."""
+"""Catalog search and browse within a medium group, the tag vocabulary used
+by the tag filter autocomplete, and the two exact-match lookups a library
+client needs to map its own records onto catalog ids.
+
+/search started as a seed picker: it took a query, a medium and the adult
+toggle, and nothing else. The filter panel reached /recommend, /random and
+/foryou but not here, so the catalog could not be queried on its own terms -
+you had to pick a title first and ask what resembles it. build_filters has
+said "for recommend, random, and search" in its docstring the whole time;
+search simply never called it.
+
+It now does, and `q` is optional, which turns the same endpoint into browse:
+filters with no query list everything that matches.
+
+Ordering deliberately avoids popularity. With a query it is match rank; with
+none it is newest first, which is deterministic and says nothing about how
+many people watched a title. Sorting a browse list by member count would put
+popularity back into the one place this project keeps it out of.
+"""
 
 import time
 from typing import Literal
@@ -8,6 +24,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 
 from api.db import MEDIA_COLS, get_pool, media_from_row
+from api.filters import build_filters
 from api.media_groups import ALL_MEDIUMS, MEDIUM_GROUPS, MediumGroup
 from api.models import (
     MediaOut,
@@ -47,21 +64,30 @@ def word_filter(q: str) -> tuple[str, dict[str, str]]:
     return " AND ".join(clauses), params
 
 
+# One template for both modes. The rank expression and the ordering swap out
+# together: word_similarity against an absent query would rank everything
+# equally, so a browse listing orders by recency instead.
 SEARCH_SQL_TEMPLATE = """
     SELECT {cols},
-           GREATEST(
+           {rank_sql} AS match_rank
+    FROM media m
+    WHERE m.medium = ANY(%(mediums)s)
+      AND ({word_sql}){filter_sql}
+    ORDER BY {order_sql}
+    LIMIT %(limit)s OFFSET %(offset)s
+"""
+
+RANK_SQL = """GREATEST(
                word_similarity(%(q)s, m.title_romaji),
                word_similarity(%(q)s, coalesce(m.title_english, '')),
                word_similarity(%(q)s, coalesce(m.title_native, '')),
                (SELECT max(word_similarity(%(q)s, syn)) FROM unnest(m.synonyms) syn)
-           ) AS match_rank
-    FROM media m
-    WHERE m.medium = ANY(%(mediums)s)
-      AND ({word_sql})
-      AND (%(adult)s OR m.is_adult = FALSE)
-    ORDER BY match_rank DESC, m.id
-    LIMIT %(limit)s
-"""
+           )"""
+
+# Newest first, then id, so paging is stable. Not average score and above all
+# not popularity: the project bars popularity from ranking, and a browse list
+# ordered by member count would reintroduce it where it is least visible.
+BROWSE_ORDER = "m.start_year DESC NULLS LAST, m.id DESC"
 
 TAGS_SQL = """
     SELECT DISTINCT t->>'name' AS name
@@ -76,25 +102,84 @@ _tags_cache: tuple[float, list[str]] | None = None
 
 @router.get("/search", response_model=SearchResponse)
 def search(
-    q: str = Query(..., min_length=1),
+    # Optional, which is what makes this browse as well as search: filters
+    # with no query list the catalog rather than requiring a seed title.
+    q: str | None = Query(None, min_length=1),
     medium: MediumGroup | None = None,
     adult: bool = False,
     limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=100000),
+    # The same filter surface the recommender has. These reached /recommend,
+    # /random and /foryou but never here, so the catalog could not be queried
+    # on its own terms.
+    format: list[str] | None = Query(None),
+    year_min: int | None = Query(None, ge=1900, le=2200),
+    year_max: int | None = Query(None, ge=1900, le=2200),
+    min_score: int | None = Query(None, ge=0, le=100),
+    country: list[str] | None = Query(None),
+    status: list[str] | None = Query(None),
+    genre_in: list[str] | None = Query(None),
+    genre_ex: list[str] | None = Query(None),
+    tag_in: list[str] | None = Query(None),
+    tag_ex: list[str] | None = Query(None),
+    max_popularity: int | None = Query(None, ge=0),
+    max_episodes: int | None = Query(None, ge=1),
+    max_chapters: int | None = Query(None, ge=1),
+    min_episodes: int | None = Query(None, ge=1),
+    min_chapters: int | None = Query(None, ge=1),
+    dubbed: bool = False,
+    dub_lang: str | None = Query(None),
+    mal_user: str | None = Query(None),
+    anilist_user: str | None = Query(None),
+    exclude_lists: list[str] | None = Query(None),
+    keep_planned: bool = False,
 ) -> SearchResponse:
     mediums = MEDIUM_GROUPS[medium] if medium else ALL_MEDIUMS
-    word_sql, word_params = word_filter(q)
-    sql = SEARCH_SQL_TEMPLATE.format(cols=MEDIA_COLS, word_sql=word_sql)
+    word_sql, word_params = word_filter(q or "")
+    filter_sql, filter_params = build_filters(
+        adult=adult,
+        formats=format,
+        year_min=year_min,
+        year_max=year_max,
+        min_score=min_score,
+        countries=country,
+        statuses=status,
+        genres_include=genre_in,
+        genres_exclude=genre_ex,
+        tags_include=tag_in,
+        tags_exclude=tag_ex,
+        max_popularity=max_popularity,
+        max_episodes=max_episodes,
+        max_chapters=max_chapters,
+        min_episodes=min_episodes,
+        min_chapters=min_chapters,
+        dubbed=dubbed,
+        dub_lang=dub_lang,
+        mal_user=mal_user,
+        anilist_user=anilist_user,
+        exclude_lists=exclude_lists,
+        keep_planned=keep_planned,
+    )
+    sql = SEARCH_SQL_TEMPLATE.format(
+        cols=MEDIA_COLS,
+        rank_sql=RANK_SQL if q else "0",
+        word_sql=word_sql,
+        filter_sql=filter_sql,
+        order_sql="match_rank DESC, m.id" if q else BROWSE_ORDER,
+    )
+    params: dict = {
+        "mediums": mediums,
+        "limit": limit,
+        "offset": offset,
+        **word_params,
+        **filter_params,
+    }
+    # Only bound when the rank expression is present; psycopg rejects a
+    # parameter the statement does not use.
+    if q:
+        params["q"] = q
     with get_pool().connection() as conn:
-        rows = conn.execute(
-            sql,
-            {
-                "q": q,
-                "mediums": mediums,
-                "adult": adult,
-                "limit": limit,
-                **word_params,
-            },
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return SearchResponse(results=[media_from_row(row) for row in rows])
 
 

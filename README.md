@@ -125,7 +125,7 @@ rerun; `--type anime` or `--type manga` restricts what gets stored.
 
 | endpoint | description |
 | -------- | ----------- |
-| `GET /search?q=...&medium=anime` | Trigram-ranked title search within a medium group |
+| `GET /search?q=...&medium=anime` | Title search within a medium group, trigram-ranked. `q` is optional: with filters and no query it browses the catalog instead, ordered newest first (never by popularity). Takes the same filter surface as `/recommend` - format, year range, score, country, status, genres, tags, popularity cap, length bounds, `dub_lang`, list exclusions - plus `limit` and `offset` |
 | `POST /search/resolve` | Batch exact title-to-id lookup for a library client: body `{"items": [{"key": "...", "titles": [...], "mal_id": null}], "adult": false}` (<=500 items), one catalog pass. Returns `match` of `mal`/`title`/`synonym`/`ambiguous`/`none` - never a best guess, since a wrong id would exclude an unrelated title. Manga-family only |
 | `GET /search/by-mal/{mal_id}?type=manga` | The catalog entry for a MAL id; typed because MAL anime and manga ids are separate id spaces |
 | `GET /recommend/{id}` | Ranked similar titles with similarity percentage and per-component scores |
