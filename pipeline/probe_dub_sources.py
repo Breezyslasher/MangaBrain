@@ -56,12 +56,13 @@ CANDIDATES: tuple[tuple[str, str, bool], ...] = (
     # host here was routable from the same run, so it is Jikan's filter and
     # not the runner's egress.
     #
-    # The old note here also claimed the deployment host, and that half was
-    # never measured. It should not be inherited: a NAS on a residential
-    # address is not in the range being filtered, and an empty mal_list_state
-    # cannot tell a failed sync from a sync nobody ran. Test it there with
-    # `probe_dub_mal --check`, or by POSTing /mal/<user>/refresh, which now
-    # answers in about 32s instead of four minutes.
+    # The deployment host is now measured too: POSTing /mal/<user>/refresh
+    # from the NAS returns a 502 from the TransportError path, so Jikan does
+    # not answer there either. Both halves of the original note hold.
+    #
+    # That closes MAL as a dub source until a host Jikan answers exists. It
+    # does NOT close MAL's data: the official MAL API v2 serves public lists
+    # and cast with a registered client id, on a different host.
     ("Jikan (MAL)", "https://api.jikan.moe/v4/anime/1", False),
 )
 
