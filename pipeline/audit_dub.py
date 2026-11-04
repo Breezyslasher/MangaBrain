@@ -34,7 +34,6 @@ Read-only. It writes nothing, ever.
 
 import argparse
 import random
-import re
 from collections import Counter, defaultdict
 
 import httpx
@@ -53,6 +52,7 @@ from pipeline.ann import (
 )
 from pipeline.backfill_dub_ann import candidate_titles, dub_languages_for
 from pipeline.stats import wilson_interval
+from pipeline.title_variants import VARIANTS, variant_names
 
 ALL_ANIME_SQL = """
     SELECT m.id, m.title_romaji, m.title_english, m.title_native, m.synonyms,
@@ -117,97 +117,6 @@ def ann_state(row: dict) -> str:
     if row["dub_languages_source"] == "ann":
         return "ann_answered_no_english"
     return "ann_not_answered"
-
-
-# ---------------------------------------------------------------- variants
-
-ARTICLES = ("The", "A", "An")
-NUMBER_WORDS = {
-    "0": "zero",
-    "1": "one",
-    "2": "two",
-    "3": "three",
-    "4": "four",
-    "5": "five",
-    "6": "six",
-    "7": "seven",
-    "8": "eight",
-    "9": "nine",
-    "10": "ten",
-    "11": "eleven",
-    "12": "twelve",
-    "13": "thirteen",
-    "14": "fourteen",
-    "15": "fifteen",
-    "16": "sixteen",
-    "17": "seventeen",
-    "18": "eighteen",
-    "19": "nineteen",
-    "20": "twenty",
-}
-WORD_NUMBERS = {word: digit for digit, word in NUMBER_WORDS.items()}
-DIGIT_RE = re.compile(r"\b(\d{1,2})\b")
-WORD_RE = re.compile(r"\b(" + "|".join(WORD_NUMBERS) + r")\b", re.I)
-
-
-def variant_article(title: str) -> list[str]:
-    """'The Amazing 3' <-> 'Amazing 3, The'. ANN files some titles sorted."""
-    out = []
-    for article in ARTICLES:
-        prefix = f"{article} "
-        if title.lower().startswith(prefix.lower()):
-            out.append(f"{title[len(prefix) :]}, {article}")
-        suffix = f", {article}"
-        if title.lower().endswith(suffix.lower()):
-            out.append(f"{article} {title[: -len(suffix)]}")
-    return out
-
-
-def variant_numbers(title: str) -> list[str]:
-    """'The Amazing 3' <-> 'The Amazing Three'.
-
-    Both directions, because which form a source picked is not predictable:
-    AniList holds 'The Amazing 3' while ANN may hold the spelled form, and
-    nothing says it is not the other way round for the next title.
-    """
-    out = []
-    spelled = DIGIT_RE.sub(lambda m: NUMBER_WORDS.get(m.group(1), m.group(1)), title)
-    if spelled != title:
-        out.append(spelled)
-    digits = WORD_RE.sub(lambda m: WORD_NUMBERS[m.group(1).lower()], title)
-    if digits != title:
-        out.append(digits)
-    return out
-
-
-def variant_subtitle(title: str) -> list[str]:
-    """Drop a trailing subtitle: sources disagree on whether to carry it."""
-    for sep in (": ", " - ", " ~ "):
-        if sep in title:
-            head = title.split(sep, 1)[0].strip()
-            if len(head) >= 4:
-                return [head]
-    return []
-
-
-VARIANTS = {
-    "article_swap": variant_article,
-    "number_words": variant_numbers,
-    "drop_subtitle": variant_subtitle,
-}
-
-
-def variant_names(row: dict, family: str) -> list[str]:
-    """Extra candidate names from one variant family, none already known."""
-    known = {n.strip().lower() for n in candidate_titles(row)}
-    out: list[str] = []
-    for name in candidate_titles(row):
-        for extra in VARIANTS[family](name):
-            key = extra.strip().lower()
-            if key and key not in known:
-                known.add(key)
-                out.append(extra)
-    return out
 
 
 # ---------------------------------------------------------------- reporting
@@ -385,7 +294,7 @@ def main() -> None:
             hits: list[tuple[int, AnnEntry, str | None]] = []
             blocked = 0
             for row in unmatched:
-                extra = variant_names(row, family)
+                extra = variant_names(family, candidate_titles(row))
                 if not extra:
                     continue
                 verdict, entry = match(index, extra, year=row["start_year"], fmt=row["format"])

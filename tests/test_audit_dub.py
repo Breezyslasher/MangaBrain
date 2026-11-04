@@ -15,17 +15,19 @@ import pytest
 
 from pipeline.ann import AnnEntry
 from pipeline.audit_dub import (
-    VARIANTS,
     dub_source,
     gap_cause,
     has_english_dub,
     sample_english_rate,
+)
+from pipeline.stats import wilson_interval, wilson_lower
+from pipeline.title_variants import (
+    VARIANTS,
     variant_article,
     variant_names,
     variant_numbers,
     variant_subtitle,
 )
-from pipeline.stats import wilson_interval, wilson_lower
 
 FILTERS = Path(__file__).resolve().parent.parent / "api" / "filters.py"
 
@@ -132,7 +134,7 @@ def test_article_swap_goes_both_ways():
 
 
 def test_number_words_go_both_ways():
-    assert "The Amazing three" in variant_numbers("The Amazing 3")
+    assert "The Amazing Three" in variant_numbers("The Amazing 3")
     assert "Wonder 3" in variant_numbers("Wonder Three")
     assert variant_numbers("Discode") == []
 
@@ -151,14 +153,12 @@ def test_variants_never_repeat_a_name_the_matcher_already_tried():
     variant would report a hit the normal pass already had and credit the
     variant family with recovering a title it did not.
     """
-    row = make_row(title_english="The Amazing 3", synonyms=["Amazing 3, The"])
-    assert variant_names(row, "article_swap") == []
+    assert variant_names("article_swap", ["The Amazing 3", "Amazing 3, The"]) == []
 
 
 def test_variant_names_covers_every_family():
-    row = make_row(title_english="The Amazing 3: Wonder Three")
     for family in VARIANTS:
-        variant_names(row, family)  # must not raise for any family
+        variant_names(family, ["The Amazing 3: Wonder Three"])  # must not raise
 
 
 class FakeCasts:
