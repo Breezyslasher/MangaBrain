@@ -38,6 +38,7 @@ from api.config import settings
 from pipeline.ann import (
     UA,
     build_index,
+    corroborates,
     fetch_anime_index,
     fetch_casts,
     match,
@@ -46,6 +47,7 @@ from pipeline.ann import (
 from pipeline.backfill_dub_ann import candidate_titles, dub_languages_for
 from pipeline.backfill_dub_languages import CAST_QUERY, languages_for
 from pipeline.client import RateLimitedClient
+from pipeline.title_variants import near_misses
 
 ANILIST_URL = "https://graphql.anilist.co"
 
@@ -185,7 +187,7 @@ def ann_cast(client: httpx.Client, entry, country: str | None) -> tuple[int, lis
     return english, dub_languages_for(langs, country)
 
 
-def ask_ann(client: httpx.Client, index: dict, row: dict) -> list[str]:
+def ask_ann(client: httpx.Client, index: dict, row: dict, entries=None) -> list[str]:
     print()
     rule("3. what ANN says, and what the matcher did with it")
     names = candidate_titles(row)
@@ -267,13 +269,55 @@ def ask_ann(client: httpx.Client, index: dict, row: dict) -> list[str]:
             )
         ]
 
+    # "unmatched" leaves two very different cases indistinguishable: ANN has
+    # no entry (nothing to do) or ANN files it under a name none of the
+    # catalog's titles is (a fixable matcher miss). Naming the entry ANN
+    # actually has separates them, and says which variant family would reach
+    # it - which is the difference between a decision and a guess.
+    notes = ["no ANN entry under any known title"]
+    if entries:
+        hits = near_misses(entries, names)
+        if hits:
+            print("\n   ANN entries that share identity tokens with those names:")
+            for score, entry in hits:
+                blocker = corroborates(entry, row["start_year"], row["format"])
+                verdict = f"would be rejected on {blocker}" if blocker else "year+format agree"
+                print(
+                    f"     {score:.2f}  ann_id={entry.ann_id:<7} {entry.name[:38]!r:<40}"
+                    f" {str(entry.kind):<12} {entry.year}  {verdict}"
+                )
+            agreeing = [
+                e for _s, e in hits if not corroborates(e, row["start_year"], row["format"])
+            ]
+            if agreeing:
+                print(
+                    "\n   -> ANN DOES hold a plausible entry under a different name."
+                    "\n      This is a matcher miss, not a missing source. Run"
+                    "\n      audit_dub to see how many titles share the cause.",
+                    flush=True,
+                )
+                return [
+                    f"ANN has a plausible entry under another name"
+                    f" (ann_id {agreeing[0].ann_id} {agreeing[0].name!r}) - matcher miss (case 4)."
+                ]
+            print(
+                "\n   -> near names exist but year or format contradicts all of"
+                "\n      them, so none can be accepted.",
+                flush=True,
+            )
+            return ["near ANN names exist but all are contradicted by year or format."]
+        print(
+            "\n   -> nothing in ANN's index even shares identity tokens with"
+            "\n      these names, so ANN very likely has no entry (43% of the"
+            "\n      catalog is in that position).",
+            flush=True,
+        )
+        return ["no ANN entry and no near names either (case 5)."]
     print(
-        "\n   -> no ANN entry under any title the catalog knows. Either ANN"
-        "\n      files it under a name AniList does not list, or it has no"
-        "\n      entry at all (43% of the catalog).",
+        "\n   -> no ANN entry under any title the catalog knows.",
         flush=True,
     )
-    return ["no ANN entry under any known title (case 5)."]
+    return [notes[0] + " (case 5)."]
 
 
 def main() -> None:
@@ -306,6 +350,7 @@ def main() -> None:
         raise SystemExit("nothing to explain")
 
     index: dict = {}
+    entries: list = []
     ann_client: httpx.Client | None = None
     if not args.skip_ann:
         ann_client = httpx.Client(timeout=90.0, follow_redirects=True, headers={"User-Agent": UA})
@@ -322,7 +367,7 @@ def main() -> None:
             notes = show_database(row)
             notes += ask_anilist(anilist, row["id"])
             if ann_client is not None:
-                notes += ask_ann(ann_client, index, row)
+                notes += ask_ann(ann_client, index, row, entries)
             verdicts.append((row, notes))
             print()
     finally:
