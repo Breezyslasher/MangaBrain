@@ -3,7 +3,7 @@
 const state = {
   medium: "anime",
   mode: null, // {type: "single", id} | {type: "mix"}
-  mix: [], // [{id, title}]
+  mix: [], // [{id, title, cover, meta}]
   pending: [], // rendered lazily via Show more
   shown: 0,
   genreState: {}, // name -> "inc" | "exc"
@@ -12,6 +12,7 @@ const state = {
   tagSuggestIndex: -1, // keyboard-highlighted suggestion
   titleLang: localStorage.getItem("mb_title_lang") || "english",
   shownSeedIds: "", // seeds currently on screen, so a re-rank does not scroll
+  searchCapped: false, // a full /search page is a floor, not a total
 };
 
 const PAGE_SIZE = 60;
@@ -404,7 +405,9 @@ function clearResults() {
   if (more) more.remove();
   state.pending = [];
   state.shown = 0;
+  state.searchCapped = false;
   setStatus("");
+  updateResultCount();
 }
 
 function renderPending() {
@@ -425,6 +428,7 @@ function renderPending() {
     btn.addEventListener("click", renderPending);
     grid.after(btn);
   }
+  updateResultCount();
 }
 
 // Typing searches titles by name only, which is what the box has always
@@ -460,6 +464,10 @@ async function runSearch(query, withFilters = false) {
     for (const media of data.results) {
       grid.appendChild(card(media, null, () => loadRecommendations(media.id)));
     }
+    // /search returns rows, never a total, so a full page is a floor rather
+    // than a count and is labelled as one.
+    state.searchCapped = data.results.length >= 60;
+    updateResultCount();
   } catch (err) {
     setStatus(err.message);
   }
@@ -474,6 +482,11 @@ function renderSeedCard(seed) {
   }
   img.alt = "";
   const body = document.createElement("div");
+  // Both are mobile-only (hidden outside the breakpoint): the design's seed
+  // card labels itself and offers the mix action from inside the card.
+  const eyebrow = document.createElement("span");
+  eyebrow.className = "seed-eyebrow";
+  eyebrow.textContent = "Seed";
   const h3 = document.createElement("h3");
   h3.textContent = mediaTitle(seed);
   const meta = document.createElement("div");
@@ -526,11 +539,18 @@ function renderSeedCard(seed) {
   }
   const desc = document.createElement("p");
   desc.textContent = seed.description || "";
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "seed-add";
+  add.textContent = "+ Add to mix";
+  add.addEventListener("click", () => addToMix(seed));
+  body.appendChild(eyebrow);
   body.appendChild(h3);
   body.appendChild(meta);
   body.appendChild(chips);
   body.appendChild(links);
   body.appendChild(desc);
+  body.appendChild(add);
   el.appendChild(img);
   el.appendChild(body);
   return el;
@@ -633,20 +653,52 @@ async function loadMix() {
   }
 }
 
+// Rows rather than chips: the redesign's mix entry carries a poster and the
+// format/year meta, which a chip had nowhere to put. This is also the one
+// place the redesign changes how the desktop sidebar looks - duplicating the
+// list into a second mobile-only container would have kept desktop
+// byte-identical at the cost of two renderers that can drift apart.
 function renderMix() {
   const wrap = $("mixChips");
   wrap.innerHTML = "";
   for (const entry of state.mix) {
-    const chip = document.createElement("span");
-    chip.className = "chip inc";
-    chip.textContent = `${entry.title} (remove)`;
-    chip.addEventListener("click", () => {
+    const row = document.createElement("div");
+    row.className = "mix-row";
+    const img = document.createElement("img");
+    img.alt = "";
+    img.loading = "lazy";
+    if (entry.cover) img.src = entry.cover;
+    const body = document.createElement("div");
+    body.className = "mix-body";
+    const title = document.createElement("div");
+    title.className = "mix-title";
+    title.textContent = entry.title;
+    body.appendChild(title);
+    if (entry.meta) {
+      const meta = document.createElement("div");
+      meta.className = "mix-meta";
+      meta.textContent = entry.meta;
+      body.appendChild(meta);
+    }
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "mix-del";
+    del.textContent = "\u00d7";
+    del.title = `Remove ${entry.title}`;
+    del.setAttribute("aria-label", `Remove ${entry.title}`);
+    del.addEventListener("click", () => {
       state.mix = state.mix.filter((m) => m.id !== entry.id);
       renderMix();
     });
-    wrap.appendChild(chip);
+    row.appendChild(img);
+    row.appendChild(body);
+    row.appendChild(del);
+    wrap.appendChild(row);
   }
   $("mixBlock").hidden = state.mix.length === 0;
+  const empty = $("mixEmpty");
+  if (empty) empty.hidden = state.mix.length > 0;
+  setBadge("navMixCount", state.mix.length);
 }
 
 function addToMix(media) {
@@ -655,7 +707,12 @@ function addToMix(media) {
     setStatus(`Seed mix is full (max ${MAX_MIX}).`);
     return;
   }
-  state.mix.push({ id: media.id, title: mediaTitle(media) });
+  state.mix.push({
+    id: media.id,
+    title: mediaTitle(media),
+    cover: media.cover_image || media.cover_image_large || "",
+    meta: mediaMeta(media),
+  });
   renderMix();
 }
 
@@ -1001,6 +1058,201 @@ async function refreshAnilist() {
   }
 }
 
+// ======================================================================
+// Mobile shell: bottom tabs, the filters sheet, and the small bits of
+// state the redesign shows (filter count, result count, account cards).
+//
+// None of it is gated on a width check in JS. The tab bar and the sheet are
+// display:none outside the max-width:760px breakpoint, so on a desktop these
+// handlers are bound to elements nobody can see and the two-column layout
+// behaves exactly as before.
+// ======================================================================
+
+function setBadge(id, count) {
+  const node = $(id);
+  if (!node) return;
+  node.textContent = String(count);
+  node.hidden = count === 0;
+}
+
+// Counted against the DEFAULTS, not against emptiness: "hide sequels and
+// spin-offs" ships on, so it only counts when turned off.
+function activeFilterCount() {
+  let count = 0;
+  for (const id of ["yearMin", "yearMax", "minScore", "minLen", "maxLen"]) {
+    const node = $(id);
+    if (node && node.value.trim()) count += 1;
+  }
+  for (const id of ["format", "country", "status", "maxPop", "dubLang"]) {
+    const node = $(id);
+    if (node && node.value) count += 1;
+  }
+  if (isChecked("adult")) count += 1;
+  if (isChecked("crossMedia")) count += 1;
+  if (!isChecked("excludeFranchise")) count += 1;
+  count += Object.keys(state.genreState).length;
+  count += Object.keys(state.tagState).length;
+  return count;
+}
+
+function updateFilterBadge() {
+  const count = activeFilterCount();
+  setBadge("filterCount", count);
+  setBadge("navFilterCount", count);
+}
+
+function updateResultCount() {
+  const bar = $("resultsBar");
+  if (!bar) return;
+  // state.pending holds the whole recommendation set even before Show more
+  // renders it, so it is the real total there. A plain search has only what
+  // came back.
+  const rendered = $("results") ? $("results").querySelectorAll(".card").length : 0;
+  const total = state.pending.length || rendered;
+  bar.hidden = total === 0;
+  const plus = !state.pending.length && state.searchCapped ? "+" : "";
+  $("resultCount").textContent = `${total}${plus} ${total === 1 && !plus ? "match" : "matches"}`;
+}
+
+function syncNav(active) {
+  for (const button of document.querySelectorAll("#mobileNav button")) {
+    button.classList.toggle("active", button.dataset.pane === active);
+  }
+}
+
+function openSheet() {
+  document.body.classList.add("sheet-open");
+  const scrim = $("sheetScrim");
+  if (scrim) scrim.hidden = false;
+  updateFilterBadge();
+  syncNav("filters");
+}
+
+function closeSheet() {
+  document.body.classList.remove("sheet-open");
+  const scrim = $("sheetScrim");
+  if (scrim) scrim.hidden = true;
+  syncNav(document.body.dataset.pane || "discover");
+}
+
+// Filters is a sheet over whatever pane is showing, not a pane of its own,
+// so the tab does not change data-pane.
+function setPane(pane) {
+  if (pane === "filters") {
+    openSheet();
+    return;
+  }
+  closeSheet();
+  document.body.dataset.pane = pane;
+  syncNav(pane);
+  window.scrollTo(0, 0);
+}
+
+function resetFilters() {
+  for (const id of ["yearMin", "yearMax", "minScore", "minLen", "maxLen"]) {
+    const node = $(id);
+    if (node) node.value = "";
+  }
+  for (const id of ["format", "country", "status", "maxPop", "dubLang"]) {
+    const node = $(id);
+    if (node) node.value = "";
+  }
+  for (const [id, value] of [["adult", false], ["crossMedia", false], ["excludeFranchise", true]]) {
+    const node = $(id);
+    if (node) node.checked = value;
+  }
+  state.genreState = {};
+  state.tagState = {};
+  renderGenreChips();
+  renderTagChips();
+  updateFilterBadge();
+  rerunActive();
+}
+
+function stepSeeds(delta) {
+  const input = $("forYouSeeds");
+  if (!input) return;
+  const current = Number(input.value) || 8;
+  input.value = String(Math.min(20, Math.max(1, current + delta)));
+}
+
+// Which account cards are configured, and which have actually synced. Every
+// sync path writes "entries" into its status line on success and an error
+// message otherwise, so that word is the marker rather than a guess at the
+// wording.
+const ACCOUNTS = [
+  { key: "anilist", fields: ["alUser"], status: "alStatus" },
+  { key: "mal", fields: ["malUser"], status: "malStatus" },
+  { key: "kitsu", fields: ["kitsuUser"], status: "kitsuStatus" },
+  { key: "yamtrack", fields: ["ytUrl"], status: "ytStatus" },
+];
+
+function refreshAccountCards() {
+  for (const account of ACCOUNTS) {
+    const card = document.querySelector(`[data-acct="${account.key}"]`);
+    if (!card) continue;
+    const configured = account.fields.every((id) => {
+      const node = $(id);
+      return node && node.value.trim();
+    });
+    card.classList.toggle("configured", Boolean(configured));
+    const status = $(account.status);
+    const text = status ? status.textContent : "";
+    card.classList.toggle("synced", text.includes("entries"));
+    if (status && !text) {
+      status.textContent = configured ? "Not synced yet" : "Not connected";
+    }
+  }
+}
+
+function bindMobileShell() {
+  for (const button of document.querySelectorAll("#mobileNav button")) {
+    button.addEventListener("click", () => setPane(button.dataset.pane));
+  }
+  on("filterBtn", "click", openSheet);
+  on("sheetScrim", "click", closeSheet);
+  on("sheetGrab", "click", closeSheet);
+  on("filterReset", "click", resetFilters);
+  // The sheet's own search button runs the same action as #browseBtn, which
+  // stays in the search row so the desktop searchbar keeps its button.
+  on("sheetSearch", "click", () => {
+    closeSheet();
+    setPane("discover");
+    runSearch($("search").value, true);
+  });
+  on("sheetShow", "click", () => {
+    closeSheet();
+    setPane("discover");
+  });
+
+  const body = $("sheetBody");
+  if (body) {
+    body.addEventListener("change", updateFilterBadge);
+    // Chips change state in their own click handler, so read the count after
+    // it has run rather than before.
+    body.addEventListener("click", () => setTimeout(updateFilterBadge, 0));
+  }
+
+  for (const [selector, delta] of [[".step-down", -1], [".step-up", 1]]) {
+    const node = document.querySelector(selector);
+    if (node) node.addEventListener("click", () => stepSeeds(delta));
+  }
+
+  for (const button of document.querySelectorAll(".acct-connect")) {
+    button.addEventListener("click", () => {
+      const card = button.closest(".acct-card");
+      if (card) card.classList.toggle("open");
+    });
+  }
+  for (const account of ACCOUNTS) {
+    for (const id of account.fields) on(id, "input", refreshAccountCards);
+  }
+
+  updateFilterBadge();
+  updateResultCount();
+  refreshAccountCards();
+}
+
 function rerunActive() {
   if (!state.mode) return;
   if (state.mode.type === "single") loadRecommendations(state.mode.id, { updateHash: false });
@@ -1121,12 +1373,13 @@ function bindEvents() {
 populateFormats();
 renderGenreChips();
 bindEvents();
+bindMobileShell();
 {
   const pathMedium = PATH_TO_MEDIUM[location.pathname];
   if (pathMedium) setMedium(pathMedium);
 }
 loadTagVocabulary();
-loadAccountSettings();
+loadAccountSettings().then(refreshAccountCards, refreshAccountCards);
 applyHash();
 
 if ("serviceWorker" in navigator) {
