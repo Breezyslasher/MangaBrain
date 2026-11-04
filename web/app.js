@@ -291,8 +291,18 @@ async function loadDubLanguages() {
     }
     // Keep whatever the user had selected, including a restored preference.
     if (chosen) select.value = chosen;
-  } catch {
-    // The inline English option stays.
+  } catch (err) {
+    // The inline English option stays, which is the right behaviour: a
+    // filter you cannot set is worse than a short list. But failing
+    // silently made a deployment problem look like a feature that did not
+    // work - the picker simply showed English and gave no reason - so the
+    // reason goes to the console even though the UI carries on.
+    console.warn(
+      "dub language picker: /dub/languages failed, keeping the English" +
+        " fallback. If this is a 404 the API container predates the" +
+        " endpoint and needs pulling.",
+      err
+    );
   }
 }
 

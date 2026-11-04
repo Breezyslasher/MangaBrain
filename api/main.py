@@ -1,5 +1,6 @@
 """MangaBrain API entry point. Serves the SPA and the JSON API."""
 
+import hashlib
 import hmac
 import os
 import time
@@ -8,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.config import settings
@@ -178,13 +179,47 @@ def _web_dir() -> Path | None:
     return None
 
 
+# Assets referenced from index.html get a content hash in their URL, so a
+# changed file arrives under a URL no cache can satisfy from an old entry.
+#
+# The no-cache header above is not enough on its own, and this app has been
+# bitten twice. A response cached BEFORE that header existed is still subject
+# to heuristic freshness, so a browser can keep serving an old app.js for a
+# long time without ever revalidating - which showed up as a dub language
+# picker stuck on its two-option fallback while the API happily returned
+# twenty-five languages. Versioning the URL sidesteps the question entirely:
+# there is nothing to revalidate, because it is a different URL.
+VERSIONED_ASSETS = ("app.js", "style.css")
+
+
+def _asset_version(path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+
+
+def _versioned_index(web_dir, index_file) -> str:
+    """index.html with ?v=<hash> on each asset it references."""
+    html = index_file.read_text(encoding="utf-8")
+    for name in VERSIONED_ASSETS:
+        asset = web_dir / name
+        if asset.exists():
+            html = html.replace(f'"{name}"', f'"{name}?v={_asset_version(asset)}"')
+    return html
+
+
 web_dir = _web_dir()
 if web_dir is not None:
     index_file = web_dir / "index.html"
+    # Computed once per process: the files cannot change under a running
+    # container, and a rebuild restarts it.
+    _INDEX_HTML = _versioned_index(web_dir, index_file)
 
-    def _spa_shell() -> FileResponse:
-        return FileResponse(index_file)
+    def _spa_shell() -> HTMLResponse:
+        return HTMLResponse(_INDEX_HTML)
 
+    # "/" needs the route too: the static mount below would otherwise serve
+    # the unversioned file through html=True, so the one page most likely to
+    # be opened would be the one that keeps a stale app.js.
+    app.add_api_route("/", _spa_shell, include_in_schema=False)
     for medium_path in MEDIUM_PATHS:
         app.add_api_route(medium_path, _spa_shell, include_in_schema=False)
 
