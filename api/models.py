@@ -198,6 +198,25 @@ class AppSettingsOut(BaseModel):
     yamtrack_token_set: bool = False
 
 
+class DubLanguageOut(BaseModel):
+    """One dub language the catalog has, with how many titles carry it."""
+
+    code: str
+    titles: int
+
+
+class DubLanguagesOut(BaseModel):
+    """The dub languages actually present, for building a picker from data.
+
+    Returned sorted by title count. The UI had nine hardcoded options while
+    the database held 29, which is what a hardcoded list does as coverage
+    grows - so the set comes from here and only the display names stay in
+    the client, where an unknown code falls back to showing the code.
+    """
+
+    languages: list[DubLanguageOut] = []
+
+
 class DubCoverageOut(BaseModel):
     """How far the English dub backfill has got, over ANIME rows only."""
 

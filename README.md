@@ -78,6 +78,7 @@ python -m pipeline.sync_anilist                  # full catalog, both types in o
 python -m pipeline.embed                         # generate/update embeddings
 python -m pipeline.backfill_jikan                # optional: fill missing synopses from MAL
 python -m pipeline.backfill_dub                  # optional: English dub flag from AniList cast data
+python -m pipeline.backfill_dub_languages        # all dub languages from AniList, one request per 50 titles (~1 h)
 python -m pipeline.propagate_dub                 # infer dubs across franchises from a measured sibling
 python -m pipeline.backfill_dub_ann              # dub languages from ANN (all languages, ~45 min)
 
@@ -166,26 +167,50 @@ manhwa/manhua), `light_novel`, `one_shot`.
   (a filter the user opts into; popularity still never enters ranking)
 - `max_episodes=<n>` / `max_chapters=<n>` — length caps (unknown lengths stay
   included)
-- `dub_lang=<code>` — only anime known to be dubbed in that language,
-  lowercase codes as ANN tags them: ISO-639-1 for most (`en`, `de`, `es`,
-  `fr`, `it`, `ko`, `pt`, `ru`, `tl`, `ar`, `pl`, `nl`, `sv`, `da`) and a
-  language-region tag for Chinese (`zh-cn`, `zh-hk`, `zh-tw`), which is not
-  ISO-639-1. A title's own language is never listed: a Japanese cast on a
-  Japanese show is the original, not a dub, so the language implied by
-  country_of_origin is stripped.
+- `dub_lang=<code>` — only anime known to be dubbed in that language.
+  Lowercase, ISO-639-1 where one exists, with a language-region tag only
+  where it separates real dub markets (`pt-br`, `zh-cn`, `zh-hk`, `zh-tw`).
+  **Do not hardcode the list**: `GET /dub/languages` returns the languages
+  the catalog actually has with a title count each, and the web picker is
+  built from it. A hardcoded list drifted once already - the UI offered nine
+  options while the database held 29.
+  A title's own language is never listed: a Japanese cast on a Japanese show
+  is the original, not a dub, so the language implied by `country_of_origin`
+  is stripped - which is why `ja` appears at all, on the Chinese and Korean
+  originals where a Japanese cast genuinely is a dub.
   `dubbed=true` is shorthand for `dub_lang=en`. Positive only: there is no
   sub-only option, because an absent cast is not evidence of one.
-- English has three sources and they fill at different rates. AniList is
-  measured per entry, fifty titles per request (~444 requests, about an hour
-  measured - the heavy cast query is throttled past the local rate floor, so
-  not the fifteen minutes the floor alone implies); ANN returns every language
-  at once and covers the catalog in ~45
-  minutes, but only for titles it can be matched to by name (~55-70%);
-  propagation infers a dub from a dubbed sequel, prequel, parent or side
-  story. Any of the three answers a `dub_lang=en` query. Other languages
-  come from ANN alone, since AniList was only ever asked about English.
-  `dub_source` on each result says which supplied it (`measured`, `ann` or
-  `franchise`), and `dub_languages` lists every language ANN knows of.
+- Dub languages come from two sources that are **complementary, not
+  redundant**, measured over the live 22,667-title catalog:
+  - **AniList**, measured per entry. One request per fifty titles returns
+    *every* language at once: `voiceActors` is asked with no language
+    argument and each actor's `languageV2` is read, so ~444 requests cover
+    the whole catalog in about an hour. Filtering by language instead would
+    cost that per language, and aliasing several languages into one request
+    silently returns the same list under every alias.
+  - **ANN**, matched on title. Returns every language at once too, in ~45
+    minutes, but only for the 31.8% of titles it can be matched to by name -
+    12,882 ANN entries against 22,667 catalog rows, so 43% have no entry at
+    all and no matcher can exceed 56.8%.
+
+  AniList wins on 18 languages (`en`, `de`, `it`, `pt`, `ko`, `pl`, `hu`,
+  `no`, `sv`, `he`, `id`, `zh`, `th`, `hi`, `fi`, `tr`, `ca`, `vi`) and ANN
+  on 8 (`tl` 566 vs 20, `ar` 213 vs 9, `nl`, `ru`, `da`, and the Chinese
+  variants), with `es` and `fr` effectively tied and each knowing titles the
+  other does not. The union beats the better single source by 24%. So both
+  are kept, and a language either knows about satisfies the filter.
+- English additionally has **franchise propagation**, which infers a dub from
+  a dubbed sequel, prequel, parent or side story - one query, no network, and
+  worth +2,537 titles, which is more than ANN's net contribution to English.
+  `dub_source` on each result says which answered (`measured`, `ann` or
+  `franchise`); a measured language outranks a name match even when they
+  agree.
+- Measured English coverage is **31.0% of the catalog** (7,016 of 22,667).
+  That is a floor rather than a rate: 38.2% of the catalog has no cast
+  recorded anywhere, so nothing says those are undubbed. Among titles where a
+  cast exists at all, 29-35% have an English one, confirmed by two
+  independent measurements (the live catalog and a random 1,000-title
+  sample).
 - Measured against ANN, AniList's silence is right for standalone entries
   and wrong for side entries: 2 of 30 exactly-matched silent titles turned
   out to be dubbed (~7%), and the misses were seasons and OVAs of dubbed

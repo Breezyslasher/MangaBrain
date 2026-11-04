@@ -207,6 +207,86 @@ function mediaMeta(media) {
 // unannounced, so the coverage is shown next to the toggle until it is
 // complete. Checked once per session; a failure leaves the note empty rather
 // than blocking the panel.
+// Display names for language codes. Only the NAMES live here - the set of
+// languages comes from /dub/languages, because a hardcoded set drifts as
+// coverage grows and already had: the picker offered nine options while the
+// database held 29. An unknown code is shown as the code rather than
+// dropped, so a language that appears in the data is always selectable.
+const LANGUAGE_NAMES = {
+  en: "English",
+  ja: "Japanese",
+  es: "Spanish",
+  pt: "Portuguese",
+  "pt-br": "Portuguese (Brazil)",
+  it: "Italian",
+  de: "German",
+  fr: "French",
+  ko: "Korean",
+  tl: "Tagalog",
+  pl: "Polish",
+  ar: "Arabic",
+  hu: "Hungarian",
+  no: "Norwegian",
+  sv: "Swedish",
+  he: "Hebrew",
+  id: "Indonesian",
+  zh: "Chinese",
+  "zh-cn": "Chinese (Mandarin)",
+  "zh-hk": "Chinese (Cantonese)",
+  "zh-tw": "Chinese (Taiwan)",
+  nl: "Dutch",
+  th: "Thai",
+  ru: "Russian",
+  da: "Danish",
+  hi: "Hindi",
+  fi: "Finnish",
+  tr: "Turkish",
+  ca: "Catalan",
+  vi: "Vietnamese",
+  el: "Greek",
+  cs: "Czech",
+  ro: "Romanian",
+  uk: "Ukrainian",
+};
+
+function languageLabel(code) {
+  return LANGUAGE_NAMES[code] || code.toUpperCase();
+}
+
+// Fills the dub language picker from the catalog. Runs once per session; a
+// failure leaves the markup's English-only fallback in place rather than
+// emptying the control, since a filter you cannot set is worse than a short
+// list.
+async function loadDubLanguages() {
+  if (state.dubLanguagesLoaded) return;
+  state.dubLanguagesLoaded = true;
+  const select = $("dubLang");
+  if (!select) return;
+  try {
+    const data = await api("/dub/languages", {});
+    const languages = (data && data.languages) || [];
+    if (!languages.length) return;
+    const chosen = select.value;
+    // Rebuild rather than append: the markup carries English as a
+    // pre-fetch fallback and it would otherwise appear twice.
+    select.innerHTML = "";
+    const any = document.createElement("option");
+    any.value = "";
+    any.textContent = "Any (no dub filter)";
+    select.appendChild(any);
+    for (const entry of languages) {
+      const option = document.createElement("option");
+      option.value = entry.code;
+      option.textContent = `${languageLabel(entry.code)} (${entry.titles})`;
+      select.appendChild(option);
+    }
+    // Keep whatever the user had selected, including a restored preference.
+    if (chosen) select.value = chosen;
+  } catch {
+    // The inline English option stays.
+  }
+}
+
 async function loadDubCoverage() {
   if (state.dubCoverageLoaded) return;
   state.dubCoverageLoaded = true;
@@ -715,7 +795,10 @@ function populateFormats() {
   $("formatWrap").style.display = state.medium === "anime" ? "" : "none";
   // Print media has no dub, so the toggle is hidden rather than ignored.
   $("dubbedRow").style.display = state.medium === "anime" ? "" : "none";
-  if (state.medium === "anime") loadDubCoverage();
+  if (state.medium === "anime") {
+    loadDubCoverage();
+    loadDubLanguages();
+  }
 }
 
 function renderGenreChips() {
