@@ -9,6 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import com.mangabrain.app.R
 import com.mangabrain.app.data.Prefs
 import com.mangabrain.app.data.ServiceLocator
+import com.mangabrain.app.data.api.httpMessage
 import kotlinx.coroutines.launch
 
 class SettingsActivity : AppCompatActivity() {
@@ -67,7 +68,7 @@ class SettingsActivity : AppCompatActivity() {
                 status.text = when (e.code()) {
                     401 -> getString(R.string.error_token)
                     404 -> getString(R.string.error_not_mangabrain)
-                    else -> getString(R.string.error_http, e.code())
+                    else -> httpMessage(this@SettingsActivity, e)
                 }
             } catch (e: Exception) {
                 status.text = getString(R.string.error_unreachable, e.message ?: "")

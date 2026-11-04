@@ -21,6 +21,7 @@ import com.mangabrain.app.data.ServiceLocator
 import com.mangabrain.app.data.api.MangaBrainApi
 import com.mangabrain.app.data.api.MediaOut
 import com.mangabrain.app.data.api.RecommendResponse
+import com.mangabrain.app.data.api.httpMessage
 import com.mangabrain.app.ui.GridAdapter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -295,7 +296,7 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
             clear()
             status(
                 if (e.code() == 401) getString(R.string.error_token)
-                else getString(R.string.error_http, e.code())
+                else httpMessage(requireContext(), e)
             )
         } catch (e: Exception) {
             clear()

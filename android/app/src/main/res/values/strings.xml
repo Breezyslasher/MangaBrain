@@ -98,5 +98,6 @@
     <string name="error_token">This server requires an access token. Enter it in Settings.</string>
     <string name="error_not_mangabrain">Reached a server, but it has no /search endpoint. Is that the MangaBrain URL?</string>
     <string name="error_http">Server returned HTTP %1$d.</string>
+    <string name="error_http_detail">Server returned HTTP %1$d: %2$s</string>
     <string name="error_unreachable">Could not reach the server: %1$s</string>
 </resources>

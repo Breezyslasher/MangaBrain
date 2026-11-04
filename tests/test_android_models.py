@@ -293,3 +293,44 @@ def test_tapping_a_facet_requires_it_the_way_the_web_chip_does():
     assert "FilterState.genreState" in source and "FilterState.tagState" in source
     assert 'state[name] = "inc"' in source, "a chip tap must require, not exclude"
     assert "rerun()" in source, "requiring a facet must re-rank"
+
+
+def test_the_app_shows_the_servers_own_explanation():
+    """A status code alone is not actionable; this API's detail text is.
+
+    409 is the clearest case: it means either "this seed has no embedding
+    yet, run pipeline.embed" or "seeds span two embedding versions, a
+    re-embed is in progress". Same code, different fix, and the phone used
+    to show only "Server returned HTTP 409."
+    """
+    errors = ROOT / "android/app/src/main/java/com/mangabrain/app/data/api/ApiErrors.kt"
+    assert errors.exists(), "ApiErrors.kt is missing"
+    kotlin = errors.read_text()
+    assert "JSONObject" in kotlin, "the detail must be parsed, not regexed"
+    assert "error_http_detail" in kotlin
+
+    strings = (ROOT / "android/app/src/main/res/values/strings.xml").read_text()
+    assert 'name="error_http_detail"' in strings
+
+    # Every screen that reports an HTTP failure has to use it, or one of
+    # them silently drops the explanation - which is how this was missed.
+    screens = [
+        "ui/discover/DiscoverFragment.kt",
+        "ui/lists/ListsFragment.kt",
+        "ui/SettingsActivity.kt",
+    ]
+    for screen in screens:
+        source = (ROOT / "android/app/src/main/java/com/mangabrain/app" / screen).read_text()
+        assert "httpMessage(" in source, f"{screen} does not show the server's detail"
+
+
+def test_every_api_error_carries_a_detail():
+    """The client's fallback is the bare code, so a detail-less raise is a
+    dead end on the phone. FastAPI allows HTTPException without one."""
+    offenders = []
+    for path in sorted((ROOT / "api").rglob("*.py")):
+        source = path.read_text()
+        for match in re.finditer(r"HTTPException\((.*?)\)", source, re.DOTALL):
+            if "detail" not in match.group(1):
+                offenders.append(f"{path.relative_to(ROOT)}: {match.group(1).strip()[:60]}")
+    assert offenders == [], f"HTTPException raised without a detail: {offenders}"

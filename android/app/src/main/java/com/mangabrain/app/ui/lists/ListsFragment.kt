@@ -13,6 +13,7 @@ import com.mangabrain.app.R
 import com.mangabrain.app.data.FilterState
 import com.mangabrain.app.data.ServiceLocator
 import com.mangabrain.app.data.api.AppSettingsIn
+import com.mangabrain.app.data.api.httpMessage
 import com.mangabrain.app.ui.SettingsActivity
 import kotlinx.coroutines.launch
 
@@ -176,12 +177,9 @@ class ListsFragment : Fragment(R.layout.fragment_lists) {
      * exactly what the user has to act on.
      */
     private fun message(e: Exception): String = when (e) {
-        is retrofit2.HttpException -> {
-            val body = runCatching { e.response()?.errorBody()?.string() }.getOrNull()
-            val detail = body?.let { Regex("\"detail\"\\s*:\\s*\"([^\"]+)\"").find(it)?.groupValues?.get(1) }
-            detail ?: if (e.code() == 401) getString(R.string.error_token)
-            else getString(R.string.error_http, e.code())
-        }
+        is retrofit2.HttpException ->
+            if (e.code() == 401) getString(R.string.error_token)
+            else httpMessage(requireContext(), e)
 
         else -> getString(R.string.error_unreachable, e.message ?: "")
     }
