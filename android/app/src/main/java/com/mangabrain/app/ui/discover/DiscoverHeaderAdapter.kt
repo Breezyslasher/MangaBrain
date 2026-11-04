@@ -15,7 +15,8 @@ import com.mangabrain.app.data.api.RelatedItem
 import com.mangabrain.app.ui.RelatedAdapter
 
 /**
- * Zero or one item: the seed card, its related titles, and the match count.
+ * Zero or one item: the seed card, its synopsis, its related titles, and the
+ * match count.
  *
  * Concatenated in front of the result grid rather than placed above it in a
  * ScrollView. That is what lets the grid be the only scrolling container -
@@ -31,7 +32,17 @@ class DiscoverHeaderAdapter(
     private var related: List<RelatedItem> = emptyList()
     private var count: Int = 0
 
+    /**
+     * Whether the synopsis is expanded, held here rather than in the holder.
+     * The holder is rebound on every re-rank, so holder state would collapse
+     * the text each time a slider moved.
+     */
+    private var expanded: Boolean = false
+
     fun show(seed: MediaOut?, related: List<RelatedItem>, count: Int) {
+        // A different title starts collapsed; the same title re-ranked keeps
+        // whatever the reader chose.
+        if (seed?.id != this.seed?.id) expanded = false
         this.seed = seed
         this.related = related
         this.count = count
@@ -56,6 +67,9 @@ class DiscoverHeaderAdapter(
         private val title: TextView = view.findViewById(R.id.seedTitle)
         private val meta: TextView = view.findViewById(R.id.seedMeta)
         private val addToMix: Button = view.findViewById(R.id.seedAddToMix)
+        private val description: TextView = view.findViewById(R.id.seedDescription)
+        private val descriptionToggle: Button =
+            view.findViewById(R.id.seedDescriptionToggle)
         private val relatedList: RecyclerView = view.findViewById(R.id.relatedList)
         private val countLabel: TextView = view.findViewById(R.id.resultCount)
         private val relatedAdapter = RelatedAdapter(onRelatedClick)
@@ -64,6 +78,10 @@ class DiscoverHeaderAdapter(
             relatedList.layoutManager =
                 LinearLayoutManager(view.context, RecyclerView.HORIZONTAL, false)
             relatedList.adapter = relatedAdapter
+            descriptionToggle.setOnClickListener {
+                expanded = !expanded
+                applyExpansion()
+            }
         }
 
         fun bind(seed: MediaOut?, related: List<RelatedItem>, count: Int) {
@@ -76,11 +94,59 @@ class DiscoverHeaderAdapter(
                 val url = seed.coverUrl
                 if (url.isNullOrBlank()) cover.setImageDrawable(null) else cover.load(url)
                 addToMix.setOnClickListener { onAddToMix(seed) }
+                bindDescription(seed.description)
             }
             relatedAdapter.submit(related)
             relatedList.visibility = if (related.isEmpty()) View.GONE else View.VISIBLE
             countLabel.visibility = if (count == 0) View.GONE else View.VISIBLE
             countLabel.text = itemView.context.getString(R.string.matches, count)
         }
+
+        /**
+         * The server already returns description_clean, so this is plain
+         * prose: no HTML tags, entities or AniList spoiler blocks to strip
+         * on the client.
+         */
+        private fun bindDescription(text: String?) {
+            val synopsis = text?.trim().orEmpty()
+            if (synopsis.isEmpty()) {
+                // Common for one-shots and obscure entries, where AniList
+                // carries no description at all.
+                description.visibility = View.GONE
+                descriptionToggle.visibility = View.GONE
+                return
+            }
+            description.visibility = View.VISIBLE
+            description.text = synopsis
+            applyExpansion()
+            // Whether the text is actually clipped is only knowable after a
+            // layout pass, and a "Read more" on a two-line synopsis that is
+            // already fully visible does nothing. Hide it until measured.
+            descriptionToggle.visibility = View.GONE
+            description.post { updateToggleVisibility() }
+        }
+
+        private fun applyExpansion() {
+            description.maxLines = if (expanded) Int.MAX_VALUE else COLLAPSED_LINES
+            descriptionToggle.setText(
+                if (expanded) R.string.read_less else R.string.read_more
+            )
+            description.post { updateToggleVisibility() }
+        }
+
+        private fun updateToggleVisibility() {
+            val layout = description.layout ?: return
+            val clipped = layout.lineCount > 0 &&
+                layout.getEllipsisCount(layout.lineCount - 1) > 0
+            // Expanded text is never ellipsized, so without the first term
+            // expanding would remove the only way back.
+            descriptionToggle.visibility =
+                if (expanded || clipped) View.VISIBLE else View.GONE
+        }
+    }
+
+    private companion object {
+        /** Enough to tell what a title is about without burying the results. */
+        const val COLLAPSED_LINES = 4
     }
 }
