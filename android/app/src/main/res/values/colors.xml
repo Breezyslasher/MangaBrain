@@ -1,0 +1,11 @@
+<resources>
+    <!-- Mirrors web/style.css so the two clients look like one product. -->
+    <color name="bg">#12141A</color>
+    <color name="panel">#1A1E27</color>
+    <color name="card">#202634</color>
+    <color name="text">#E6E9F0</color>
+    <color name="muted">#8B93A7</color>
+    <color name="accent">#5B8DEF</color>
+    <color name="accent_2">#37C9A5</color>
+    <color name="border">#2B3245</color>
+</resources>
