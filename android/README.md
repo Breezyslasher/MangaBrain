@@ -16,8 +16,12 @@ Needs the Android SDK (API 34) and JDK 17.
     cd android
     ./gradlew assembleDebug        # app/build/outputs/apk/debug/
 
-There is no Gradle wrapper jar committed; run `gradle wrapper` once, or open
-the `android/` folder in Android Studio and let it sync.
+The Gradle wrapper is committed, so this needs no Gradle on the machine - just
+a JDK and the SDK. Android Studio can also open the `android/` folder directly.
+
+CI builds the same debug APK on every push that touches `android/`, and
+uploads it as a workflow artifact, so an installable build is always one
+download away without a local SDK.
 
 ## Configure
 
