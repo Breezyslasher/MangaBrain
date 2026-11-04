@@ -50,7 +50,18 @@ CANDIDATES: tuple[tuple[str, str, bool], ...] = (
     # Public SPARQL; dubbing statements exist but coverage is the question.
     ("Wikidata SPARQL", "https://query.wikidata.org/sparql", False),
     ("Simkl", "https://api.simkl.com/anime/1", True),
-    # Retested: it refused GitHub's runners and the deployment host alike.
+    # Re-measured 2026-11-04 from a GitHub runner: ConnectError [Errno 101]
+    # Network is unreachable - a ROUTE-level block, not a 403 or a 429, which
+    # is what blocking cloud provider address ranges looks like. Every other
+    # host here was routable from the same run, so it is Jikan's filter and
+    # not the runner's egress.
+    #
+    # The old note here also claimed the deployment host, and that half was
+    # never measured. It should not be inherited: a NAS on a residential
+    # address is not in the range being filtered, and an empty mal_list_state
+    # cannot tell a failed sync from a sync nobody ran. Test it there with
+    # `probe_dub_mal --check`, or by POSTing /mal/<user>/refresh, which now
+    # answers in about 32s instead of four minutes.
     ("Jikan (MAL)", "https://api.jikan.moe/v4/anime/1", False),
 )
 
