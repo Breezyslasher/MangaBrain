@@ -22,10 +22,39 @@ android {
         buildConfig true
     }
 
+    // Override AGP's default debug signing. Without this, every machine and
+    // every CI runner generates its own ~/.android/debug.keystore, so two
+    // debug APKs of the same app carry different signing certificates and
+    // Android refuses to update one over the other - it reports
+    // INSTALL_FAILED_UPDATE_INCOMPATIBLE, which the installer shows as the
+    // unhelpful "App not installed".
+    //
+    // The committed keystore uses the well-known Android debug credentials.
+    // It is deliberately not a secret: it signs debug builds only, it
+    // cannot publish to Play, and its whole purpose is that every build
+    // everywhere shares one certificate. A release key would be handled the
+    // opposite way, through secrets, and is a separate job.
+    signingConfigs {
+        debug {
+            storeFile file("debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // An unsigned release APK cannot be installed at all, so until
+            // a real release key exists it is signed with the debug one.
+            // That makes it installable and sideloadable; it does NOT make
+            // it releasable.
+            signingConfig signingConfigs.debug
+        }
+        debug {
+            signingConfig signingConfigs.debug
         }
     }
 

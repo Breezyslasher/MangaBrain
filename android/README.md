@@ -23,6 +23,26 @@ CI builds the same debug APK on every push that touches `android/`, and
 uploads it as a workflow artifact, so an installable build is always one
 download away without a local SDK.
 
+## Installing over a previous build
+
+Debug APKs are signed with the keystore committed at `app/debug.keystore`.
+Without that, AGP signs with whatever `~/.android/debug.keystore` the build
+machine happens to have, and since a fresh CI runner generates its own, two
+builds of this app carried different certificates. Android refuses to update
+across a certificate change (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`, which the
+installer shows as the unhelpful "App not installed").
+
+**One-time step:** any APK built before this keystore existed was signed with
+a throwaway key, so it has to be uninstalled before the first build that uses
+the committed one. After that, every build - local or CI - updates over the
+last cleanly.
+
+The keystore is not a secret. It carries the well-known Android debug
+credentials (`androiddebugkey` / `android`), signs debug builds only, and
+cannot publish to Play. Its entire purpose is that every build shares one
+certificate. A real release key is the opposite case and belongs in CI
+secrets.
+
 ## Configure
 
 On first run the app opens Settings. Enter the server URL, for example
