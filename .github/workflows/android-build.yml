@@ -71,8 +71,29 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      # No --stacktrace: a Kotlin compile failure prints three useful "e:"
+      # lines and then roughly 250 lines of Gradle internals, which pushed
+      # the actual errors out of every reasonable log tail. Gradle's own
+      # summary already names the failing task.
+      # set -o pipefail is load-bearing: the step shell is `bash -e`, which
+      # takes the exit status of the LAST command in a pipeline, so piping
+      # Gradle through tee without it would report a failed build as a
+      # success and upload no APK while the job stayed green.
+      #
+      # No --stacktrace either: a Kotlin compile failure prints three useful
+      # "e:" lines followed by roughly 250 lines of Gradle internals, which
+      # pushed the actual errors out of every reasonable log tail.
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      # The errors again at the very end, where a tail finds them.
+      - name: Repeat compiler errors
+        if: failure()
+        run: |
+          echo "--- Kotlin/Java diagnostics from this build ---"
+          grep -E "^(e|w): " "$RUNNER_TEMP/build.log" || echo "(no e:/w: lines; the failure was not a compile error)"
 
       - name: Locate APKs
         id: locate
