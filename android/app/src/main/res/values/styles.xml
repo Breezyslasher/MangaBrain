@@ -1,0 +1,68 @@
+<resources>
+    <style name="SectionLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">20dp</item>
+        <item name="android:layout_marginBottom">6dp</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:textColor">@color/muted</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="FieldLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">10dp</item>
+        <item name="android:textColor">@color/muted</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <style name="FilterField">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textColorHint">@color/muted</item>
+        <!-- 16sp or larger: below that, a focused field zooms the page on
+             some devices and the layout stops matching the viewport. -->
+        <item name="android:textSize">16sp</item>
+        <item name="android:autofillHints"></item>
+    </style>
+
+    <style name="FilterSpinner">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">48dp</item>
+    </style>
+
+    <style name="FilterSwitch">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">10dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textColor">@color/text_2</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="AccountCard">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:background">@color/surface</item>
+        <item name="android:layout_marginBottom">10dp</item>
+        <item name="android:padding">14dp</item>
+    </style>
+
+    <style name="AccountField">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textColorHint">@color/muted</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:autofillHints"></item>
+    </style>
+</resources>

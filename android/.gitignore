@@ -5,3 +5,5 @@ local.properties
 .idea/
 keystore.properties
 *.jks
+# app/debug.keystore is committed on purpose: see the signing
+# config in app/build.gradle. It is not a secret.

@@ -59,7 +59,9 @@ class SettingsActivity : AppCompatActivity() {
                 return@launch
             }
             try {
-                val response = api.search(null, null, 1, false)
+                // One row is enough to prove the server answers; the
+                // filter surface is irrelevant to a connectivity check.
+                val response = api.search(null, mapOf("limit" to "1"))
                 status.text = getString(R.string.connected, response.results.size)
             } catch (e: retrofit2.HttpException) {
                 status.text = when (e.code()) {

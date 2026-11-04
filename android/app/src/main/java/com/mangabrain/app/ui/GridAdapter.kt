@@ -3,6 +3,7 @@ package com.mangabrain.app.ui
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
@@ -10,14 +11,11 @@ import coil.load
 import com.mangabrain.app.R
 import com.mangabrain.app.data.api.MediaOut
 
-/**
- * One adapter for both screens. A search result is a row without a score;
- * a recommendation is the same row with a similarity badge, so the only
- * difference is whether [Row.similarity] is null.
- */
-class MediaAdapter(
-    private val onClick: (MediaOut) -> Unit
-) : RecyclerView.Adapter<MediaAdapter.Holder>() {
+/** The three-column result grid: cover, optional similarity badge, title. */
+class GridAdapter(
+    private val onClick: (MediaOut) -> Unit,
+    private val onAddToMix: (MediaOut) -> Unit
+) : RecyclerView.Adapter<GridAdapter.Holder>() {
 
     data class Row(val media: MediaOut, val similarity: Double? = null)
 
@@ -29,23 +27,19 @@ class MediaAdapter(
         notifyDataSetChanged()
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_media, parent, false)
-        return Holder(view)
-    }
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder =
+        Holder(LayoutInflater.from(parent.context).inflate(R.layout.item_grid, parent, false))
 
     override fun getItemCount(): Int = rows.size
 
-    override fun onBindViewHolder(holder: Holder, position: Int) {
-        holder.bind(rows[position])
-    }
+    override fun onBindViewHolder(holder: Holder, position: Int) = holder.bind(rows[position])
 
     inner class Holder(view: View) : RecyclerView.ViewHolder(view) {
         private val cover: ImageView = view.findViewById(R.id.cover)
         private val title: TextView = view.findViewById(R.id.title)
         private val meta: TextView = view.findViewById(R.id.meta)
         private val badge: TextView = view.findViewById(R.id.badge)
+        private val add: Button = view.findViewById(R.id.addToMix)
 
         fun bind(row: Row) {
             val media = row.media
@@ -60,12 +54,9 @@ class MediaAdapter(
                 )
             }
             val url = media.coverUrl
-            if (url.isNullOrBlank()) {
-                cover.setImageDrawable(null)
-            } else {
-                cover.load(url)
-            }
+            if (url.isNullOrBlank()) cover.setImageDrawable(null) else cover.load(url)
             itemView.setOnClickListener { onClick(media) }
+            add.setOnClickListener { onAddToMix(media) }
         }
     }
 }

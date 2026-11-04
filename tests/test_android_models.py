@@ -96,21 +96,119 @@ def test_optional_fields_have_kotlin_defaults(name):
     assert undefaulted == [], f"{name} optional fields need defaults: {undefaulted}"
 
 
-def test_query_parameters_exist_on_the_server():
+ENDPOINTS = {
+    "search": "/search",
+    "recommend": "/recommend/{media_id}",
+    "recommendMix": "/recommend",
+    "forYou": "/foryou",
+    "random": "/random",
+}
+
+FILTER_STATE = ROOT / "android/app/src/main/java/com/mangabrain/app/data/FilterState.kt"
+
+
+def server_params(path: str) -> set[str]:
+    from api.main import app
+
+    return {p["name"] for p in app.openapi()["paths"][path]["get"].get("parameters", [])}
+
+
+@pytest.mark.parametrize("method,path", sorted(ENDPOINTS.items()))
+def test_query_parameters_exist_on_the_server(method, path):
     """A @Query name the server does not read is silently ignored.
 
     FastAPI drops unknown query parameters rather than erroring, so a typo
-    here would mean the app quietly asks for something else - a dub filter
-    that does not filter, say.
+    here means the app quietly asks for something else - a dub filter that
+    does not filter. /search spells it exclude_lists while /recommend spells
+    it exclude_list, which is exactly the kind of difference this catches.
+    """
+    source = API_FILE.read_text()
+    block = source[source.index(f"fun {method}(") :]
+    block = block[: block.index("):")]
+    used = set(re.findall(r'@Query\("([^"]+)"\)', block))
+    unknown = sorted(used - server_params(path))
+    assert unknown == [], f"{path} has no such query parameter(s): {unknown}"
+
+
+def test_filter_state_only_builds_parameters_the_server_reads():
+    """The scalar half of every request, which no @Query annotation covers.
+
+    FilterState assembles twenty-odd parameters into a QueryMap, so they are
+    plain strings in Kotlin and nothing in the type system checks them.
+    Checked against the union of the endpoints that receive that map.
+    """
+    assert FILTER_STATE.exists(), "FilterState.kt is missing"
+    known: set[str] = set()
+    for path in ENDPOINTS.values():
+        known |= server_params(path)
+    source = FILTER_STATE.read_text()
+    # params["x"] = ... and "x" to ... are the two shapes that file uses.
+    used = set(re.findall(r'params\["([a-z_]+)"\]', source))
+    used |= set(re.findall(r'"([a-z_]+)" to ', source))
+    unknown = sorted(used - known)
+    assert unknown == [], f"FilterState sends parameters no endpoint reads: {unknown}"
+
+
+def test_the_two_spellings_of_the_exclusion_parameter_are_both_honoured():
+    """A real bug this pair of names already caused.
+
+    The web client sent exclude_list to /search, which declares
+    exclude_lists, so Kitsu and Yamtrack exclusions were silently dropped
+    from every filtered browse. Both clients now spell it per endpoint.
+    """
+    assert "exclude_lists" in server_params("/search")
+    assert "exclude_list" in server_params("/recommend/{media_id}")
+    api = API_FILE.read_text()
+    search_block = api[api.index("fun search(") : api.index("fun recommend(")]
+    assert '@Query("exclude_lists")' in search_block
+    recommend_block = api[api.index("fun recommend(") : api.index("fun recommendMix(")]
+    assert '@Query("exclude_list")' in recommend_block
+
+
+def test_tag_autocomplete_matches_the_web_client():
+    """Same ranking and the same cap in both clients.
+
+    Android's stock ArrayAdapter filter matches only the start of a string
+    or of a word inside it, so "rav" would miss "Time Travel" entirely. The
+    client ships a filter that mirrors the web one - prefix matches first,
+    then substring - and this pins the cap so the two cannot drift into
+    showing different numbers of suggestions for the same typing.
+    """
+    adapter = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/filters/TagSuggestionAdapter.kt"
+    )
+    assert adapter.exists(), "TagSuggestionAdapter.kt is missing"
+    kotlin = adapter.read_text()
+    javascript = (ROOT / "web/app.js").read_text()
+
+    kotlin_cap = re.search(r"MAX_SUGGESTIONS\s*=\s*(\d+)", kotlin)
+    web_cap = re.search(r"MAX_TAG_SUGGESTIONS\s*=\s*(\d+)", javascript)
+    assert kotlin_cap and web_cap, "both clients must declare a suggestion cap"
+    assert kotlin_cap.group(1) == web_cap.group(1), (
+        f"suggestion caps differ: Kotlin {kotlin_cap.group(1)}, web {web_cap.group(1)}"
+    )
+
+    # Both rank prefix matches above substring matches.
+    assert "startsWith(query)" in kotlin and "contains(query)" in kotlin
+    assert "startsWith(q)" in javascript and "includes(q)" in javascript
+
+
+def test_responses_are_compressed():
+    """Large JSON over a phone connection has to be gzipped.
+
+    /recommend returns up to 200 MediaOut objects and each carries its full
+    synopsis, so an uncompressed response is a few hundred kilobytes for one
+    tap. FastAPI adds no compression on its own, and the omission is silent:
+    everything works, just slowly, and only over a slow link.
     """
     from api.main import app
 
-    spec = app.openapi()
-    source = API_FILE.read_text()
-    for path, method in [("/search", "search"), ("/recommend/{media_id}", "recommend")]:
-        known = {p["name"] for p in spec["paths"][path]["get"].get("parameters", [])}
-        block = source[source.index(f"fun {method}(") :]
-        block = block[: block.index("):")]
-        used = set(re.findall(r'@Query\("([^"]+)"\)', block))
-        unknown = sorted(used - known)
-        assert unknown == [], f"{path} has no such query parameter(s): {unknown}"
+    assert "GZipMiddleware" in [m.cls.__name__ for m in app.user_middleware]
+
+
+def test_the_android_client_does_not_ask_for_more_than_it_shows():
+    """The grid has no paging, so a large limit is pure download cost."""
+    source = FILTER_STATE.read_text()
+    limit = re.search(r"fun recommendParams\(limit: Int = (\d+)\)", source)
+    assert limit, "recommendParams must declare a default limit"
+    assert int(limit.group(1)) <= 60, f"limit {limit.group(1)} is more than the grid shows"

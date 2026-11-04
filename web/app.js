@@ -445,7 +445,18 @@ async function runSearch(query, withFilters = false) {
       limit: "60",
     };
     if (term) params.q = term;
-    if (withFilters) Object.assign(params, filterParams());
+    if (withFilters) {
+      Object.assign(params, filterParams());
+      // /search declares exclude_lists while /recommend declares
+      // exclude_list. FastAPI ignores an unknown query parameter rather
+      // than erroring, so sending the recommend spelling here meant Kitsu
+      // and Yamtrack exclusions were silently dropped from every filtered
+      // browse. The asymmetry is the server's; this renames per endpoint.
+      if (params.exclude_list) {
+        params.exclude_lists = params.exclude_list;
+        delete params.exclude_list;
+      }
+    }
     const data = await api("/search", params);
     if (data.results.length) {
       setStatus("");
