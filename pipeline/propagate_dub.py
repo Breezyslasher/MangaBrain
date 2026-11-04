@@ -14,7 +14,17 @@ Neither direct source is written, so "AniList credits an English voice actor
 for this entry", "ANN records an English cast for it" and "a relative of this
 entry is dubbed" stay distinguishable in the database and in the API.
 
-The walk roots on either direct source. Rooting on AniList alone made this a
+There are three direct English sources, not two, and all of them count
+here. measured_dub_languages arrived with the AniList language walk and was
+not added to these queries at the time, which left two faults: a title whose
+only English evidence is that column could not SEED propagation, and - worse
+- it was eligible to be marked english_dub_inferred, re-labelling a measured
+dub as an inferred one. The overlap with english_va_count is near total
+today (4,078 against 4,077), so neither fault had visible effect yet; it
+would have appeared as the catalog grew and new titles got their languages
+from the paged walk before the English walk reached them.
+
+The walk roots on any direct source. Rooting on AniList alone made this a
 no-op anywhere AniList had not been walked yet, and either source can be the
 one that is missing: a snapshot may be taken while a pass is still partway
 through, and the two passes cover different titles - ANN only reaches what it
@@ -65,7 +75,9 @@ walk (node, depth) AS (
     SELECT m.id, 0
     FROM media m
     WHERE m.media_type = 'ANIME'
-      AND (m.english_va_count > 0 OR 'en' = ANY(m.dub_languages))
+      AND (m.english_va_count > 0
+           OR 'en' = ANY(m.dub_languages)
+           OR 'en' = ANY(m.measured_dub_languages))
     UNION
     SELECT e.b, w.depth + 1
     FROM walk w
@@ -78,6 +90,7 @@ JOIN media m ON m.id = w.node
 WHERE m.media_type = 'ANIME'
   AND COALESCE(m.english_va_count, 0) = 0
   AND NOT ('en' = ANY(m.dub_languages))
+  AND NOT ('en' = ANY(m.measured_dub_languages))
 """
 
 MARK_SQL = """
@@ -86,6 +99,7 @@ MARK_SQL = """
     WHERE id = ANY(%(ids)s)
       AND COALESCE(english_va_count, 0) = 0
       AND NOT ('en' = ANY(dub_languages))
+      AND NOT ('en' = ANY(measured_dub_languages))
       AND english_dub_inferred = FALSE
 """
 

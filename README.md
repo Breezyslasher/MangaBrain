@@ -263,7 +263,8 @@ All settings come from environment variables (see `.env.example`):
 | `ANILIST_MIN_INTERVAL` | `2.0` | seconds between AniList requests |
 | `JIKAN_MIN_INTERVAL` | `0.5` | seconds between Jikan requests |
 | `SYNC_INTERVAL_HOURS` | `24` | worker pass interval |
-| `DUB_BACKFILL_PER_PASS` | `400` | titles the nightly pass checks for an English dub (one AniList request each); 0 disables. At this rate a ~20k anime catalog takes weeks to fill, so the initial fill is a one-off `python -m pipeline.backfill_dub` |
+| `DUB_BACKFILL_PER_PASS` | `400` | titles the nightly pass checks for an English dub; 0 disables. Fifty titles per AniList request since the walk was paged, so this is 8 requests, not 400 - the default predates that change and is conservative. The initial fill is a one-off `python -m pipeline.backfill_dub` (~1 h for a full catalog) |
+| `DUB_LANGUAGE_PER_PASS` | `2000` | titles the nightly pass measures for **all** dub languages; 0 disables. One unfiltered request returns every language at once, fifty titles at a time, so this costs 40 requests. The initial fill is a one-off `python -m pipeline.backfill_dub_languages` |
 | `DUB_RECHECK_DAYS` | `90` | age at which an already-checked title becomes eligible again, since dubs are often added months after airing; never-checked titles are always walked first. 0 disables rechecks |
 | `MANGABRAIN_EMBED_THREADS` | `0` | torch threads while embedding; 0 = cores minus one (the worker also runs at reduced CPU weight so other apps win under contention) |
 | `AUTH_TOKEN` | empty | when set, every API request must carry `Authorization: Bearer <token>`; the web app asks once and remembers it. Set this before exposing the app publicly |
