@@ -306,20 +306,25 @@
     </section>
   </main>
 
+  <!-- Tab icons are Material Design Icons by Pictogrammers, Apache 2.0
+       (https://pictogrammers.com/library/mdi/). Inlined rather than
+       loaded as a webfont: four paths are about 1KB against ~100KB for
+       @mdi/font, they inherit currentColor, and they still render with
+       no network, which a CDN webfont would not. -->
   <nav id="mobileNav" aria-label="Sections">
     <button type="button" data-pane="discover" class="active">
-      <span class="nav-ico" aria-hidden="true"></span>Discover
+      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7,17L10.2,10.2L17,7L13.8,13.8L7,17M12,11.1A0.9,0.9 0 0,0 11.1,12A0.9,0.9 0 0,0 12,12.9A0.9,0.9 0 0,0 12.9,12A0.9,0.9 0 0,0 12,11.1M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z"/></svg>Discover
     </button>
     <button type="button" data-pane="filters">
-      <span class="nav-ico" aria-hidden="true"></span>Filters
+      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 13C6.14 13 4.59 14.28 4.14 16H2V18H4.14C4.59 19.72 6.14 21 8 21S11.41 19.72 11.86 18H22V16H11.86C11.41 14.28 9.86 13 8 13M8 19C6.9 19 6 18.1 6 17C6 15.9 6.9 15 8 15S10 15.9 10 17C10 18.1 9.1 19 8 19M19.86 6C19.41 4.28 17.86 3 16 3S12.59 4.28 12.14 6H2V8H12.14C12.59 9.72 14.14 11 16 11S19.41 9.72 19.86 8H22V6H19.86M16 9C14.9 9 14 8.1 14 7C14 5.9 14.9 5 16 5S18 5.9 18 7C18 8.1 17.1 9 16 9Z"/></svg>Filters
       <span id="navFilterCount" class="count-badge" hidden></span>
     </button>
     <button type="button" data-pane="mix">
-      <span class="nav-ico" aria-hidden="true"></span>Mix
+      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 16.54L19.37 10.8L21 12.07L12 19.07L3 12.07L4.62 10.81L12 16.54M12 14L3 7L12 0L21 7L12 14M12 2.53L6.26 7L12 11.47L17.74 7L12 2.53M12 21.47L19.37 15.73L21 17L12 24L3 17L4.62 15.74L12 21.47"/></svg>Mix
       <span id="navMixCount" class="count-badge" hidden></span>
     </button>
     <button type="button" data-pane="lists">
-      <span class="nav-ico" aria-hidden="true"></span>Lists
+      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3,5H9V11H3V5M5,7V9H7V7H5M11,7H21V9H11V7M11,15H21V17H11V15M5,20L1.5,16.5L2.91,15.09L5,17.17L9.59,12.59L11,14L5,20Z"/></svg>Lists
     </button>
   </nav>
   <div id="sheetScrim" hidden></div>

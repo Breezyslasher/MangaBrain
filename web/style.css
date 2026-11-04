@@ -570,6 +570,10 @@ button.linkish {
     background-position: left top, left 5px, left 10px;
     background-repeat: no-repeat;
   }
+  /* display:flex beats the UA stylesheet's [hidden] { display: none }, so an
+     empty badge rendered as a blue dot on every tab. The attribute has to be
+     honoured explicitly wherever a display is set on the same element. */
+  .count-badge[hidden] { display: none; }
   .count-badge {
     display: flex;
     position: absolute;
@@ -725,12 +729,11 @@ button.linkish {
   #mobileNav button.active { color: var(--text); }
   .nav-ico {
     display: block;
-    width: 20px;
-    height: 20px;
-    border-radius: 6px;
-    border: 2px solid currentColor;
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
   }
-  #mobileNav .count-badge { top: -2px; right: 50%; margin-right: -22px; }
+  #mobileNav .count-badge { top: 0; right: 50%; margin-right: -24px; width: 17px; height: 17px; font-size: 10px; }
 
   /* ---------- Filters bottom sheet ---------- */
   #sheetScrim:not([hidden]) {
