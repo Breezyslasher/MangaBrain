@@ -19,6 +19,8 @@ def build_filters(
     max_popularity: int | None = None,
     max_episodes: int | None = None,
     max_chapters: int | None = None,
+    min_episodes: int | None = None,
+    min_chapters: int | None = None,
     dubbed: bool = False,
     dub_lang: str | None = None,
     mal_user: str | None = None,
@@ -84,6 +86,24 @@ def build_filters(
     if max_chapters is not None:
         clauses.append("(m.chapters IS NULL OR m.chapters <= %(f_max_chapters)s)")
         params["f_max_chapters"] = max_chapters
+    # Floors, mirroring the caps. Only max existed, which was an omission
+    # rather than a decision: "something long to sink into" is as ordinary a
+    # request as "something short", and with only a cap there was no way to
+    # express it.
+    #
+    # Unknown lengths stay included here too, for the same reason and with
+    # the same cost. An absent episode count is not evidence the title is
+    # short, exactly as it is not evidence it is long - the asymmetric
+    # alternative would hide every still-releasing series from a floor while
+    # a cap keeps them, and the project's rule throughout is that missing
+    # data is not evidence against a title (the dub filter is positive-only
+    # for this reason, and english_va_count = 0 is never served as sub-only).
+    if min_episodes is not None:
+        clauses.append("(m.episodes IS NULL OR m.episodes >= %(f_min_episodes)s)")
+        params["f_min_episodes"] = min_episodes
+    if min_chapters is not None:
+        clauses.append("(m.chapters IS NULL OR m.chapters >= %(f_min_chapters)s)")
+        params["f_min_chapters"] = min_chapters
     # dubbed=true is English, kept as the shorthand it has always been.
     if dubbed and not dub_lang:
         dub_lang = "en"

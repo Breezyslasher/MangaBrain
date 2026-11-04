@@ -116,10 +116,19 @@ function filterParams() {
     tag_in: Object.keys(state.tagState).filter((t) => state.tagState[t] === "inc"),
     tag_ex: Object.keys(state.tagState).filter((t) => state.tagState[t] === "exc"),
   };
+  // One control per bound, mapped to the field the medium uses. A floor was
+  // missing until now, so "a long series to sink into" could not be asked
+  // for at all. Unknown lengths pass both bounds: an absent episode count is
+  // not evidence a title is short, nor that it is long.
   const maxLen = $("maxLen").value;
   if (maxLen) {
     if (state.medium === "anime") params.max_episodes = maxLen;
     else params.max_chapters = maxLen;
+  }
+  const minLen = $("minLen") ? $("minLen").value : "";
+  if (minLen) {
+    if (state.medium === "anime") params.min_episodes = minLen;
+    else params.min_chapters = minLen;
   }
   // Positive filter only, and only for anime: a chosen language means "known
   // to be dubbed in it", and "Any" means no dub filtering at all. There is
@@ -1027,7 +1036,7 @@ function bindEvents() {
   }
 
   for (const id of ["adult", "dubLang", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
-                    "minScore", "country", "status", "format", "maxPop", "maxLen",
+                    "minScore", "country", "status", "format", "maxPop", "maxLen", "minLen",
                     "malExclude", "alExclude", "kitsuExclude", "ytExclude", "keepPlanned"]) {
     on(id, "change", rerunActive);
   }

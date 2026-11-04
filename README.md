@@ -165,8 +165,12 @@ manhwa/manhua), `light_novel`, `one_shot`.
   `tag_in` / `tag_ex` (repeatable) — same for AniList tags
 - `max_popularity=<n>` — obscurity cap: only titles with at most n members
   (a filter the user opts into; popularity still never enters ranking)
-- `max_episodes=<n>` / `max_chapters=<n>` — length caps (unknown lengths stay
-  included)
+- `max_episodes=<n>` / `max_chapters=<n>` / `min_episodes=<n>` /
+  `min_chapters=<n>` — length bounds; combine a floor and a cap for a range.
+  Unknown lengths pass both: an absent episode count is not evidence a title
+  is short, nor that it is long, and excluding it from a floor while a cap
+  keeps it would hide every still-releasing series from "at least 50
+  episodes" while leaving them in "at most 26".
 - `dub_lang=<code>` — only anime known to be dubbed in that language.
   Lowercase, ISO-639-1 where one exists, with a language-region tag only
   where it separates real dub markets (`pt-br`, `zh-cn`, `zh-hk`, `zh-tw`).
