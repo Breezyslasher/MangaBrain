@@ -2,26 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0e1015">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#12141a">
   <title>MangaBrain</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <!-- Mobile type only: the families land in :root as tokens and are applied
-       inside the mobile media query, so the desktop layout keeps the system
-       font it has today. A failed font load falls back to system-ui. -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="style.css">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
 </head>
-<!-- data-pane drives the mobile tabs. Every pane rule lives inside the
-     max-width:760px media query, so on desktop this attribute selects
-     nothing and the two-column layout is untouched. -->
-<body data-pane="discover">
+<body>
   <header>
-    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>MangaBrain</div>
+    <div class="brand">MangaBrain</div>
     <nav id="tabs">
       <button data-medium="anime" class="active">Anime</button>
       <button data-medium="manga">Manga</button>
@@ -32,254 +23,145 @@
 
   <main>
     <aside id="panel">
-      <!-- The wrappers below are display:contents by default, so their
-           children stay direct flex items of #panel and desktop renders
-           exactly as before. On mobile each becomes a real box: a bottom
-           sheet, a pane, or a fixed action bar. -->
-      <div id="filterSheet">
-        <div id="sheetGrab" aria-hidden="true"></div>
-        <div id="sheetHead">
-          <span class="sheet-title">Filters</span>
-          <button id="filterReset" class="linkish" type="button">Reset</button>
-        </div>
-        <div id="sheetBody">
-          <section class="panel-block">
-            <h2>Weights</h2>
-            <label>Synopsis <span id="wSemanticVal">50</span>
-              <input type="range" id="wSemantic" min="0" max="100" value="50">
-            </label>
-            <label>Tags <span id="wTagsVal">30</span>
-              <input type="range" id="wTags" min="0" max="100" value="30">
-            </label>
-            <label>Genres <span id="wGenresVal">20</span>
-              <input type="range" id="wGenres" min="0" max="100" value="20">
-            </label>
-            <label>My taste <span id="wTasteVal">0</span>
-              <input type="range" id="wTaste" min="0" max="100" value="0">
-            </label>
-            <div class="chips-hint">My taste boosts titles resembling your rated list; needs a synced list with its exclude box ticked (or a username entered)</div>
-          </section>
+      <section class="panel-block">
+        <h2>Weights</h2>
+        <label>Synopsis <span id="wSemanticVal">50</span>
+          <input type="range" id="wSemantic" min="0" max="100" value="50">
+        </label>
+        <label>Tags <span id="wTagsVal">30</span>
+          <input type="range" id="wTags" min="0" max="100" value="30">
+        </label>
+        <label>Genres <span id="wGenresVal">20</span>
+          <input type="range" id="wGenres" min="0" max="100" value="20">
+        </label>
+        <label>My taste <span id="wTasteVal">0</span>
+          <input type="range" id="wTaste" min="0" max="100" value="0">
+        </label>
+        <div class="chips-hint">My taste boosts titles resembling your rated list; needs a synced list with its exclude box ticked (or a username entered)</div>
+      </section>
 
-          <section class="panel-block">
-            <h2>Filters</h2>
-            <!-- tile-grid becomes the 3-column grid of compact tiles on
-                 mobile; on desktop it is display:contents so the labels
-                 stay stacked in the sidebar exactly as they are today. -->
-            <div class="tile-grid">
-              <div class="row">
-                <label><span class="lbl">Year from</span><span class="lbl-sm">Year from</span> <input type="number" id="yearMin" placeholder="1980"></label>
-                <label><span class="lbl">to</span><span class="lbl-sm">Year to</span> <input type="number" id="yearMax" placeholder="2026"></label>
-              </div>
-              <label><span class="lbl">Minimum score (0-100)</span><span class="lbl-sm">Min score</span> <input type="number" id="minScore" min="0" max="100" placeholder="e.g. 70"></label>
-              <label id="formatWrap">Format
-                <select id="format">
-                  <option value="">Any</option>
-                </select>
-              </label>
-              <label>Origin
-                <select id="country">
-                  <option value="">Any</option>
-                  <option value="JP">Japan</option>
-                  <option value="KR">Korea</option>
-                  <option value="CN">China</option>
-                  <option value="TW">Taiwan</option>
-                </select>
-              </label>
-              <label>Status
-                <select id="status">
-                  <option value="">Any</option>
-                  <option value="FINISHED">Finished</option>
-                  <option value="RELEASING">Releasing</option>
-                  <option value="NOT_YET_RELEASED">Not yet released</option>
-                  <option value="HIATUS">Hiatus</option>
-                  <option value="CANCELLED">Cancelled</option>
-                </select>
-              </label>
-              <label><span class="lbl">Title language</span><span class="lbl-sm">Titles</span>
-                <select id="titleLang">
-                  <option value="english">English when available</option>
-                  <option value="romaji">Romaji</option>
-                </select>
-              </label>
-              <label><span class="lbl">Max popularity</span><span class="lbl-sm">Popularity</span>
-                <select id="maxPop">
-                  <option value="">Any</option>
-                  <option value="200000">Under 200k members</option>
-                  <option value="50000">Under 50k members</option>
-                  <option value="10000">Under 10k members</option>
-                  <option value="2000">Under 2k members</option>
-                </select>
-              </label>
-              <label><span class="lbl">Min length (episodes or chapters)</span><span class="lbl-sm">Min length</span>
-                <input type="number" id="minLen" min="1" placeholder="e.g. 50">
-              </label>
-              <label><span class="lbl">Max length (episodes or chapters)</span><span class="lbl-sm">Max length</span>
-                <input type="number" id="maxLen" min="1" placeholder="e.g. 26">
-              </label>
-              <label id="dubbedRow">Dub language <span id="dubNote" class="inline-note"></span>
-                <!-- Options are filled from /dub/languages at load: the catalog
-                     holds 29 dub languages and a hardcoded list offered nine,
-                     so no, th, he, id, zh, hi, fi, tr, ca and vi were present
-                     and unselectable. English is kept inline so the control is
-                     usable before the fetch returns, or if it fails. -->
-                <select id="dubLang">
-                  <option value="">Any (no dub filter)</option>
-                  <option value="en">English</option>
-                </select>
-              </label>
-            </div>
-            <div class="genre-filter">
-              <div class="chips-hint">Genres: click to require, click again to exclude</div>
-              <div id="genreChips" class="chips"></div>
-            </div>
-            <div class="genre-filter">
-              <div class="chips-hint">Tags: pick one, then require or exclude it</div>
-              <div class="tag-row">
-                <div class="suggest-wrap">
-                  <input type="text" id="tagInput" placeholder="e.g. Time Travel" autocomplete="off">
-                  <div id="tagSuggest" class="suggest" hidden></div>
-                </div>
-                <div class="row">
-                  <button id="tagReq" class="secondary" type="button">Require</button>
-                  <button id="tagExc" class="secondary" type="button">Exclude</button>
-                </div>
-              </div>
-              <div id="tagChips" class="chips"></div>
-            </div>
-            <div class="switch-group">
-              <label class="check"><input type="checkbox" id="adult"> Include adult content</label>
-              <label class="check"><input type="checkbox" id="crossMedia"> Cross-media suggestions</label>
-              <label class="check"><input type="checkbox" id="excludeFranchise" checked> Hide sequels and spin-offs</label>
-            </div>
-          </section>
+      <section class="panel-block">
+        <h2>Filters</h2>
+        <div class="row">
+          <label>Year from <input type="number" id="yearMin" placeholder="1980"></label>
+          <label>to <input type="number" id="yearMax" placeholder="2026"></label>
         </div>
-        <!-- Mobile-only sticky footer. #browseBtn stays in the search row
-             below, because moving it here would pull the desktop sidebar's
-             search button out of the searchbar and desktop is out of scope;
-             #sheetSearch runs the same action. The design's second button
-             reads "Show 208" - /search returns no total, so it carries no
-             number rather than an invented one. -->
-        <div id="sheetFooter">
-          <button id="sheetSearch" class="secondary" type="button">Search with filters</button>
-          <button id="sheetShow" type="button">Show results</button>
+        <label>Minimum score (0-100) <input type="number" id="minScore" min="0" max="100" placeholder="e.g. 70"></label>
+        <label id="formatWrap">Format
+          <select id="format">
+            <option value="">Any</option>
+          </select>
+        </label>
+        <label>Origin
+          <select id="country">
+            <option value="">Any</option>
+            <option value="JP">Japan</option>
+            <option value="KR">Korea</option>
+            <option value="CN">China</option>
+            <option value="TW">Taiwan</option>
+          </select>
+        </label>
+        <label>Status
+          <select id="status">
+            <option value="">Any</option>
+            <option value="FINISHED">Finished</option>
+            <option value="RELEASING">Releasing</option>
+            <option value="NOT_YET_RELEASED">Not yet released</option>
+            <option value="HIATUS">Hiatus</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
+        </label>
+        <label>Title language
+          <select id="titleLang">
+            <option value="english">English when available</option>
+            <option value="romaji">Romaji</option>
+          </select>
+        </label>
+        <label>Max popularity
+          <select id="maxPop">
+            <option value="">Any</option>
+            <option value="200000">Under 200k members</option>
+            <option value="50000">Under 50k members</option>
+            <option value="10000">Under 10k members</option>
+            <option value="2000">Under 2k members</option>
+          </select>
+        </label>
+        <label>Min length (episodes or chapters)
+          <input type="number" id="minLen" min="1" placeholder="e.g. 50">
+        </label>
+        <label>Max length (episodes or chapters)
+          <input type="number" id="maxLen" min="1" placeholder="e.g. 26">
+        </label>
+        <div class="genre-filter">
+          <div class="chips-hint">Genres: click to require, click again to exclude</div>
+          <div id="genreChips" class="chips"></div>
         </div>
-      </div>
-
-      <div id="mixPane">
-        <div class="pane-head">
-          <h1>Mix</h1>
-          <p>Titles added from any card. Recommendations blend all of them.</p>
-        </div>
-        <section class="panel-block" id="mixBlock" hidden>
-          <h2>Seed mix</h2>
-          <div id="mixChips" class="chips"></div>
-          <button id="mixGo">Recommend from mix</button>
-        </section>
-        <div id="mixEmpty" hidden>
-          <p class="muted">No titles in the mix yet. Tap + on any result to add one, then recommend from all of them at once.</p>
-        </div>
-        <div id="forYouCard">
-          <h2 class="card-title">For you</h2>
-          <label class="stepper-row">Seeds from your list
-            <span class="stepper">
-              <button type="button" class="step-down" aria-label="Fewer seeds">&minus;</button>
-              <input type="number" id="forYouSeeds" min="1" max="20" placeholder="8">
-              <button type="button" class="step-up" aria-label="More seeds">+</button>
-            </span>
-          </label>
-          <label class="check"><input type="checkbox" id="useRatings" checked> Weight For you by my ratings</label>
-        </div>
-      </div>
-
-      <div id="listsPane">
-        <div class="pane-head">
-          <h1>Lists</h1>
-          <p>Synced lists hide what you have seen and feed My taste.</p>
-        </div>
-        <section class="panel-block" id="accountsBlock">
-          <h2>Accounts</h2>
-          <!-- One .acct-card per source. These are display:contents on
-               desktop, so the controls stay direct children of the panel
-               block; on mobile each becomes a card with its badge, status
-               line, sync button and its own exclude toggle. -->
-          <div class="acct-card" data-acct="anilist">
-            <div class="acct-head">
-              <span class="acct-badge" aria-hidden="true">AL</span>
-              <div class="acct-id">
-                <span class="acct-name">AniList</span>
-                <div id="alStatus" class="chips-hint"></div>
-              </div>
-              <button class="acct-connect secondary" type="button" data-fields="alFields">Connect</button>
-              <button id="alRefresh" class="secondary">Sync AniList</button>
-            </div>
-            <div class="acct-fields" id="alFields">
-              <label>AniList username <input type="text" id="alUser" placeholder="AniList username"></label>
-            </div>
-            <label class="check acct-exclude"><input type="checkbox" id="alExclude"> Exclude AniList list</label>
+        <div class="genre-filter">
+          <div class="chips-hint">Tags: pick one, then require or exclude it</div>
+          <div class="suggest-wrap">
+            <input type="text" id="tagInput" placeholder="e.g. Time Travel" autocomplete="off">
+            <div id="tagSuggest" class="suggest" hidden></div>
           </div>
-
-          <div class="acct-card" data-acct="mal">
-            <div class="acct-head">
-              <span class="acct-badge" aria-hidden="true">MAL</span>
-              <div class="acct-id">
-                <span class="acct-name">MyAnimeList</span>
-                <div id="malStatus" class="chips-hint"></div>
-              </div>
-              <button class="acct-connect secondary" type="button" data-fields="malFields">Connect</button>
-              <button id="malRefresh" class="secondary">Sync MAL</button>
-            </div>
-            <div class="acct-fields" id="malFields">
-              <label>MAL username <input type="text" id="malUser" placeholder="MAL username"></label>
-            </div>
-            <label class="check acct-exclude"><input type="checkbox" id="malExclude"> Exclude MAL list</label>
+          <div class="row">
+            <button id="tagReq" class="secondary" type="button">Require</button>
+            <button id="tagExc" class="secondary" type="button">Exclude</button>
           </div>
+          <div id="tagChips" class="chips"></div>
+        </div>
+        <label id="dubbedRow">Dub language <span id="dubNote" class="inline-note"></span>
+          <!-- Options are filled from /dub/languages at load: the catalog
+               holds 29 dub languages and a hardcoded list offered nine,
+               so no, th, he, id, zh, hi, fi, tr, ca and vi were present
+               and unselectable. English is kept inline so the control is
+               usable before the fetch returns, or if it fails. -->
+          <select id="dubLang">
+            <option value="">Any (no dub filter)</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="adult"> Include adult content</label>
+        <label class="check"><input type="checkbox" id="crossMedia"> Cross-media suggestions</label>
+        <label class="check"><input type="checkbox" id="excludeFranchise" checked> Hide sequels and spin-offs</label>
+      </section>
 
-          <div class="acct-card" data-acct="kitsu">
-            <div class="acct-head">
-              <span class="acct-badge" aria-hidden="true">KI</span>
-              <div class="acct-id">
-                <span class="acct-name">Kitsu</span>
-                <div id="kitsuStatus" class="chips-hint"></div>
-              </div>
-              <button class="acct-connect secondary" type="button" data-fields="kitsuFields">Connect</button>
-              <button id="kitsuRefresh" class="secondary">Sync Kitsu</button>
-            </div>
-            <div class="acct-fields" id="kitsuFields">
-              <label>Kitsu username <input type="text" id="kitsuUser" placeholder="Kitsu username or id"></label>
-            </div>
-            <label class="check acct-exclude"><input type="checkbox" id="kitsuExclude"> Exclude Kitsu list</label>
-          </div>
+      <section class="panel-block" id="mixBlock" hidden>
+        <h2>Seed mix</h2>
+        <div id="mixChips" class="chips"></div>
+        <button id="mixGo">Recommend from mix</button>
+      </section>
 
-          <div class="acct-card" data-acct="yamtrack">
-            <div class="acct-head">
-              <span class="acct-badge" aria-hidden="true">YT</span>
-              <div class="acct-id">
-                <span class="acct-name">Yamtrack</span>
-                <div id="ytStatus" class="chips-hint"></div>
-              </div>
-              <button class="acct-connect secondary" type="button" data-fields="ytFields">Connect</button>
-              <button id="ytRefresh" class="secondary">Sync Yamtrack</button>
-            </div>
-            <div class="acct-fields" id="ytFields">
-              <label>Yamtrack URL <input type="text" id="ytUrl" placeholder="http://host:port"></label>
-              <label>Yamtrack token <input type="password" id="ytToken" placeholder="from Yamtrack profile"></label>
-            </div>
-            <label class="check acct-exclude"><input type="checkbox" id="ytExclude"> Exclude Yamtrack list</label>
-          </div>
+      <section class="panel-block">
+        <h2>Accounts</h2>
+        <label>AniList username <input type="text" id="alUser" placeholder="AniList username"></label>
+        <label>MAL username <input type="text" id="malUser" placeholder="MAL username"></label>
+        <label>Kitsu username <input type="text" id="kitsuUser" placeholder="Kitsu username or id"></label>
+        <label>Yamtrack URL <input type="text" id="ytUrl" placeholder="http://host:port"></label>
+        <label>Yamtrack token <input type="password" id="ytToken" placeholder="from Yamtrack profile"></label>
+        <button id="acctSave" class="secondary">Save accounts</button>
+        <div id="acctStatus" class="chips-hint"></div>
+        <div class="row">
+          <button id="alRefresh" class="secondary">Sync AniList</button>
+          <button id="malRefresh" class="secondary">Sync MAL</button>
+          <button id="kitsuRefresh" class="secondary">Sync Kitsu</button>
+          <button id="ytRefresh" class="secondary">Sync Yamtrack</button>
+        </div>
+        <label class="check"><input type="checkbox" id="alExclude"> Exclude AniList list</label>
+        <label class="check"><input type="checkbox" id="malExclude"> Exclude MAL list</label>
+        <label class="check"><input type="checkbox" id="kitsuExclude"> Exclude Kitsu list</label>
+        <label class="check"><input type="checkbox" id="ytExclude"> Exclude Yamtrack list</label>
+        <label class="check"><input type="checkbox" id="keepPlanned"> Keep planned titles (only exclude started or finished)</label>
+        <div id="alStatus" class="chips-hint"></div>
+        <div id="malStatus" class="chips-hint"></div>
+        <div id="kitsuStatus" class="chips-hint"></div>
+        <div id="ytStatus" class="chips-hint"></div>
+      </section>
 
-          <label class="check keep-planned"><input type="checkbox" id="keepPlanned"> <span class="lead">Keep planned titles</span> <span class="sub">only exclude started or finished</span></label>
-          <button id="acctSave" class="secondary">Save accounts</button>
-          <div id="acctStatus" class="chips-hint"></div>
-        </section>
-      </div>
-
-      <!-- Fixed above the tab bar on mobile. position:fixed makes the DOM
-           location irrelevant there, so keeping it inside #panel leaves the
-           desktop sidebar exactly as it was. -->
-      <div id="discoverActions">
-        <button id="forYou">For you</button>
-        <button id="surprise">Surprise me</button>
-      </div>
+      <label>For-you seed count (fewer = more specific feed)
+        <input type="number" id="forYouSeeds" min="1" max="20" placeholder="8">
+      </label>
+      <label class="check"><input type="checkbox" id="useRatings" checked> Weight For you by my ratings</label>
+      <button id="forYou">For you</button>
+      <button id="surprise">Surprise me</button>
     </aside>
 
     <section id="content">
@@ -289,45 +171,14 @@
            title. With an empty box it browses on filters alone. -->
       <div class="searchbar">
         <input id="search" type="search" placeholder="Search titles..." autocomplete="off">
-        <button id="filterBtn" class="secondary" type="button" aria-label="Filters">
-          <span class="filter-ico" aria-hidden="true"></span>
-          <span class="filter-word">Filters</span>
-          <span id="filterCount" class="count-badge" hidden></span>
-        </button>
         <button id="browseBtn" type="button" title="Apply the filters below to the whole catalog, with or without a search term">Search with filters</button>
       </div>
       <div id="seed"></div>
       <div id="related"></div>
-      <div id="resultsBar" hidden>
-        <span id="resultCount"></span>
-      </div>
       <div id="results" class="grid"></div>
       <div id="statusMsg" class="muted"></div>
     </section>
   </main>
-
-  <!-- Tab icons are Material Design Icons by Pictogrammers, Apache 2.0
-       (https://pictogrammers.com/library/mdi/). Inlined rather than
-       loaded as a webfont: four paths are about 1KB against ~100KB for
-       @mdi/font, they inherit currentColor, and they still render with
-       no network, which a CDN webfont would not. -->
-  <nav id="mobileNav" aria-label="Sections">
-    <button type="button" data-pane="discover" class="active">
-      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7,17L10.2,10.2L17,7L13.8,13.8L7,17M12,11.1A0.9,0.9 0 0,0 11.1,12A0.9,0.9 0 0,0 12,12.9A0.9,0.9 0 0,0 12.9,12A0.9,0.9 0 0,0 12,11.1M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z"/></svg>Discover
-    </button>
-    <button type="button" data-pane="filters">
-      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 13C6.14 13 4.59 14.28 4.14 16H2V18H4.14C4.59 19.72 6.14 21 8 21S11.41 19.72 11.86 18H22V16H11.86C11.41 14.28 9.86 13 8 13M8 19C6.9 19 6 18.1 6 17C6 15.9 6.9 15 8 15S10 15.9 10 17C10 18.1 9.1 19 8 19M19.86 6C19.41 4.28 17.86 3 16 3S12.59 4.28 12.14 6H2V8H12.14C12.59 9.72 14.14 11 16 11S19.41 9.72 19.86 8H22V6H19.86M16 9C14.9 9 14 8.1 14 7C14 5.9 14.9 5 16 5S18 5.9 18 7C18 8.1 17.1 9 16 9Z"/></svg>Filters
-      <span id="navFilterCount" class="count-badge" hidden></span>
-    </button>
-    <button type="button" data-pane="mix">
-      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 16.54L19.37 10.8L21 12.07L12 19.07L3 12.07L4.62 10.81L12 16.54M12 14L3 7L12 0L21 7L12 14M12 2.53L6.26 7L12 11.47L17.74 7L12 2.53M12 21.47L19.37 15.73L21 17L12 24L3 17L4.62 15.74L12 21.47"/></svg>Mix
-      <span id="navMixCount" class="count-badge" hidden></span>
-    </button>
-    <button type="button" data-pane="lists">
-      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3,5H9V11H3V5M5,7V9H7V7H5M11,7H21V9H11V7M11,15H21V17H11V15M5,20L1.5,16.5L2.91,15.09L5,17.17L9.59,12.59L11,14L5,20Z"/></svg>Lists
-    </button>
-  </nav>
-  <div id="sheetScrim" hidden></div>
 
   <script src="app.js"></script>
 </body>
