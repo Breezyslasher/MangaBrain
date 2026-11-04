@@ -9,65 +9,113 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
+    <!-- seedCard is the whole panel: the cover-and-title row, then the
+         synopsis underneath it. The synopsis is full width rather than in
+         the column beside the cover, where an 80dp-wide cover leaves a
+         column too narrow for prose. -->
     <LinearLayout
         android:id="@+id/seedCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:background="@color/panel"
         android:padding="14dp"
         android:visibility="gone">
 
-        <ImageView
-            android:id="@+id/seedCover"
-            android:layout_width="80dp"
-            android:layout_height="120dp"
-            android:scaleType="centerCrop"
-            android:background="@color/card"
-            android:contentDescription="@null" />
-
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="12dp"
-            android:orientation="vertical">
+            android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/seed"
-                android:textAllCaps="true"
-                android:textColor="@color/muted"
-                android:textSize="10sp" />
+            <ImageView
+                android:id="@+id/seedCover"
+                android:layout_width="80dp"
+                android:layout_height="120dp"
+                android:scaleType="centerCrop"
+                android:background="@color/card"
+                android:contentDescription="@null" />
 
-            <TextView
-                android:id="@+id/seedTitle"
-                android:layout_width="match_parent"
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:textColor="@color/text"
-                android:textSize="18sp"
-                android:textStyle="bold" />
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/seedMeta"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:textColor="@color/muted"
-                android:textSize="13sp" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/seed"
+                    android:textAllCaps="true"
+                    android:textColor="@color/muted"
+                    android:textSize="10sp" />
 
-            <Button
-                android:id="@+id/seedAddToMix"
-                style="?attr/borderlessButtonStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:minHeight="44dp"
-                android:paddingHorizontal="0dp"
-                android:text="@string/add_to_mix"
-                android:textColor="@color/accent" />
+                <TextView
+                    android:id="@+id/seedTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/seedMeta"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/seedAddToMix"
+                    style="?attr/borderlessButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:minHeight="44dp"
+                    android:paddingHorizontal="0dp"
+                    android:text="@string/add_to_mix"
+                    android:textColor="@color/accent" />
+            </LinearLayout>
         </LinearLayout>
+
+        <!-- Genres then the first ten tags, the same set and the same order
+             the web client's seed card shows. Tapping one requires it as a
+             filter and re-ranks, which is the web behaviour; on a phone it
+             also saves a trip to the Filters tab and back. -->
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/seedChips"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:visibility="gone" />
+
+        <!-- Clamped, because a full AniList synopsis is long enough to push
+             every result off the screen. The toggle expands it in place;
+             both it and the text are hidden when the catalog has no
+             description for the title, which is common for one-shots. -->
+        <TextView
+            android:id="@+id/seedDescription"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:ellipsize="end"
+            android:lineSpacingMultiplier="1.15"
+            android:maxLines="4"
+            android:textColor="@color/text"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/seedDescriptionToggle"
+            style="?attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="44dp"
+            android:paddingHorizontal="0dp"
+            android:text="@string/read_more"
+            android:textColor="@color/accent"
+            android:visibility="gone" />
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView

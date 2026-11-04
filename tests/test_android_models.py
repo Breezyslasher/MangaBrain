@@ -212,3 +212,84 @@ def test_the_android_client_does_not_ask_for_more_than_it_shows():
     limit = re.search(r"fun recommendParams\(limit: Int = (\d+)\)", source)
     assert limit, "recommendParams must declare a default limit"
     assert int(limit.group(1)) <= 60, f"limit {limit.group(1)} is more than the grid shows"
+
+
+def test_the_seed_card_shows_the_synopsis():
+    """Tapping a title has to show what the title is about.
+
+    The app already received the description on every result and displayed it
+    nowhere, so the one field a reader most wants was the one field thrown
+    away. This pins the views, the binding, and the clamp-plus-toggle, so a
+    layout rename cannot quietly drop the synopsis again.
+    """
+    layout = ROOT / "android/app/src/main/res/layout/item_discover_header.xml"
+    adapter = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverHeaderAdapter.kt"
+    )
+    markup = layout.read_text()
+    kotlin = adapter.read_text()
+
+    for view in ("seedDescription", "seedDescriptionToggle"):
+        assert f'android:id="@+id/{view}"' in markup, f"{view} is missing from the layout"
+        assert f"R.id.{view}" in kotlin, f"{view} is never bound"
+
+    assert "seed.description" in kotlin, "the synopsis is never read from the response"
+    # Clamped by default: a full AniList synopsis is long enough to push every
+    # result off a phone screen.
+    assert re.search(r"COLLAPSED_LINES\s*=\s*(\d+)", kotlin), "no collapsed line count"
+    assert 'android:maxLines="4"' in markup
+
+
+def test_the_client_needs_no_html_stripping():
+    """The synopsis is displayed as plain text, so the server must send it so.
+
+    description on MediaOut is description_clean, which has already had
+    AniList's spoiler blocks, tags and entities removed. If that ever becomes
+    the raw column, every synopsis in the app grows visible <br> markup.
+    """
+    assert "m.description_clean AS description" in (ROOT / "api/db.py").read_text()
+
+
+def test_the_seed_card_shows_genres_and_tags():
+    """Same facets, same order, same cap as the web client's seed card.
+
+    The API sorts tags by AniList rank and caps them at 15, so a client cap
+    decides which ranks a reader sees. Two clients capping differently would
+    describe the same title differently, which is the kind of drift a second
+    client exists to avoid.
+    """
+    layout = ROOT / "android/app/src/main/res/layout/item_discover_header.xml"
+    adapter = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverHeaderAdapter.kt"
+    )
+    markup = layout.read_text()
+    kotlin = adapter.read_text()
+    javascript = (ROOT / "web/app.js").read_text()
+
+    assert 'android:id="@+id/seedChips"' in markup, "the chip group is missing"
+    assert "R.id.seedChips" in kotlin, "the chip group is never bound"
+    assert "seed.genres" in kotlin and "seed.tags" in kotlin
+
+    kotlin_cap = re.search(r"MAX_TAGS\s*=\s*(\d+)", kotlin)
+    seed_card = javascript[javascript.index("function renderSeedCard(") :]
+    web_cap = re.search(r"seed\.tags \|\| \[\]\)\.slice\(0, (\d+)\)", seed_card)
+    assert kotlin_cap and web_cap, "both clients must cap the seed card's tags"
+    assert kotlin_cap.group(1) == web_cap.group(1), (
+        f"seed tag caps differ: Kotlin {kotlin_cap.group(1)}, web {web_cap.group(1)}"
+    )
+
+
+def test_tapping_a_facet_requires_it_the_way_the_web_chip_does():
+    """A chip tap writes the same tri-state the filter panel writes.
+
+    genreState/tagState hold "inc" or "exc" per name, and the parameter
+    builders read that map. Writing anything else here would be a filter the
+    panel cannot see and the user cannot clear.
+    """
+    fragment = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
+    )
+    source = fragment.read_text()
+    assert "FilterState.genreState" in source and "FilterState.tagState" in source
+    assert 'state[name] = "inc"' in source, "a chip tap must require, not exclude"
+    assert "rerun()" in source, "requiring a facet must re-rank"

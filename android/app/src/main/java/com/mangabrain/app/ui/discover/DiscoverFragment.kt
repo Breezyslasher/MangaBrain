@@ -5,6 +5,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -69,7 +70,13 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         )
         header = DiscoverHeaderAdapter(
             onAddToMix = ::addToMix,
-            onRelatedClick = { id -> loadRecommendations(id) }
+            onRelatedClick = { id -> loadRecommendations(id) },
+            onRequireGenre = { genre ->
+                requireFacet(FilterState.genreState, genre, R.string.requiring_genre)
+            },
+            onRequireTag = { tag ->
+                requireFacet(FilterState.tagState, tag, R.string.requiring_tag)
+            }
         )
 
         val columns = 3
@@ -103,6 +110,19 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         }
         view.findViewById<Button>(R.id.forYouButton).setOnClickListener { loadForYou() }
         view.findViewById<Button>(R.id.surpriseButton).setOnClickListener { surprise() }
+    }
+
+    /**
+     * Requires one of the seed's genres or tags and re-ranks, the way
+     * clicking a chip on the web seed card does.
+     *
+     * A Toast rather than the status line: rerun() replaces the status with
+     * "Loading..." immediately, so a status message would never be read.
+     */
+    private fun requireFacet(state: MutableMap<String, String>, name: String, messageRes: Int) {
+        state[name] = "inc"
+        Toast.makeText(requireContext(), getString(messageRes, name), Toast.LENGTH_SHORT).show()
+        rerun()
     }
 
     private fun addToMix(media: MediaOut) {
