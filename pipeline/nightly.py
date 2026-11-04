@@ -1,5 +1,5 @@
 """Worker loop: incremental AniList sync for both media types, then an
-embedding pass for anything new, then a bounded English-dub check for titles
+embedding pass for anything new, then bounded dub checks for titles
 that have never had one. Runs forever, sleeping SYNC_INTERVAL_HOURS between
 passes; intended as the `worker` container's entry point.
 
@@ -17,6 +17,7 @@ import psycopg
 
 from api.config import settings
 from pipeline.backfill_dub import backfill as backfill_dub
+from pipeline.backfill_dub_languages import backfill as backfill_dub_languages
 from pipeline.client import RateLimitedClient
 from pipeline.embed import embed_missing, prune_stale
 from pipeline.propagate_dub import propagate as propagate_dub
@@ -93,35 +94,63 @@ def run_once(client: RateLimitedClient) -> None:
 
 
 def _dub_pass(client: RateLimitedClient, conn: psycopg.Connection) -> None:
-    """Check a bounded slice of titles for an English dub.
+    """Keep the dub columns current for newly synced titles.
 
-    Bounded because it is one AniList request per title: the initial fill is
-    a one-off `python -m pipeline.backfill_dub`, and this only keeps up with
-    newly synced entries. A failure here must not cost the pass its sync or
-    its embeddings, so it is caught and reported.
+    Three independent steps, each bounded and each guarded separately. A
+    failure in one must not cost the others their slice, and none of them
+    may cost the pass its sync or its embeddings - dub data is the
+    freshness of a filter, not of the catalog.
+
+    Both walks fetch fifty titles per AniList request, so the budgets are in
+    titles rather than requests. The initial fill of either is a one-off
+    run of its module; this only has to keep up with what the incremental
+    sync adds.
     """
-    if settings.dub_backfill_per_pass <= 0:
-        return
-    stale_before = None
-    if settings.dub_recheck_days > 0:
-        # Never-checked titles still sort ahead of rechecks, so this only
-        # spends leftover budget re-asking about titles that may have gained
-        # a dub since they were last seen.
-        stale_before = datetime.now(UTC) - timedelta(days=settings.dub_recheck_days)
+    if settings.dub_backfill_per_pass > 0:
+        stale_before = None
+        if settings.dub_recheck_days > 0:
+            # Never-checked titles still sort ahead of rechecks, so this only
+            # spends leftover budget re-asking about titles that may have
+            # gained a dub since they were last seen.
+            stale_before = datetime.now(UTC) - timedelta(days=settings.dub_recheck_days)
+        try:
+            backfill_dub(
+                client,
+                conn,
+                limit=settings.dub_backfill_per_pass,
+                stale_before=stale_before,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"[nightly] dub backfill failed ({type(exc).__name__});"
+                " the dubbed filter keeps its current coverage",
+                flush=True,
+            )
+
+    # Independent of the English budget above, not nested under it: setting
+    # dub_backfill_per_pass to 0 used to skip everything that followed,
+    # which would have disabled the language walk and propagation by
+    # accident. They answer different questions - english_va_count against
+    # all 29 dub languages - and losing this one silently would leave every
+    # non-English filter frozen at whatever a manual run last wrote.
+    if settings.dub_language_per_pass > 0:
+        try:
+            backfill_dub_languages(client, conn, limit=settings.dub_language_per_pass)
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"[nightly] dub language pass failed ({type(exc).__name__});"
+                " the language filters keep their current coverage",
+                flush=True,
+            )
+
+    # Last, and outside both guards: one query, and it should see whatever
+    # either walk just wrote. A newly measured dub reaches its franchise on
+    # the same pass rather than waiting a day.
     try:
-        backfill_dub(
-            client,
-            conn,
-            limit=settings.dub_backfill_per_pass,
-            stale_before=stale_before,
-        )
-        # One query, so it runs every pass: a newly measured dub should reach
-        # its franchise without waiting for a separate job.
         propagate_dub(conn)
-    except Exception as exc:  # noqa: BLE001 - freshness of a filter, not of the catalog
+    except Exception as exc:  # noqa: BLE001
         print(
-            f"[nightly] dub backfill failed ({type(exc).__name__});"
-            " the dubbed filter keeps its current coverage",
+            f"[nightly] dub propagation failed ({type(exc).__name__})",
             flush=True,
         )
 

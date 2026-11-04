@@ -25,11 +25,19 @@ class Settings(BaseSettings):
     anilist_min_interval: float = 2.0
     jikan_min_interval: float = 0.5
     sync_interval_hours: float = 24.0
-    # Titles the nightly pass checks for an English dub, one AniList
-    # request each. A full anime catalog is ~20k titles, so the initial
-    # fill is a one-off `python -m pipeline.backfill_dub`; this only has
-    # to keep up with newly synced entries. 0 disables it.
+    # Titles the nightly pass checks for an English dub. Fifty per AniList
+    # request since the walk was paged, so 400 titles is 8 requests - the
+    # comment here used to say "one request each", which was true when the
+    # default was chosen and has not been since. The initial fill is still a
+    # one-off `python -m pipeline.backfill_dub`; this keeps up with newly
+    # synced entries. 0 disables it.
     dub_backfill_per_pass: int = 400
+    # Titles the nightly pass measures for ALL dub languages. Also fifty per
+    # request - one unfiltered query returns every language at once - so the
+    # default is larger than the English budget for the same request cost.
+    # Without this the language columns only ever hold what a manual run put
+    # there, and every title synced afterwards stays blank. 0 disables it.
+    dub_language_per_pass: int = 2000
     # A dub is often added months after a title airs, so a checked row
     # goes stale rather than final. The nightly pass spends its budget on
     # never-checked titles first and then on the stalest ones, so this is
