@@ -56,11 +56,11 @@ Two cautions this probe cannot resolve, and does not pretend to:
 
 import argparse
 import json
-import math
 import random
 from collections import Counter
 
 from pipeline.client import RateLimitedClient
+from pipeline.stats import wilson_lower
 
 URL = "https://graphql.anilist.co"
 
@@ -141,22 +141,6 @@ def studios(media: dict) -> list[str]:
         if name:
             out.append(name)
     return out
-
-
-def wilson_lower(hits: int, total: int, z: float = 1.96) -> float:
-    """Lower bound of the 95% interval, so small samples cannot top the list.
-
-    A studio seen twice with both titles dubbed has a point estimate of 100%
-    and tells you nothing. The bound is what makes support and rate
-    comparable in one number.
-    """
-    if total == 0:
-        return 0.0
-    p = hits / total
-    denom = 1 + z * z / total
-    centre = p + z * z / (2 * total)
-    margin = z * math.sqrt(p * (1 - p) / total + z * z / (4 * total * total))
-    return max(0.0, (centre - margin) / denom)
 
 
 def main() -> None:
