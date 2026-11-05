@@ -200,6 +200,7 @@ def recon_one(client: RateLimitedClient, title: str) -> dict:
             "id_templates": template_calls(wikitext),
             "cast_sample": section(wikitext, "cast")[:600],
             "flags": flags(wikitext).most_common(12),
+            "dub_actor_countries": dub_actor_countries(wikitext),
             "history_sample": section(wikitext, "dubbing history")[:800],
         }
     )
@@ -228,6 +229,7 @@ def print_recon(report: dict) -> None:
     )
     print(f"  id templates: {report['id_templates'] or 'none'}")
     print(f"  flags: {report['flags'] or 'none'}")
+    print(f"  dub-actor column countries: {report.get('dub_actor_countries') or 'none'}")
     if report.get("history_sample"):
         print("  --- dubbing history, first 800 chars ---")
         for line in report["history_sample"].splitlines():
@@ -286,6 +288,49 @@ BATCH_SIZE = 50
 def anilist_id(wikitext: str) -> int | None:
     match = ANILIST_ID_RE.search(wikitext)
     return int(match.group(1)) if match else None
+
+
+# Countries whose anime dubs are English. Canada is in deliberately - the
+# Vancouver studios dubbed a great deal of anime into English - but it is
+# the one entry that can be wrong, since Canada also produces French dubs,
+# so the census counts how many titles hang on it alone.
+ENGLISH_DUB_COUNTRIES = frozenset(
+    {"United States", "United Kingdom", "Australia", "New Zealand", "Ireland", "Canada"}
+)
+AMBIGUOUS_ENGLISH_COUNTRIES = frozenset({"Canada"})
+
+
+def dub_actor_countries(wikitext: str) -> list[str]:
+    """Countries flagged on a cast table's Dub Actor column header.
+
+    Per-dub rather than per-page, which is the whole distinction. A page
+    carries flags in its Transmission section too - The Amazing 3 shows
+    United States, Japan and Australia - and those are broadcast
+    countries, not dub languages. Only a flag inside the Dub Actor header
+    cell says what language that cast is in:
+
+        ! Seiyu {{Flag|Japan}}
+        ! Dub Actor {{Flag|United States}}
+
+    Header cells may share a line, separated by !!, so each cell is read
+    on its own - a line-level match would read the Seiyu column's Japan
+    flag as the dub's country.
+    """
+    body = section(wikitext, "cast") or wikitext
+    found: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("!"):
+            continue
+        for cell in stripped.lstrip("!").split("!!"):
+            if DUB_ACTOR_RE.search(cell):
+                found.extend(value.strip() for value in FLAG_RE.findall(cell))
+    return found
+
+
+def names_an_english_dub(wikitext: str) -> bool:
+    """Whether a Dub Actor column is flagged with an English-speaking country."""
+    return any(country in ENGLISH_DUB_COUNTRIES for country in dub_actor_countries(wikitext))
 
 
 def flags(wikitext: str) -> Counter:
@@ -362,6 +407,8 @@ def run_census(use_db: bool) -> None:
 
     by_id: dict[int, str] = {}
     with_cast: set[int] = set()
+    with_english: set[int] = set()
+    canada_only: set[int] = set()
     no_id = 0
     for start in range(0, len(titles), BATCH_SIZE):
         batch = titles[start : start + BATCH_SIZE]
@@ -378,11 +425,21 @@ def run_census(use_db: bool) -> None:
             by_id[media_id] = title
             if names_a_dub_cast(wikitext):
                 with_cast.add(media_id)
+            countries = set(dub_actor_countries(wikitext))
+            english = countries & ENGLISH_DUB_COUNTRIES
+            if english:
+                with_english.add(media_id)
+                if english <= AMBIGUOUS_ENGLISH_COUNTRIES:
+                    canada_only.add(media_id)
         print(f"  read {min(start + BATCH_SIZE, len(titles))}/{len(titles)}", flush=True)
 
     print(f"\nusable AniList ids: {len(by_id)}")
     print(f"  pages embedding the template but with no parsable id: {no_id}")
     print(f"  of the ids, pages with a dub-actor column: {len(with_cast)}")
+    print(
+        f"  of those, the column is flagged with an English-speaking country: {len(with_english)}"
+    )
+    print(f"    (of which the only such country is Canada: {len(canada_only)})")
     if not use_db:
         print("\nno database here; the overlap with our own gap is the NAS half.")
         return
@@ -433,7 +490,8 @@ def run_census(use_db: bool) -> None:
         english_gap += 1
         if row["id"] in with_cast:
             title = row["title_english"] or row["title_romaji"] or f"#{row['id']}"
-            english_gap_titles.append(f"{row['id']} {title}")
+            marker = "ENGLISH-FLAGGED" if row["id"] in with_english else "language unknown"
+            english_gap_titles.append(f"{row['id']} {title}  [{marker}]")
 
     print(f"\nof {len(by_id)} wiki ids, {len(rows)} exist in our catalog")
     print("\nany dub language known:")
@@ -443,6 +501,8 @@ def run_census(use_db: bool) -> None:
     print(f"  English dub known: {english_known}")
     print(f"  English unknown: {english_gap}")
     print(f"  English unknown AND the wiki names a dub cast: {len(english_gap_titles)}")
+    flagged = sum(1 for line in english_gap_titles if "ENGLISH-FLAGGED" in line)
+    print(f"    of those, the Dub Actor column is flagged English: {flagged}")
     for line in english_gap_titles[:40]:
         print(f"    {line}")
     if len(english_gap_titles) > 40:
