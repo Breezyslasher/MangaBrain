@@ -159,3 +159,30 @@ def test_the_census_batches_its_reads():
     from pipeline.probe_dub_fandom import BATCH_SIZE
 
     assert BATCH_SIZE == 50
+
+
+def test_the_census_asks_about_english_the_way_the_filter_does():
+    """A known Portuguese cast is not an English dub answer.
+
+    The first census counted any dub language as "answered", which put
+    The Amazing 3 - AniList Portuguese only, ANN unmatched, and the title
+    this whole investigation started from - in the answered column. The
+    query must restate the English clause api/filters.py applies, or the
+    measurement grades a different question than the app asks.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline/probe_dub_fandom.py").read_text()
+    census = source[source.index("def run_census(") :]
+    census = census[: census.index("\ndef ")]
+
+    for clause in (
+        "m.dub_languages @> ARRAY['en']::text[]",
+        "m.measured_dub_languages @> ARRAY['en']::text[]",
+        "m.english_va_count > 0",
+        "m.english_dub_inferred",
+    ):
+        assert clause in census, f"the English test is missing {clause}"
+    # And both figures are reported, so the difference between them stays
+    # visible rather than being a silent choice of definition.
+    assert "any_answer" in census and "english_answer" in census

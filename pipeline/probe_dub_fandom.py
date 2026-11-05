@@ -372,41 +372,68 @@ def run_census(use_db: bool) -> None:
 
     from api.config import settings
 
+    # english_answer restates api/filters.py's English clause, because that
+    # clause is what decides whether a title appears under the dub filter.
+    # The any-language column is kept beside it to show the difference: a
+    # title with a known Portuguese cast "has a dub answer" while still
+    # being invisible to a reader filtering for English, which is exactly
+    # the case that started this investigation.
     sql = """
         SELECT m.id,
-               m.english_va_count,
-               m.english_dub_inferred,
-               coalesce(array_length(m.dub_languages, 1), 0) AS ann_langs,
-               coalesce(array_length(m.measured_dub_languages, 1), 0) AS measured_langs
+               m.title_english,
+               m.title_romaji,
+               (m.dub_languages @> ARRAY['en']::text[]
+                OR m.measured_dub_languages @> ARRAY['en']::text[]
+                OR m.english_va_count > 0
+                OR m.english_dub_inferred)                      AS english_answer,
+               ((m.english_va_count IS NOT NULL AND m.english_va_count > 0)
+                OR m.english_dub_inferred
+                OR coalesce(array_length(m.dub_languages, 1), 0) > 0
+                OR coalesce(array_length(m.measured_dub_languages, 1), 0) > 0)
+                                                                AS any_answer
         FROM media m
         WHERE m.id = ANY(%(ids)s)
     """
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
         rows = conn.execute(sql, {"ids": list(by_id)}).fetchall()
 
-    known = unknown = unknown_with_cast = 0
+    any_known = any_gap = any_gap_cast = 0
+    english_known = english_gap = 0
+    english_gap_titles: list[str] = []
     for row in rows:
-        has_answer = (
-            (row["english_va_count"] or 0) > 0
-            or row["english_dub_inferred"]
-            or row["ann_langs"] > 0
-            or row["measured_langs"] > 0
-        )
-        if has_answer:
-            known += 1
+        if row["any_answer"]:
+            any_known += 1
+        else:
+            any_gap += 1
+            if row["id"] in with_cast:
+                any_gap_cast += 1
+        if row["english_answer"]:
+            english_known += 1
             continue
-        unknown += 1
+        english_gap += 1
         if row["id"] in with_cast:
-            unknown_with_cast += 1
+            title = row["title_english"] or row["title_romaji"] or f"#{row['id']}"
+            english_gap_titles.append(f"{row['id']} {title}")
 
     print(f"\nof {len(by_id)} wiki ids, {len(rows)} exist in our catalog")
-    print(f"  already have a dub answer: {known}")
-    print(f"  no dub answer today: {unknown}")
-    print(f"  no dub answer AND the wiki names a dub cast: {unknown_with_cast}")
+    print("\nany dub language known:")
+    print(f"  already answered: {any_known}")
+    print(f"  no answer at all: {any_gap}  (of those, wiki names a cast: {any_gap_cast})")
+    print("\nENGLISH specifically - the clause api/filters.py actually applies:")
+    print(f"  English dub known: {english_known}")
+    print(f"  English unknown: {english_gap}")
+    print(f"  English unknown AND the wiki names a dub cast: {len(english_gap_titles)}")
+    for line in english_gap_titles[:40]:
+        print(f"    {line}")
+    if len(english_gap_titles) > 40:
+        print(f"    ... and {len(english_gap_titles) - 40} more")
     print(
-        "\nThat last number is what adopting this source would buy, before"
-        "\nany question of which language the cast is in - the pages say"
-        "\n\"Dub Actor\", not which dub."
+        "\nThe English figure is the one to decide on: a title with a known"
+        "\nPortuguese cast counts as answered in the first block while still"
+        "\nbeing invisible to a reader filtering for an English dub. What the"
+        "\nwiki names is still only \"Dub Actor\" - a dub, not an English one -"
+        "\nso treat even this as an upper bound until a parser reads the"
+        "\nlanguage out of the page."
     )
 
 
