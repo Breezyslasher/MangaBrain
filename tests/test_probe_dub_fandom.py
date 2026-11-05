@@ -124,3 +124,38 @@ def test_cross_reference_templates_are_captured_verbatim():
     # Flag and Infobox are not cross-reference templates and must not be
     # dragged in by a loose match.
     assert not any("Flag" in call or "Infobox" in call for call in calls)
+
+
+def test_the_anilist_id_is_read_from_the_shape_the_wiki_uses():
+    """{{AniList title|#=1}} - a named parameter called "#".
+
+    Read off a real page rather than assumed, and verifiable: Cowboy
+    Bebop's value is 1, which is its actual AniList id.
+    """
+    from pipeline.probe_dub_fandom import anilist_id
+
+    assert anilist_id("{{AniList title|#=1}}") == 1
+    assert anilist_id("{{AniList title | # = 20661 }}") == 20661
+    # Another site's id must never be read as an AniList one.
+    assert anilist_id("{{ANN title|#=13}}") is None
+    assert anilist_id("{{IMDb title|#=tt0213338}}") is None
+    assert anilist_id("no templates here") is None
+
+
+def test_a_dub_cast_is_detected_by_the_column_the_wiki_actually_uses():
+    """Cast tables carry a "Dub Actor" column beside "Seiyu". Its presence
+    says a dub cast is named; it does not say which language, and the
+    census output must not claim otherwise."""
+    from pipeline.probe_dub_fandom import names_a_dub_cast
+
+    assert names_a_dub_cast("==Cast==\n!Character !!Seiyu !!Dub Actor\n")
+    assert names_a_dub_cast("==Cast==\n! dub actor\n"), "case must not matter"
+    assert not names_a_dub_cast("==Cast==\n!Character !!Seiyu\n")
+
+
+def test_the_census_batches_its_reads():
+    """634 pages one at a time is 634 requests against a volunteer wiki;
+    MediaWiki takes fifty titles per query."""
+    from pipeline.probe_dub_fandom import BATCH_SIZE
+
+    assert BATCH_SIZE == 50

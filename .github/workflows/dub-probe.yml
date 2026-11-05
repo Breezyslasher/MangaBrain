@@ -204,6 +204,12 @@ jobs:
           # instead of by title, which is the difference between a usable
           # source and another ANN.
           python -m pipeline.probe_dub_fandom coverage
+          # The fetch-and-parse half of the census: how many of those pages
+          # carry a usable AniList id and name a dub cast. The comparison
+          # against our own gap needs the catalog, so it runs on the
+          # deployment host; this proves the reading half works and costs
+          # about thirteen requests.
+          python -m pipeline.probe_dub_fandom census --no-db
 
       - name: Probe AniList's dub languages
         if: inputs.languages == 'true'

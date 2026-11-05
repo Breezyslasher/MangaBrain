@@ -253,14 +253,35 @@ def run_recon(titles: list[str]) -> int:
     return matched
 
 
-def count_pages_with_template(client: RateLimitedClient, template: str, cap: int = 20) -> dict:
-    """How many wiki pages embed a template, via list=embeddedin.
+# {{AniList title|#=1}} - a named parameter called "#", read off a real
+# page rather than assumed. Cowboy Bebop's value is 1, which is its actual
+# AniList id, so the join is verifiable and not merely plausible.
+ANILIST_ID_RE = re.compile(r"\{\{\s*AniList title\s*\|\s*#\s*=\s*(\d+)\s*\}\}")
 
-    This is the number that decides whether the wiki can be joined by id
-    at all. If {{AniList title}} appears on a few hundred pages it is a
-    curiosity; if it appears on thousands, it is a mapping table that
-    needs no title matching.
-    """
+# The cast tables seen on real pages have a "Dub Actor" column beside
+# "Seiyu". Its presence is evidence the page names a dub cast at all; it
+# does NOT say which language, and nothing here pretends otherwise.
+DUB_ACTOR_RE = re.compile(r"Dub\s*Actor", re.IGNORECASE)
+
+# MediaWiki accepts fifty titles per query for anonymous clients, which
+# turns a 634-page census from 634 requests into thirteen.
+BATCH_SIZE = 50
+
+
+def anilist_id(wikitext: str) -> int | None:
+    match = ANILIST_ID_RE.search(wikitext)
+    return int(match.group(1)) if match else None
+
+
+def names_a_dub_cast(wikitext: str) -> bool:
+    """Whether the page has a dub-actor column, in any language."""
+    return bool(DUB_ACTOR_RE.search(section(wikitext, "cast") or wikitext))
+
+
+def pages_with_template(
+    client: RateLimitedClient, template: str, cap: int = 20
+) -> tuple[list[str], bool]:
+    """Article-namespace pages embedding a template, and whether that is all."""
     titles: list[str] = []
     params = {
         "action": "query",
@@ -271,17 +292,139 @@ def count_pages_with_template(client: RateLimitedClient, template: str, cap: int
         "format": "json",
         "formatversion": "2",
     }
-    pages = 0
-    while pages < cap:
+    for _ in range(cap):
         data = client.request("GET", API_URL, params=params)
         titles.extend(item["title"] for item in data.get("query", {}).get("embeddedin", []))
-        pages += 1
         cont = data.get("continue", {}).get("eicontinue")
         if not cont:
-            return {"template": template, "count": len(titles), "complete": True,
-                    "sample": titles[:5]}
+            return titles, True
         params["eicontinue"] = cont
-    return {"template": template, "count": len(titles), "complete": False, "sample": titles[:5]}
+    return titles, False
+
+
+def fetch_many(client: RateLimitedClient, titles: list[str]) -> dict[str, str]:
+    """Wikitext for up to BATCH_SIZE pages in one request."""
+    data = client.request(
+        "GET",
+        API_URL,
+        params={
+            "action": "query",
+            "prop": "revisions",
+            "rvprop": "content",
+            "rvslots": "main",
+            "titles": "|".join(titles),
+            "format": "json",
+            "formatversion": "2",
+        },
+    )
+    out: dict[str, str] = {}
+    for page in data.get("query", {}).get("pages", []):
+        if page.get("missing"):
+            continue
+        revisions = page.get("revisions") or []
+        if not revisions:
+            continue
+        out[page["title"]] = revisions[0].get("slots", {}).get("main", {}).get("content", "")
+    return out
+
+
+def run_census(use_db: bool) -> None:
+    """Every AniList-linked page, against our own dub gap.
+
+    A census rather than a sample, because 634 pages is small enough to
+    read in full: batched fifty at a time, the whole wiki's AniList-linked
+    corpus is about thirteen requests. A sample would add uncertainty to a
+    number we can simply have.
+    """
+    client = RateLimitedClient(min_interval=MIN_INTERVAL, max_retries=2, timeout=30.0)
+    titles, complete = pages_with_template(client, "AniList title")
+    print(f"pages embedding AniList title: {len(titles)}{'' if complete else ' (capped)'}")
+
+    by_id: dict[int, str] = {}
+    with_cast: set[int] = set()
+    no_id = 0
+    for start in range(0, len(titles), BATCH_SIZE):
+        batch = titles[start : start + BATCH_SIZE]
+        try:
+            pages = fetch_many(client, batch)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  batch at {start} FAILED ({type(exc).__name__}: {exc})")
+            continue
+        for title, wikitext in pages.items():
+            media_id = anilist_id(wikitext)
+            if media_id is None:
+                no_id += 1
+                continue
+            by_id[media_id] = title
+            if names_a_dub_cast(wikitext):
+                with_cast.add(media_id)
+        print(f"  read {min(start + BATCH_SIZE, len(titles))}/{len(titles)}", flush=True)
+
+    print(f"\nusable AniList ids: {len(by_id)}")
+    print(f"  pages embedding the template but with no parsable id: {no_id}")
+    print(f"  of the ids, pages with a dub-actor column: {len(with_cast)}")
+    if not use_db:
+        print("\nno database here; the overlap with our own gap is the NAS half.")
+        return
+
+    import psycopg
+    from psycopg.rows import dict_row
+
+    from api.config import settings
+
+    sql = """
+        SELECT m.id,
+               m.english_va_count,
+               m.english_dub_inferred,
+               coalesce(array_length(m.dub_languages, 1), 0) AS ann_langs,
+               coalesce(array_length(m.measured_dub_languages, 1), 0) AS measured_langs
+        FROM media m
+        WHERE m.id = ANY(%(ids)s)
+    """
+    with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        rows = conn.execute(sql, {"ids": list(by_id)}).fetchall()
+
+    known = unknown = unknown_with_cast = 0
+    for row in rows:
+        has_answer = (
+            (row["english_va_count"] or 0) > 0
+            or row["english_dub_inferred"]
+            or row["ann_langs"] > 0
+            or row["measured_langs"] > 0
+        )
+        if has_answer:
+            known += 1
+            continue
+        unknown += 1
+        if row["id"] in with_cast:
+            unknown_with_cast += 1
+
+    print(f"\nof {len(by_id)} wiki ids, {len(rows)} exist in our catalog")
+    print(f"  already have a dub answer: {known}")
+    print(f"  no dub answer today: {unknown}")
+    print(f"  no dub answer AND the wiki names a dub cast: {unknown_with_cast}")
+    print(
+        "\nThat last number is what adopting this source would buy, before"
+        "\nany question of which language the cast is in - the pages say"
+        "\n\"Dub Actor\", not which dub."
+    )
+
+
+def count_pages_with_template(client: RateLimitedClient, template: str, cap: int = 20) -> dict:
+    """How many wiki pages embed a template, via list=embeddedin.
+
+    This is the number that decides whether the wiki can be joined by id
+    at all. If {{AniList title}} appears on a few hundred pages it is a
+    curiosity; if it appears on thousands, it is a mapping table that
+    needs no title matching.
+    """
+    titles, complete = pages_with_template(client, template, cap)
+    return {
+        "template": template,
+        "count": len(titles),
+        "complete": complete,
+        "sample": titles[:5],
+    }
 
 
 def run_coverage() -> None:
@@ -373,6 +516,16 @@ def main() -> None:
         help="how many wiki pages carry each cross-reference id template",
     )
 
+    census = sub.add_parser(
+        "census",
+        help="every AniList-linked page, counted against our own dub gap",
+    )
+    census.add_argument(
+        "--no-db",
+        action="store_true",
+        help="fetch and parse only; skip the catalog comparison (for CI)",
+    )
+
     probe = sub.add_parser("probe", help="measure against the catalog's dub gap")
     probe.add_argument("--sample", type=int, default=100)
     probe.add_argument("--seed", type=int, default=20261105)
@@ -382,6 +535,8 @@ def main() -> None:
         run_recon(args.title or DEFAULT_TITLES)
     elif args.command == "coverage":
         run_coverage()
+    elif args.command == "census":
+        run_census(use_db=not args.no_db)
     else:
         run_probe(args.sample, args.seed)
 
