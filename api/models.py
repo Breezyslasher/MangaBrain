@@ -90,6 +90,32 @@ class SearchResponse(BaseModel):
     results: list[MediaOut]
 
 
+class DescribeItem(BaseModel):
+    """One description-search result.
+
+    similarity is the best raw query-document cosine any facet gave this
+    title, and is NOT the percentage /recommend reports: display_similarity
+    calibrates a blended seed-to-title score, and reusing that curve on a
+    different kind of comparison would invent confidence nobody measured.
+    Clients should show the order, and the facet coverage, rather than
+    dressing this up as a match percentage.
+    """
+
+    media: MediaOut
+    similarity: float | None = None
+    facets_hit: int = 1
+    facet_count: int = 1
+
+
+class DescribeResponse(BaseModel):
+    """facets echoes how the query was split, since a comma-separated query
+    is ranked facet by facet and fused: without it a client cannot explain
+    why "2/3" appears next to a result."""
+
+    facets: list[str]
+    results: list[DescribeItem]
+
+
 # Identity, not ranking: a wrong id would exclude an unrelated title and pull
 # the taste profile toward something the user never read, so resolution is
 # exact-match only and reports ambiguity instead of guessing.

@@ -75,13 +75,16 @@ def test_why_prints_the_synopsis_and_says_when_there_is_none():
         "start_year": 2020,
         "similarity": 0.8,
     }
-    with_text = format_row(1, {**base, "description_clean": "A long way\nfrom home."}, why=True)
+    # "description", not "description_clean": display rows come from
+    # MEDIA_COLS, which aliases the cleaned column to the name the API
+    # exposes.
+    with_text = format_row(1, {**base, "description": "A long way\nfrom home."}, why=True)
     assert "A long way from home." in with_text, "newlines should collapse to one line"
 
-    without = format_row(1, {**base, "description_clean": ""}, why=True)
+    without = format_row(1, {**base, "description": ""}, why=True)
     assert "no synopsis" in without
 
-    assert "\n" not in format_row(1, {**base, "description_clean": "x"}, why=False)
+    assert "\n" not in format_row(1, {**base, "description": "x"}, why=False)
 
 
 def test_prose_stays_one_facet_and_commas_split():
@@ -185,7 +188,7 @@ def test_the_pool_query_does_not_carry_synopses():
     from pipeline.describe import build_rows_sql
 
     pool_sql = build_sql(768, "")
-    assert "description_clean" not in pool_sql.split("FROM")[0], (
+    assert "description" not in pool_sql.split("FROM")[0], (
         "the pool query should select ids and distance, not synopses"
     )
-    assert "description_clean" in build_rows_sql()
+    assert "description_clean AS description" in build_rows_sql()

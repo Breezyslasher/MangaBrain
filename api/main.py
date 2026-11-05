@@ -18,6 +18,7 @@ from api.db import close_pool, ensure_schema, get_pool
 from api.routers import (
     anilist,
     app_settings,
+    describe,
     dub,
     exclusions,
     foryou,
@@ -92,6 +93,12 @@ API_PREFIXES = (
     "/kitsu",
     "/settings",
     "/tags",
+    "/describe",
+    # /dub was missing, so dub coverage and the language list answered
+    # unauthenticated on a server with AUTH_TOKEN set, and skipped the
+    # rate limiter with it. Both clients already send the token on every
+    # call, so nothing has to change on their side.
+    "/dub",
 )
 
 # Cover images load from the AniList CDN, hence img-src https:. No inline
@@ -169,6 +176,7 @@ app.include_router(yamtrack.router)
 app.include_router(kitsu.router)
 app.include_router(app_settings.router)
 app.include_router(dub.router)
+app.include_router(describe.router)
 
 
 @app.get("/healthz")
