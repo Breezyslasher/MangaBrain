@@ -109,7 +109,7 @@ MEDIA_COLS = """
     m.status, m.average_score, m.cover_image_medium, m.cover_image_large,
     m.is_adult, m.synonyms, m.popularity, m.favourites,
     m.english_va_count, m.dub_groups, m.english_dub_inferred, m.dub_languages,
-    m.measured_dub_languages
+    m.measured_dub_languages, m.mal_dub_languages
 """
 
 
@@ -145,6 +145,11 @@ def media_from_row(row: dict[str, Any]) -> MediaOut:
         has_english_dub=_has_dub(row),
         dub_groups=row.get("dub_groups") or [],
         dub_languages=row.get("dub_languages") or [],
+        # Both per-entry measurements were selected and neither was served:
+        # the model declared them and media_from_row never set them, so a
+        # client asking which database knows what got an empty list.
+        measured_dub_languages=row.get("measured_dub_languages") or [],
+        mal_dub_languages=row.get("mal_dub_languages") or [],
         dub_source=_dub_source(row),
     )
 
@@ -158,6 +163,8 @@ def _has_dub(row: dict[str, Any]) -> bool | None:
     if "en" in (row.get("dub_languages") or []):
         return True
     if "en" in (row.get("measured_dub_languages") or []):
+        return True
+    if "en" in (row.get("mal_dub_languages") or []):
         return True
     if row.get("english_dub_inferred"):
         return True
@@ -177,6 +184,12 @@ def _dub_source(row: dict[str, Any]) -> str | None:
         return "measured"
     if "en" in (row.get("measured_dub_languages") or []):
         return "measured"
+    # Between AniList's own answer and ANN's title match: it is a
+    # per-entry answer on an id join, so it cannot be about another show,
+    # but it comes from a third-party aggregator rather than from the
+    # database that owns the entry.
+    if "en" in (row.get("mal_dub_languages") or []):
+        return "mal"
     if "en" in (row.get("dub_languages") or []):
         return "ann"
     if row.get("english_dub_inferred"):

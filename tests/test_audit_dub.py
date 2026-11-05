@@ -49,6 +49,7 @@ def make_row(**over) -> dict:
         "dub_languages_source": None,
         "ann_id": None,
         "measured_dub_languages": [],
+        "mal_dub_languages": [],
         "lang_checked": False,
         "en_checked": False,
     }
@@ -61,6 +62,7 @@ def make_row(**over) -> dict:
     [
         {"english_va_count": 3},
         {"measured_dub_languages": ["en"]},
+        {"mal_dub_languages": ["en"]},
         {"dub_languages": ["en"]},
         {"english_dub_inferred": True},
     ],
@@ -91,6 +93,11 @@ def test_audit_predicate_matches_the_filter_the_ui_serves():
     assert columns == {
         "dub_languages",
         "measured_dub_languages",
+        # The fifth source this test was written to catch. Added when the
+        # MAL-derived cast API (Tenrai) became a per-entry answer on an
+        # id join; the audit's predicate and probe_dub_mal's gap query
+        # were updated in the same commit, which is what this enforces.
+        "mal_dub_languages",
         "english_va_count",
         "english_dub_inferred",
     }, columns

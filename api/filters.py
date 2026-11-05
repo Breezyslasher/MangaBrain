@@ -130,6 +130,7 @@ def build_filters(
             clauses.append(
                 "(m.dub_languages @> ARRAY['en']::text[]"
                 " OR m.measured_dub_languages @> ARRAY['en']::text[]"
+                " OR m.mal_dub_languages @> ARRAY['en']::text[]"
                 " OR m.english_va_count > 0 OR m.english_dub_inferred)"
             )
         else:
@@ -143,7 +144,8 @@ def build_filters(
             # project exists to surface - and the API reports which answered.
             clauses.append(
                 "(m.dub_languages @> ARRAY[%(f_dub_lang)s]::text[]"
-                " OR m.measured_dub_languages @> ARRAY[%(f_dub_lang)s]::text[])"
+                " OR m.measured_dub_languages @> ARRAY[%(f_dub_lang)s]::text[]"
+                " OR m.mal_dub_languages @> ARRAY[%(f_dub_lang)s]::text[])"
             )
             params["f_dub_lang"] = code
     # keep_planned: plan-to-watch/plan-to-read entries stop excluding, so

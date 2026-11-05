@@ -3,9 +3,11 @@ name: dub-probe
 # Research probe: is English voice-actor data a usable dub signal, and does
 # its coverage survive into the long tail? AniList has no dub field, so the
 # candidate signal is "an English voice actor is credited". This runs on CI
-# because CI can reach AniList; api.jikan.moe is NOT reachable from GitHub's
-# runners, so the MAL cross-check has to run from the NAS. Results appear in
-# the "Probe" step log; nothing is written anywhere.
+# because CI can reach AniList. The MAL cross-check cannot run anywhere:
+# Jikan's public API was discontinued on 1 October 2026 (jikan-rest issue
+# #613), so "unreachable from GitHub's runners" - which this file used to
+# say - was the symptom of a shutdown rather than a property of runners.
+# Results appear in the step logs; nothing is written anywhere.
 on:
   workflow_dispatch:
     inputs:
@@ -15,8 +17,8 @@ on:
         default: "15"
       cross_check:
         description: AniList-silent titles to re-check against MAL (0 to skip;
-          api.jikan.moe is unreachable from GitHub runners, so this only works
-          from the NAS)
+          Jikan's public API was discontinued on 1 Oct 2026, so this
+          answers nowhere; kept for the record)
         required: false
         default: "0"
       sources:
@@ -76,6 +78,27 @@ on:
           match onto measured per-entry coverage of the whole catalog.
         required: false
         default: "false"
+      jikan:
+        description: >-
+          one request to a Jikan-shaped /anime/{id}/characters. "jikan"
+          (or "true") hits api.jikan.moe, whose public API was
+          discontinued on 1 Oct 2026 - measured here, it hangs four
+          minutes and fails. "tenrai" hits api.tenrai.org/v1, the
+          successor the migrating projects name and report to be
+          schema-compatible with Jikan v4. Any other value is used as a
+          base URL verbatim. Reported compatibility is not measured
+          compatibility, which is what this step is for.
+        required: false
+        default: "false"
+      cast_ids:
+        description: >-
+          AniList ids (comma or space separated) to ask the cast API about,
+          mapped through AniList's own idMal so no catalog is needed. This
+          is what lets the 37 English-unknown titles from the Dubbing Wiki
+          census be checked here rather than on the deployment host. Uses
+          the host named by the jikan input, or Tenrai by default.
+        required: false
+        default: ""
       fandom:
         description: >-
           inspect dubbing.fandom.com page structure (recon). "true" uses the
@@ -104,7 +127,7 @@ permissions:
 # and deleted by a reports probe queued while it was still working.
 concurrency:
   group: >-
-    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}-${{ inputs.fandom || 'n' }}
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}-${{ inputs.fandom || 'n' }}-${{ inputs.jikan || 'n' }}-${{ inputs.cast_ids && 'ids' || 'n' }}
   cancel-in-progress: true
 
 jobs:
@@ -123,8 +146,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install httpx
-        run: pip install "httpx>=0.27"
+      # httpx alone was enough while every probe here spoke only HTTP.
+      # probe_dub_mal reaches api.config and, through NATIVE_LANGS in
+      # backfill_dub_ann, psycopg - at import, before any database is
+      # touched. Making the connection lazy in probe_dub_mal was not
+      # enough on its own because of that transitive import, and chasing
+      # it further would mean refactoring a backfill module to suit a
+      # reachability check.
+      - name: Install dependencies
+        run: |
+          pip install "httpx>=0.27" "pydantic-settings>=2.3" \
+            "psycopg[binary]>=3.2" "psycopg-pool>=3.2"
 
       # Runners have open outbound internet, unlike the dev container whose
       # egress proxy blocks these hosts. That distinction is why the other
@@ -174,6 +206,33 @@ jobs:
       - name: Discover Kitsu's cast API shape
         if: inputs.kitsu == 'true'
         run: python -m pipeline.probe_kitsu_shape --skip-docs
+
+      # One request, and the only thing it can establish: whether the
+      # host answers at all. No database, so it runs here rather than on
+      # the deployment host - which is the point, since the recorded
+      # blocker was measured from both and deserves re-checking from both.
+      - name: Is the cast API reachable from a runner
+        if: inputs.jikan != '' && inputs.jikan != 'false'
+        env:
+          # Through the environment: the value may be a URL from a
+          # dispatch form, and ${{ }} is substituted before bash sees it.
+          BASE: ${{ inputs.jikan }}
+        run: |
+          [ "$BASE" = "true" ] && BASE=jikan
+          python -m pipeline.probe_dub_mal --check --base-url "$BASE"
+
+      # The catalog knows every title's id_mal, but only the deployment
+      # host has the catalog, and that was the only reason this check
+      # could not run here. AniList serves idMal fifty at a time, so the
+      # mapping costs one request and the question moves to CI.
+      - name: Ask the cast API about specific titles
+        if: inputs.cast_ids != ''
+        env:
+          IDS: ${{ inputs.cast_ids }}
+          BASE: ${{ inputs.jikan }}
+        run: |
+          [ -z "$BASE" ] || [ "$BASE" = "false" ] || [ "$BASE" = "true" ] && BASE=tenrai
+          python -m pipeline.probe_dub_mal --ids "$IDS" --via-anilist --base-url "$BASE"
 
       # Structure first, measurement second. The parser in the module is
       # a guess at a format nobody has inspected; this step is how that
@@ -230,6 +289,8 @@ jobs:
           && inputs.kitsu != 'true' && inputs.anidb != 'true'
           && inputs.one_call != 'true' && inputs.signals != 'true' && inputs.studios != 'true' && inputs.wikidata != 'true'
           && (inputs.fandom == '' || inputs.fandom == 'false')
+          && (inputs.jikan == '' || inputs.jikan == 'false')
+          && inputs.cast_ids == ''
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \
