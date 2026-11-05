@@ -448,3 +448,18 @@ def test_the_for_you_feed_sends_the_ratings_switch():
     ).read_text()
     assert 'params["use_ratings"]' in source, "the for-you request omits use_ratings"
     assert "use_ratings" in server_params("/foryou")
+
+
+def test_rebuilding_the_filter_panel_does_not_stack_text_watchers():
+    """Reset rebuilds the panel by calling onViewCreated on the same views.
+
+    addTextChangedListener adds rather than replaces, so without removing
+    the previous one first, every Reset left another watcher on all five
+    fields - each firing on every keystroke for the life of the fragment.
+    """
+    source = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/filters/FiltersFragment.kt"
+    ).read_text()
+    assert "removeTextChangedListener" in source, (
+        "bindTextFields adds a watcher without removing the previous one"
+    )

@@ -32,6 +32,16 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
 
     private val spinnerValues = mutableMapOf<Int, List<String>>()
 
+    /**
+     * The text watcher attached to each field, so a rebind can remove it.
+     *
+     * Reset rebuilds every control by calling onViewCreated again on the
+     * same views. addTextChangedListener adds, so without this each Reset
+     * left another watcher on all five fields, every one of them firing on
+     * every keystroke for as long as the fragment lived.
+     */
+    private val textWatchers = mutableMapOf<Int, SimpleWatcher>()
+
     // Every fragment is added in MainActivity.onCreate, so this binds at app
     // start - on a first run that is BEFORE the server has been configured,
     // and ServiceLocator.api() is null. The old code returned early there and
@@ -118,8 +128,14 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
         )
         for (field in fields) {
             val input = view.findViewById<EditText>(field.id)
+            textWatchers.remove(field.id)?.let(input::removeTextChangedListener)
+            // Set the text before watching it: setText fires the watcher,
+            // and on a rebuild that would write the old value straight back
+            // over the one reset() just chose.
             input.setText(field.get())
-            input.addTextChangedListener(SimpleWatcher { field.set(it) })
+            val watcher = SimpleWatcher { field.set(it) }
+            textWatchers[field.id] = watcher
+            input.addTextChangedListener(watcher)
         }
     }
 
