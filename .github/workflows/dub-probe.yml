@@ -3,9 +3,11 @@ name: dub-probe
 # Research probe: is English voice-actor data a usable dub signal, and does
 # its coverage survive into the long tail? AniList has no dub field, so the
 # candidate signal is "an English voice actor is credited". This runs on CI
-# because CI can reach AniList; api.jikan.moe is NOT reachable from GitHub's
-# runners, so the MAL cross-check has to run from the NAS. Results appear in
-# the "Probe" step log; nothing is written anywhere.
+# because CI can reach AniList. The MAL cross-check cannot run anywhere:
+# Jikan's public API was discontinued on 1 October 2026 (jikan-rest issue
+# #613), so "unreachable from GitHub's runners" - which this file used to
+# say - was the symptom of a shutdown rather than a property of runners.
+# Results appear in the step logs; nothing is written anywhere.
 on:
   workflow_dispatch:
     inputs:
@@ -15,8 +17,8 @@ on:
         default: "15"
       cross_check:
         description: AniList-silent titles to re-check against MAL (0 to skip;
-          api.jikan.moe is unreachable from GitHub runners, so this only works
-          from the NAS)
+          Jikan's public API was discontinued on 1 Oct 2026, so this
+          answers nowhere; kept for the record)
         required: false
         default: "0"
       sources:
@@ -78,12 +80,11 @@ on:
         default: "false"
       jikan:
         description: >-
-          one request to api.jikan.moe/v4/anime/1/characters, to re-test
-          whether it refuses GitHub's runners. The blocker is recorded
-          (ConnectError Errno 101) but a recorded blocker is worth
-          re-measuring: the identical conclusion about MAL list sync turned
-          out to be stale. Jikan is the ONLY remaining route to cast data -
-          the official MAL API has no characters resource, measured.
+          one request to api.jikan.moe/v4/anime/1/characters. ANSWERED:
+          it hangs for four minutes and fails, from a runner and from the
+          deployment host, because the public API was discontinued on
+          1 Oct 2026 (jikan-rest issue #613). Kept so the finding can be
+          reproduced rather than taken on trust.
         required: false
         default: "false"
       fandom:

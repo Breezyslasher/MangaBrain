@@ -19,7 +19,7 @@ Deployment target: Docker Compose on OpenMediaVault (linux/amd64). Single-user f
 ## Data Sources
 
 - **AniList GraphQL API** (`https://graphql.anilist.co`) — primary catalog source. Pull BOTH media types (ANIME and MANGA): id, idMal, title (romaji/english/native), description, genres, tags (with rank), format, episodes/chapters/volumes, countryOfOrigin, startDate, status, averageScore, coverImage, isAdult, relations (for adaptation links). Respect rate limits (read X-RateLimit headers, back off). Paginate with perPage=50.
-- **Jikan v4** (`https://api.jikan.moe/v4`) — MAL enrichment and cast data (`/anime/{id}/characters`). Rate limit: 3 req/sec, 60 req/min. NOT user lists: Jikan discontinued `/users/{username}/animelist` and `/users/{username}/mangalist` in May 2022.
+- **Jikan v4** (`https://api.jikan.moe/v4`) — DEAD. Its public API was discontinued on 1 October 2026 (jikan-rest issue #613); it answers from no host. Its user-list endpoints had already been discontinued in May 2022. Self-hosting jikan-rest is possible but it works by scraping MAL, which this project's non-goals rule out.
 - **MyAnimeList API v2** (`https://api.myanimelist.net/v2`) — user list retrieval (`/users/{username}/animelist`), with an `X-MAL-CLIENT-ID` header and no OAuth user flow. The official API carries no cast or voice-actor data, so dubs still come from Jikan.
 - Store idMal on every entry so MAL exclusion is a simple join.
 - Full catalog sync is a one-time batch job (~20k anime + ~150k manga-family entries); nightly incremental sync by `updatedAt`.

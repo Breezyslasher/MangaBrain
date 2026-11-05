@@ -21,6 +21,30 @@ Why it is the strongest remaining candidate, on structure rather than hope:
     obscurity (100% at the top, ~20% at rank 5000); there is no a priori
     reason MAL's falls off the same way.
 
+SUPERSEDED, and worth reading before trusting anything below: Jikan's
+public API was discontinued on 1 October 2026 (jikan-rest issue #613,
+announced that June). A run of --check hangs for four minutes and then
+reports failure, from a GitHub runner and from the deployment host alike,
+because there is nothing there - not because either host is blocked. The
+earlier note in this repository, "api.jikan.moe refuses GitHub's runners
+(ConnectError Errno 101)", described the symptom of a shutdown as if it
+were a network policy, and sent one investigation after container DNS and
+egress rules.
+
+That is the second time in this project that a recorded transport error
+masked an endpoint that no longer exists; the first was MAL's own user
+list endpoints, discontinued in 2022 and chased as a connectivity
+problem. The lesson both times: when a host stops answering, check
+whether the service still exists before checking the network.
+
+The MAL-shaped question this module asks is still a good one. It just
+cannot be answered through Jikan any more, and the official MAL API has
+no cast resource at all (measured: fields=characters,
+characters{voice_actors}, voice_actors and cast all return 200 with the
+default payload and no such key). Kitsu is the live candidate -
+character-voices carries a locale code and mappings joins by AniList id,
+both measured in pipeline.probe_kitsu.
+
 That last point is the question, so the sample is stratified by obscurity
 and reported per band. Popularity is a MEASUREMENT axis here and never a
 ranking input - the catalog's rule is that it must not enter scoring, and
@@ -283,7 +307,13 @@ def main() -> None:
         elif status == "ok":
             print("reachable, but no English cast on a certainly-dubbed title: investigate")
         else:
-            print("Jikan is NOT reachable from here; the recorded blocker still holds.")
+            print(
+                "Jikan did not answer. Not a blocker to work around: the public"
+                "\nAPI was discontinued on 1 October 2026 (jikan-rest issue"
+                "\n#613). It will not answer from any host. Cast data needs a"
+                "\ndifferent source - Kitsu carries locale codes on"
+                "\ncharacter-voices and joins by id through mappings."
+            )
         return
 
     if args.ids or args.ids_file:
