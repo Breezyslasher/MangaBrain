@@ -40,9 +40,14 @@ jobs:
           python-version: "3.12"
 
       # The probe imports the router so it exercises the real fetch, which
-      # pulls in FastAPI and psycopg. No database is contacted.
+      # pulls in FastAPI and the database layer. No database is contacted,
+      # but the imports have to resolve - including psycopg-pool, which is
+      # a separate distribution from psycopg[binary] and was missing from
+      # the first version of this list.
       - name: Install dependencies
-        run: pip install "httpx>=0.27" "fastapi>=0.115" "pydantic-settings>=2.3" "psycopg[binary]>=3.2" "pgvector>=0.3"
+        run: |
+          pip install "httpx>=0.27" "fastapi>=0.115" "pydantic-settings>=2.3" \
+            "psycopg[binary]>=3.2" "psycopg-pool>=3.2" "pgvector>=0.3"
 
       - name: Fetch the list
         env:
