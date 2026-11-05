@@ -146,3 +146,46 @@ def test_the_wikidata_query_limits_before_it_aggregates():
     source = PROBE.read_text()
     query = source[source.index("SELECT ?film") : source.index("GROUP BY")]
     assert "{ SELECT ?film WHERE" in query and "LIMIT 25 }" in query
+
+
+def test_a_credential_wall_is_not_reported_as_unreachable():
+    """Measured 2026-11-05, and the distinction decides what to do next.
+
+    BoardGameGeek's XMLAPI2 was keyless for years and now answers 401
+    with a pointer to its own documentation; Google Books answers 429
+    naming the shared anonymous project whose daily quota every keyless
+    caller draws on. Neither is a transport failure - both mean "get an
+    account" - and reporting them as unreachable would have retired two
+    live sources.
+    """
+    source = PROBE.read_text()
+    bgg = source[source.index("def probe_bgg(") :]
+    bgg = bgg[: bgg.index("\ndef ", 1)]
+    assert "found.needs_key = True" in bgg
+    assert "401, 403" in bgg
+
+    books = source[source.index("def probe_google_books(") :]
+    books = books[: books.index("\ndef ", 1)]
+    assert "401, 403, 429" in books
+
+
+def test_the_steam_app_list_version_is_measured_not_chosen():
+    """/ISteamApps/GetAppList/v2/ answered 404 "Method 'GetAppList' not
+    found in interface 'ISteamApps'". Valve's versions appear as both v2
+    and v0002 and the interface has been reshuffled before, so the
+    candidates are tried and each answer reported."""
+    source = PROBE.read_text()
+    steam = source[source.index("def probe_steam(") :]
+    steam = steam[: steam.index("\ndef ", 1)]
+    for version in ("v2", "v0002", "v1", "v0001"):
+        assert f'"{version}"' in steam
+
+
+def test_steam_still_measures_when_the_list_is_unavailable():
+    """The list is only a way to find ids; appdetails is the endpoint
+    that decides whether the medium is rankable. Losing one should not
+    cost the other."""
+    source = PROBE.read_text()
+    steam = source[source.index("def probe_steam(") :]
+    steam = steam[: steam.index("\ndef ", 1)]
+    assert "sampled ids directly" in steam

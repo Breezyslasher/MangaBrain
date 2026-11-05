@@ -134,7 +134,10 @@ def probe_google_books(raw: httpx.Client) -> Finding:
     )
     if status != 200:
         found.note = f"HTTP {status}: {body[:200]}"
-        found.needs_key = status in (401, 403)
+        # 429 names the shared anonymous project whose daily quota every
+        # keyless caller draws on; measured exhausted. That is a key
+        # requirement in practice, not a transient throttle.
+        found.needs_key = status in (401, 403, 429)
         return found
     found.reachable = True
     try:
@@ -171,6 +174,15 @@ def probe_bgg(raw: httpx.Client) -> Finding:
     for host in ("https://api.geekdo.com", "https://boardgamegeek.com"):
         url = f"{host}/xmlapi2/thing"
         status, body = fetch(raw, url, params)
+        if status in (401, 403):
+            # Measured 2026-11-05: both hosts answer "Unauthorized. See
+            # boardgamegeek.com/using_the_xml_api". XMLAPI2 was keyless
+            # for years; it is not now. That is a credential question,
+            # not a reachability one.
+            found.reachable = True
+            found.needs_key = True
+            found.note = f"{host} HTTP {status}: {body[:120]}"
+            return found
         if status != 200:
             attempts.append(f"{host} HTTP {status}: {body[:120]}")
             continue
@@ -206,20 +218,36 @@ def probe_steam(client: RateLimitedClient, raw: httpx.Client) -> Finding:
     a finding.
     """
     found = Finding("Steam store", note="undocumented, ~200 requests per 5 min")
-    status, body = fetch(raw, "https://api.steampowered.com/ISteamApps/GetAppList/v2/")
-    if status != 200:
-        found.note = f"app list HTTP {status}: {body[:160]}"
-        return found
-    found.reachable = True
-    # fetch() truncates its body for diagnosis, so take the list in full
-    # now that the endpoint is known to answer.
-    try:
-        listing = raw.get("https://api.steampowered.com/ISteamApps/GetAppList/v2/").json()
-    except (ValueError, httpx.HTTPError) as exc:
-        found.note = f"app list unparseable: {type(exc).__name__}"
-        return found
-    apps = (listing.get("applist") or {}).get("apps") or []
-    found.note = f"{len(apps)} app ids listed; {found.note}"
+    # Measured: /ISteamApps/GetAppList/v2/ answers 404 "Method
+    # 'GetAppList' not found in interface 'ISteamApps'". Valve's WebAPI
+    # versions appear as both v2 and v0002 in the wild and the interface
+    # has been reshuffled before, so the candidates are tried rather
+    # than chosen, and each one's answer is reported.
+    apps: list[dict] = []
+    tried = []
+    for version in ("v2", "v0002", "v1", "v0001"):
+        url = f"https://api.steampowered.com/ISteamApps/GetAppList/{version}/"
+        status, body = fetch(raw, url, {"format": "json"})
+        if status != 200:
+            tried.append(f"{version} HTTP {status}")
+            continue
+        try:
+            listing = raw.get(url, params={"format": "json"}).json()
+        except (ValueError, httpx.HTTPError):
+            tried.append(f"{version} unparseable")
+            continue
+        apps = (listing.get("applist") or {}).get("apps") or []
+        found.reachable = True
+        break
+    if not apps:
+        # The store endpoint is the one that matters; the list is only a
+        # way to find ids. Sampling a spread of plausible ids keeps the
+        # measurement alive when the list does not answer.
+        found.note = f"app list unavailable ({', '.join(tried)}); sampled ids directly"
+        apps = [{"appid": i} for i in range(10, 2_600_000, 7919)]
+        found.reachable = True
+    if "sampled ids directly" not in found.note:
+        found.note = f"{len(apps)} app ids listed; {found.note}"
     # Evenly spaced rather than the first N: the head of the list is old
     # test entries with no store page at all.
     step = max(len(apps) // (SAMPLE * 4), 1)
