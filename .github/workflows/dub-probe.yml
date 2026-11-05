@@ -76,6 +76,18 @@ on:
           match onto measured per-entry coverage of the whole catalog.
         required: false
         default: "false"
+      fandom:
+        description: >-
+          inspect dubbing.fandom.com page structure (recon). "true" uses the
+          built-in controls (one title our sources handle plus the two this
+          investigation failed on); a comma-separated list probes those
+          titles instead. One input rather than a flag and a list because
+          workflow_dispatch documents a limit of ten and this file already
+          carries more. A MediaWiki, so api.php is a real public API, but it
+          holds no AniList or MAL ids, so every lookup is a title match.
+          Runs here because the dev container's egress proxy refuses the host.
+        required: false
+        default: "false"
       paged_cast:
         description: can a cast be fetched for a PAGE of media rather than one
           title per request? Decides the English walk's cost by 50x. The probe
@@ -92,7 +104,7 @@ permissions:
 # and deleted by a reports probe queued while it was still working.
 concurrency:
   group: >-
-    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}-${{ inputs.fandom || 'n' }}
   cancel-in-progress: true
 
 jobs:
@@ -163,6 +175,42 @@ jobs:
         if: inputs.kitsu == 'true'
         run: python -m pipeline.probe_kitsu_shape --skip-docs
 
+      # Structure first, measurement second. The parser in the module is
+      # a guess at a format nobody has inspected; this step is how that
+      # guess gets replaced by what the pages actually contain. The probe
+      # subcommand that produces a number needs the catalog, so it runs on
+      # the deployment host, not here.
+      - name: Inspect the Dubbing Wiki
+        if: inputs.fandom != '' && inputs.fandom != 'false'
+        env:
+          # Through the environment, not interpolated into the script: a
+          # title is free text from a dispatch form, and ${{ }} inside a
+          # run block is substituted before bash ever sees it.
+          FANDOM: ${{ inputs.fandom }}
+        run: |
+          if [ "$FANDOM" = "true" ]; then
+            python -m pipeline.probe_dub_fandom recon
+          else
+            ARGS=()
+            IFS=',' read -ra TITLES <<< "$FANDOM"
+            for title in "${TITLES[@]}"; do
+              trimmed="$(echo "$title" | sed -e 's/^ *//' -e 's/ *$//')"
+              [ -n "$trimmed" ] && ARGS+=(--title "$trimmed")
+            done
+            python -m pipeline.probe_dub_fandom recon "${ARGS[@]}"
+          fi
+          # How many pages carry each cross-reference id template. This is
+          # the number that decides whether the wiki can be joined by id
+          # instead of by title, which is the difference between a usable
+          # source and another ANN.
+          python -m pipeline.probe_dub_fandom coverage
+          # The fetch-and-parse half of the census: how many of those pages
+          # carry a usable AniList id and name a dub cast. The comparison
+          # against our own gap needs the catalog, so it runs on the
+          # deployment host; this proves the reading half works and costs
+          # about thirteen requests.
+          python -m pipeline.probe_dub_fandom census --no-db
+
       - name: Probe AniList's dub languages
         if: inputs.languages == 'true'
         run: python -m pipeline.probe_dub_languages --chars 25
@@ -181,6 +229,7 @@ jobs:
           && inputs.paged_cast != 'true' && inputs.languages != 'true'
           && inputs.kitsu != 'true' && inputs.anidb != 'true'
           && inputs.one_call != 'true' && inputs.signals != 'true' && inputs.studios != 'true' && inputs.wikidata != 'true'
+          && (inputs.fandom == '' || inputs.fandom == 'false')
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \

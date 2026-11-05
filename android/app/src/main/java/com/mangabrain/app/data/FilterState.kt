@@ -152,6 +152,13 @@ object FilterState {
             "limit" to limit.toString()
         )
 
+    /**
+     * Filters plus the medium, with no weights: a description has no seed
+     * to weigh components against, so the sliders mean nothing here.
+     */
+    fun describeParams(limit: Int = 60): Map<String, String> =
+        filterParams() + mapOf("medium" to medium, "limit" to limit.toString())
+
     fun searchParams(limit: Int = 60): Map<String, String> =
         filterParams() + mapOf("medium" to medium, "limit" to limit.toString())
 

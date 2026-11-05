@@ -55,6 +55,10 @@ EF_SEARCH = 500
 # of them, which is the entire point of fusing.
 RRF_K = 60
 
+# Every facet is its own ANN scan, so a long comma list multiplies the
+# cost of one request. Prose is the better input anyway.
+MAX_FACETS = 5
+
 # How deep each facet's ranking goes before fusion.
 #
 # 200 was far too shallow and the first real run showed it: over a 165k
@@ -95,9 +99,14 @@ def build_rows_sql() -> str:
     only to discard 99% of them is the same waste the recommender makes
     with its 500-row candidate fetch.
     """
-    return """
-        SELECT m.id, m.title_romaji, m.title_english, m.medium, m.format,
-               m.start_year, m.average_score, m.description_clean
+    from api.db import MEDIA_COLS
+
+    # The full column list, because the API builds MediaOut from these
+    # rows: a trimmed set would serve a response with no cover and no
+    # genres. Only the handful of rows that survived ranking are fetched,
+    # so the width costs nothing.
+    return f"""
+        SELECT {MEDIA_COLS}
         FROM media m
         WHERE m.id = ANY(%(ids)s)
     """
@@ -136,28 +145,91 @@ def build_sql(dim: int, filter_sql: str, require_synopsis: bool = True) -> str:
 
 
 def encode(texts: list[str]):
-    """Embed one or more queries with the production model.
+    """Embed the facets, through the same loader the API uses.
 
-    One call for all facets: loading the model costs seconds and encoding
-    a handful of short strings costs milliseconds.
-
-    Imported here, not at module scope: torch costs seconds and hundreds of
-    megabytes, and --help, the tests, and anything importing build_sql
-    should pay neither.
+    Imported inside the function, not at module scope: that import pulls in
+    torch, and --help, the tests and anything importing build_sql should
+    pay neither the seconds nor the hundreds of megabytes.
     """
-    import os
+    from api.embedding import encode_queries
 
-    import torch
-    from sentence_transformers import SentenceTransformer
+    return encode_queries(texts)
 
-    from pipeline.embed import torch_thread_count
 
-    torch.set_num_threads(torch_thread_count(settings.embed_threads, os.cpu_count()))
-    model = SentenceTransformer(settings.embed_model)
-    # normalize_embeddings mirrors pipeline.embed: the stored vectors are
-    # unit length, and mixing normalized with unnormalized would make cosine
-    # distance disagree with what the index was built on.
-    return model.encode(texts, normalize_embeddings=True)
+def rank(
+    conn,
+    vectors,
+    *,
+    mediums: list[str],
+    limit: int,
+    filter_sql: str,
+    filter_params: dict,
+    require_synopsis: bool = True,
+) -> list[dict]:
+    """Rank and fuse, on a connection the caller owns.
+
+    Split out from describe() so the API serves this from its pool rather
+    than opening its own connection, and so there is one implementation of
+    the fusion rather than one per client.
+    """
+    from api.db import hnsw_supports_iterative_scan
+
+    sql = build_sql(int(vectors[0].shape[0]), filter_sql, require_synopsis)
+    facet_count = len(vectors)
+    pool = limit if facet_count == 1 else FACET_POOL
+
+    ef_search = min(max(pool, 40), 1000)
+    conn.execute("SELECT set_config(%s, %s, true)", ("hnsw.ef_search", str(ef_search)))
+    if hnsw_supports_iterative_scan(conn):
+        # Without this the scan stops at ef_search rows, which is fewer
+        # than a deep facet pool asks for.
+        conn.execute("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)")
+
+    rankings: list[list[int]] = []
+    best_similarity: dict[int, float] = {}
+    for vector in vectors:
+        rows = conn.execute(
+            sql,
+            {
+                "query_vec": vector,
+                "model": embed_model_id(),
+                "mediums": mediums,
+                "limit": pool,
+                **filter_params,
+            },
+        ).fetchall()
+        rankings.append([row["id"] for row in rows])
+        for row in rows:
+            previous = best_similarity.get(row["id"])
+            if previous is None or row["similarity"] > previous:
+                best_similarity[row["id"]] = row["similarity"]
+
+    if facet_count == 1:
+        ordered = rankings[0][:limit]
+        scores: dict[int, float] = {}
+        hits = dict.fromkeys(ordered, 1)
+    else:
+        scores = fuse(rankings)
+        hits = {media_id: sum(media_id in r for r in rankings) for media_id in scores}
+        # Coverage first, fused rank second. Pure RRF lets one facet's
+        # first place (1/61) outscore a title found by two facets deep in
+        # their pools (1/210 + 1/240), which is the opposite of what
+        # someone asking for three things at once means.
+        ordered = sorted(scores, key=lambda i: (-hits[i], -scores[i], i))[:limit]
+
+    display = conn.execute(build_rows_sql(), {"ids": ordered}).fetchall()
+    by_id = {row["id"]: row for row in display}
+    return [
+        {
+            **by_id[i],
+            "similarity": best_similarity.get(i),
+            "rrf": scores.get(i),
+            "facets_hit": hits[i],
+            "facet_count": facet_count,
+        }
+        for i in ordered
+        if i in by_id
+    ]
 
 
 def describe(
@@ -167,75 +239,26 @@ def describe(
     adult: bool,
     require_synopsis: bool = True,
 ) -> list[dict]:
-    """Rank the catalog against a description.
+    """Rank the catalog against a description, on a connection of our own.
 
     One facet is one ANN scan. Several facets are one scan each, fused by
     rank - more expensive, and the only way a facet the catalog barely
     covers survives next to one it covers thousands of times over.
     """
-    from api.db import hnsw_supports_iterative_scan
-
     facets = split_facets(text)
     vectors = encode(facets)
     filter_sql, filter_params = build_filters(adult=adult)
-    sql = build_sql(int(vectors[0].shape[0]), filter_sql, require_synopsis)
-    mediums = MEDIUM_GROUPS[medium] if medium else ALL_MEDIUMS
-    pool = limit if len(facets) == 1 else FACET_POOL
-
-    rankings: list[list[int]] = []
-    best_similarity: dict[int, float] = {}
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
         register_vector(conn)
-        ef_search = min(max(pool, 40), 1000)
-        conn.execute("SELECT set_config(%s, %s, true)", ("hnsw.ef_search", str(ef_search)))
-        if hnsw_supports_iterative_scan(conn):
-            # Without this the scan stops at ef_search rows, which is fewer
-            # than a deep facet pool asks for.
-            conn.execute("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)")
-        for vector in vectors:
-            rows = conn.execute(
-                sql,
-                {
-                    "query_vec": vector,
-                    "model": embed_model_id(),
-                    "mediums": mediums,
-                    "limit": pool,
-                    **filter_params,
-                },
-            ).fetchall()
-            rankings.append([row["id"] for row in rows])
-            for row in rows:
-                previous = best_similarity.get(row["id"])
-                if previous is None or row["similarity"] > previous:
-                    best_similarity[row["id"]] = row["similarity"]
-
-        if len(facets) == 1:
-            ordered = rankings[0][:limit]
-            scores: dict[int, float] = {}
-            hits = dict.fromkeys(ordered, 1)
-        else:
-            scores = fuse(rankings)
-            hits = {media_id: sum(media_id in r for r in rankings) for media_id in scores}
-            # Coverage first, fused rank second. Pure RRF lets one facet's
-            # first place (1/61) outscore a title found by two facets deep
-            # in their pools (1/210 + 1/240), which is the opposite of what
-            # someone asking for three things at once means.
-            ordered = sorted(scores, key=lambda i: (-hits[i], -scores[i], i))[:limit]
-
-        display = conn.execute(build_rows_sql(), {"ids": ordered}).fetchall()
-
-    by_id = {row["id"]: row for row in display}
-    return [
-        {
-            **by_id[i],
-            "similarity": best_similarity.get(i),
-            "rrf": scores.get(i),
-            "facets_hit": hits[i],
-            "facet_count": len(facets),
-        }
-        for i in ordered
-        if i in by_id
-    ]
+        return rank(
+            conn,
+            vectors,
+            mediums=MEDIUM_GROUPS[medium] if medium else ALL_MEDIUMS,
+            limit=limit,
+            filter_sql=filter_sql,
+            filter_params=filter_params,
+            require_synopsis=require_synopsis,
+        )
 
 
 SYNOPSIS_CHARS = 220
@@ -263,7 +286,7 @@ def format_row(index: int, row: dict, why: bool = False) -> str:
     line = f"{index:>3}. {score}  {title}  ({' / '.join(bits)})"
     if not why:
         return line
-    synopsis = " ".join((row.get("description_clean") or "").split())
+    synopsis = " ".join((row.get("description") or "").split())
     if not synopsis:
         return line + "\n       (no synopsis: embedded from its title alone)"
     if len(synopsis) > SYNOPSIS_CHARS:

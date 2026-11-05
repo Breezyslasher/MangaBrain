@@ -1,0 +1,161 @@
+"""Parsing and matching for the Dubbing Wiki probe.
+
+Everything here runs on fixtures. The wiki's real page format has not been
+inspected yet - that is what the recon subcommand is for - so these pin the
+mechanics (what a heading is, what a confirmed match is) rather than
+claiming to know the format.
+"""
+
+from pipeline.probe_dub_fandom import (
+    confirm,
+    english_cast,
+    headings,
+    section,
+    templates,
+)
+
+PAGE = """{{Infobox dub
+|title = Example Show
+|country = Japan
+}}
+Some prose about the show.
+
+==English==
+===Cast===
+{| class="wikitable"
+! Character !! Actor
+|-
+| Hero || [[Jane Doe]]
+|-
+| Rival || [[John Roe|John]]
+|}
+See also [[Category:Anime]] and [[File:Poster.jpg]].
+
+==Spanish==
+| Hero || [[Alguien Mas]]
+
+==External links==
+"""
+
+
+def test_headings_are_found_at_every_level():
+    assert headings(PAGE) == ["English", "Cast", "Spanish", "External links"]
+
+
+def test_templates_are_counted():
+    assert templates(PAGE)["Infobox dub"] == 1
+
+
+def test_a_section_stops_at_the_next_heading_of_its_level():
+    """A subsection belongs to its parent; the next language does not."""
+    english = section(PAGE, "english")
+    assert "Jane Doe" in english
+    assert "Cast" in english, "a deeper subsection stays inside"
+    assert "Alguien Mas" not in english, "the next language must not bleed in"
+
+
+def test_a_missing_section_is_empty_not_an_error():
+    assert section(PAGE, "korean") == ""
+
+
+def test_cast_links_exclude_files_and_categories():
+    """Wiki links point at more than people."""
+    cast = english_cast(PAGE)
+    assert cast == ["Jane Doe", "John Roe"]
+
+
+def test_a_page_with_no_english_section_yields_no_cast():
+    assert english_cast("==Spanish==\n[[Alguien Mas]]") == []
+
+
+def test_only_a_normalised_title_match_is_accepted():
+    """Search returns anything sharing a word, and accepting the first hit
+    is how a title-matched source asserts another show's dub."""
+    assert confirm("Cowboy Bebop", "Cowboy Bebop")
+    assert confirm("The Amazing 3", "the amazing 3")
+    assert not confirm("Discode", "Discode (disambiguation)")
+    assert not confirm("Monster", "Monster Rancher")
+
+
+REAL_SHAPE = """{{Infobox
+|title = Example
+}}
+==Dubbing History==
+Some prose.
+==Cast==
+{| class="wikitable"
+! Character !! {{Flag|United States}} English !! {{Flag|Brazil}} Portuguese
+|-
+| Hero || [[Jane Doe]] || [[Alguem]]
+|}
+==External Links==
+{{IMDb title|tt0000001}}
+{{ANN title|anime|1234}}
+{{AniList title|5678}}
+[[Category:Anime]]
+"""
+
+
+def test_the_real_page_shape_has_no_english_section():
+    """What the first recon run actually found, pinned as a regression.
+
+    Cowboy Bebop and The Amazing 3 both have headings Dubbing History /
+    Cast / Additional Voices and NO per-language sections: languages are
+    columns in a wikitable, marked with {{Flag}}. The provisional
+    english_cast() guess therefore returns nothing on a real page, which
+    is why its output was labelled an upper bound rather than a finding.
+    """
+    from pipeline.probe_dub_fandom import english_cast, headings
+
+    assert "English" not in headings(REAL_SHAPE)
+    assert english_cast(REAL_SHAPE) == [], "the guess does not fit the real format"
+    assert section(REAL_SHAPE, "cast") != "", "the cast is under a Cast heading"
+
+
+def test_cross_reference_templates_are_captured_verbatim():
+    """The AniList template is the find: a page carrying it can be joined
+    by id, which removes the title matching that this source was assumed
+    to be stuck with."""
+    from pipeline.probe_dub_fandom import template_calls
+
+    calls = template_calls(REAL_SHAPE)
+    assert "{{AniList title|5678}}" in calls
+    assert "{{ANN title|anime|1234}}" in calls
+    # Flag and Infobox are not cross-reference templates and must not be
+    # dragged in by a loose match.
+    assert not any("Flag" in call or "Infobox" in call for call in calls)
+
+
+def test_the_anilist_id_is_read_from_the_shape_the_wiki_uses():
+    """{{AniList title|#=1}} - a named parameter called "#".
+
+    Read off a real page rather than assumed, and verifiable: Cowboy
+    Bebop's value is 1, which is its actual AniList id.
+    """
+    from pipeline.probe_dub_fandom import anilist_id
+
+    assert anilist_id("{{AniList title|#=1}}") == 1
+    assert anilist_id("{{AniList title | # = 20661 }}") == 20661
+    # Another site's id must never be read as an AniList one.
+    assert anilist_id("{{ANN title|#=13}}") is None
+    assert anilist_id("{{IMDb title|#=tt0213338}}") is None
+    assert anilist_id("no templates here") is None
+
+
+def test_a_dub_cast_is_detected_by_the_column_the_wiki_actually_uses():
+    """Cast tables carry a "Dub Actor" column beside "Seiyu". Its presence
+    says a dub cast is named; it does not say which language, and the
+    census output must not claim otherwise."""
+    from pipeline.probe_dub_fandom import names_a_dub_cast
+
+    assert names_a_dub_cast("==Cast==\n!Character !!Seiyu !!Dub Actor\n")
+    assert names_a_dub_cast("==Cast==\n! dub actor\n"), "case must not matter"
+    assert not names_a_dub_cast("==Cast==\n!Character !!Seiyu\n")
+
+
+def test_the_census_batches_its_reads():
+    """634 pages one at a time is 634 requests against a volunteer wiki;
+    MediaWiki takes fifty titles per query."""
+    from pipeline.probe_dub_fandom import BATCH_SIZE
+
+    assert BATCH_SIZE == 50

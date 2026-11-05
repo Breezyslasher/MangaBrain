@@ -17,7 +17,18 @@ class GridAdapter(
     private val onAddToMix: (MediaOut) -> Unit
 ) : RecyclerView.Adapter<GridAdapter.Holder>() {
 
-    data class Row(val media: MediaOut, val similarity: Double? = null)
+    /**
+     * badge overrides the percentage. A description search has no
+     * calibrated match score to show - only how many of the query's
+     * facets found the title - and rendering a raw cosine as "81%" beside
+     * a recommendation's calibrated 81% would make two different
+     * measurements look like one.
+     */
+    data class Row(
+        val media: MediaOut,
+        val similarity: Double? = null,
+        val badge: String? = null
+    )
 
     private val rows = mutableListOf<Row>()
 
@@ -45,13 +56,14 @@ class GridAdapter(
             val media = row.media
             title.text = media.displayTitle
             meta.text = media.displayMeta
-            if (row.similarity == null) {
+            val label = row.badge ?: row.similarity?.let {
+                itemView.context.getString(R.string.similarity_percent, Math.round(it).toInt())
+            }
+            if (label == null) {
                 badge.visibility = View.GONE
             } else {
                 badge.visibility = View.VISIBLE
-                badge.text = itemView.context.getString(
-                    R.string.similarity_percent, Math.round(row.similarity).toInt()
-                )
+                badge.text = label
             }
             val url = media.coverUrl
             if (url.isNullOrBlank()) cover.setImageDrawable(null) else cover.load(url)

@@ -129,6 +129,16 @@ button:hover { filter: brightness(1.1); }
   white-space: nowrap;
 }
 
+/* The description box sits under the name search rather than replacing
+   it: they answer different questions, and a reader who knows the title
+   should not have to describe it. */
+.describebar { margin-top: 0.5rem; }
+
+.describe-hint {
+  margin-top: 0.35rem;
+  margin-bottom: 0.25rem;
+}
+
 #seed { margin-top: 1rem; }
 
 .seed-card {

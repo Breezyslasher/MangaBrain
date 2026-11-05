@@ -173,6 +173,18 @@
         <input id="search" type="search" placeholder="Search titles..." autocomplete="off">
         <button id="browseBtn" type="button" title="Apply the filters below to the whole catalog, with or without a search term">Search with filters</button>
       </div>
+      <!-- Searching by name finds a title you can already name. This finds
+           one you can only describe, by embedding the sentence into the
+           same space the catalog lives in. It can only match what synopses
+           say, so plot and setting work and art style does not. -->
+      <div class="searchbar describebar">
+        <input id="describe" type="search" placeholder="Describe what you want to read or watch..." autocomplete="off">
+        <button id="describeBtn" type="button" title="Rank the catalog by how well each synopsis matches your description">Find by description</button>
+      </div>
+      <div class="chips-hint describe-hint">
+        A sentence works better than keywords. Commas separate facets, each
+        ranked on its own. Negation does not work: "no romance" asks for romance.
+      </div>
       <div id="seed"></div>
       <div id="related"></div>
       <div id="results" class="grid"></div>
