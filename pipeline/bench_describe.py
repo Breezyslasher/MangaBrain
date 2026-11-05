@@ -118,6 +118,24 @@ def binary_sql(dim: int, rerank: int) -> str:
 
 QUANTIZED_SQL = "SELECT count(*) AS n FROM embeddings WHERE embedding_bits IS NOT NULL"
 
+
+def as_array(value):
+    """A sampled embedding as numpy, whatever pgvector handed back.
+
+    register_vector returns a pgvector Vector in some versions and a
+    numpy array in others. The raw SQL here does not care - psycopg
+    adapts either back - but pipeline.describe.rank reads .shape, so the
+    sweep died on the real code path while every query before it passed.
+    """
+    import numpy as np
+
+    if hasattr(value, "to_numpy"):
+        return value.to_numpy()
+    if isinstance(value, np.ndarray):
+        return value
+    return np.asarray(list(value), dtype=np.float32)
+
+
 ANIME_MEDIUMS = ["anime"]
 
 
