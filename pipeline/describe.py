@@ -69,6 +69,20 @@ MAX_FACETS = 5
 # than 6000 synopses in memory.
 FACET_POOL = 2000
 
+# How near the top of a facet's pool a title must be for that facet to
+# count as HIT. The pool stays deep because fusion needs ranks, but being
+# somewhere in 2,000 rows is not a match - it is roughly a tenth of the
+# anime catalog.
+#
+# Measured: "a bureaucrat, uncovering a conspiracy inside his own
+# government, losing faith in it" returned gambling and time-travel
+# donghua, every card badged 3/3, with ACCA - which answers the question -
+# nowhere. Two of those facets were vague, their pools close to arbitrary,
+# and because ordering is coverage-first an unrelated title sitting
+# mid-table in all three outranked a title that genuinely answered two.
+# A tenth of the catalog is not a hit; the top one percent is.
+HIT_DEPTH = 200
+
 
 def split_facets(text: str) -> list[str]:
     """Commas separate facets; anything else is one description.
@@ -77,6 +91,11 @@ def split_facets(text: str) -> list[str]:
     meaning is what the model reads best. A comma list is the shape people
     reach for when they want several things at once, and that is the shape
     averaging handles worst.
+
+    Length is deliberately not a filter. "mecha, war, politics" is the
+    motivating case and every part of it is one word, so a minimum facet
+    length would reject exactly what this is for. A weak facet is handled
+    where it does the damage instead: see HIT_DEPTH.
     """
     parts = [part.strip() for part in text.split(",") if part.strip()]
     return parts or [text.strip()]
@@ -125,9 +144,13 @@ def build_sql(dim: int, filter_sql: str, require_synopsis: bool = True) -> str:
     # default, which the recommender does not do - there a seed's own
     # genres and tags still carry real signal.
     synopsis_sql = "" if not require_synopsis else (" AND coalesce(m.description_clean, '') <> ''")
+    # The cast is repeated in the SELECT, not omitted: the ORDER BY below
+    # must match the partial index expression textually, and an uncast
+    # copy here is a SECOND distance computation for every pooled row -
+    # 6,000 of them on a three-facet query - for an identical answer.
     return f"""
         SELECT m.id,
-               1 - (e.embedding <=> %(query_vec)s) AS similarity
+               1 - (e.embedding::vector({dim}) <=> %(query_vec)s) AS similarity
         FROM media m
         JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
         WHERE m.medium = ANY(%(mediums)s)
@@ -205,7 +228,11 @@ def rank(
         hits = dict.fromkeys(ordered, 1)
     else:
         scores = fuse(rankings)
-        hits = {media_id: sum(media_id in r for r in rankings) for media_id in scores}
+        # RRF still reads the whole pool - a deep rank is weak evidence,
+        # not no evidence - but coverage counts only the top slice, so a
+        # badge of 3/3 means three facets actually matched.
+        near_top = [set(ranking[:HIT_DEPTH]) for ranking in rankings]
+        hits = {media_id: sum(media_id in top for top in near_top) for media_id in scores}
         # Coverage first, fused rank second. Pure RRF lets one facet's
         # first place (1/61) outscore a title found by two facets deep in
         # their pools (1/210 + 1/240), which is the opposite of what

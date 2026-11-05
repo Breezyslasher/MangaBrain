@@ -192,3 +192,52 @@ def test_the_pool_query_does_not_carry_synopses():
         "the pool query should select ids and distance, not synopses"
     )
     assert "description_clean AS description" in build_rows_sql()
+
+
+def test_coverage_counts_only_a_real_match():
+    """A badge of 3/3 has to mean three facets matched.
+
+    The pool is 2,000 rows, roughly a tenth of the anime catalog, and
+    ordering is coverage-first - so before this, a title sitting mid-table
+    in three pools outranked one that genuinely answered two. Measured on
+    a live query: gambling and time-travel donghua at 3/3, with the one
+    title that answered the question absent.
+    """
+    from pipeline.describe import HIT_DEPTH
+
+    assert HIT_DEPTH < 2000, "a hit must be nearer the top than the pool is deep"
+
+
+def test_a_deep_rank_still_scores_but_does_not_count_as_coverage():
+    """Weak evidence is not no evidence: RRF reads the whole pool, while
+    the badge reads the top slice only."""
+    import inspect
+
+    from pipeline.describe import rank
+
+    source = inspect.getsource(rank)
+    assert "fuse(rankings)" in source, "RRF must still see the full rankings"
+    assert "ranking[:HIT_DEPTH]" in source, "coverage must read the top slice"
+
+
+def test_a_one_word_facet_is_still_a_facet():
+    """ "mecha, war, politics" is the case comma splitting exists for.
+
+    A minimum facet length was tried and reverted: every part of that
+    query is one word, so a length filter rejects exactly what the
+    feature is for. Weak facets are handled by HIT_DEPTH instead.
+    """
+    from pipeline.describe import split_facets
+
+    assert split_facets("mecha, war, politics") == ["mecha", "war", "politics"]
+
+
+def test_the_pooled_distance_is_computed_once():
+    """The SELECT used to repeat the distance without the cast, so every
+    pooled row paid twice for the same answer - 6,000 extra computations
+    on a three-facet query."""
+    from pipeline.describe import build_sql
+
+    sql = build_sql(768, "", True)
+    assert sql.count("e.embedding <=> %(query_vec)s") == 0
+    assert sql.count("e.embedding::vector(768) <=> %(query_vec)s") == 2
