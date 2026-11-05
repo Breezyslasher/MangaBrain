@@ -108,9 +108,13 @@ FILTER_STATE = ROOT / "android/app/src/main/java/com/mangabrain/app/data/FilterS
 
 
 def server_params(path: str) -> set[str]:
+    return {p["name"] for p in schema_parameters(path)}
+
+
+def schema_parameters(path: str) -> list[dict]:
     from api.main import app
 
-    return {p["name"] for p in app.openapi()["paths"][path]["get"].get("parameters", [])}
+    return app.openapi()["paths"][path]["get"].get("parameters", [])
 
 
 @pytest.mark.parametrize("method,path", sorted(ENDPOINTS.items()))
@@ -334,3 +338,55 @@ def test_every_api_error_carries_a_detail():
             if "detail" not in match.group(1):
                 offenders.append(f"{path.relative_to(ROOT)}: {match.group(1).strip()[:60]}")
     assert offenders == [], f"HTTPException raised without a detail: {offenders}"
+
+
+def test_the_weight_defaults_agree_across_both_clients_and_the_server():
+    """50 / 30 / 20 / 0 in three places, or the same request means two things.
+
+    A slider default is not cosmetic: it is the weighting a reader gets
+    before touching anything, so a client that starts at different numbers
+    ranks the same catalog differently and neither screen says why.
+    """
+    kotlin = FILTER_STATE.read_text()
+    markup = (ROOT / "web/index.html").read_text()
+
+    for name, slider in (
+        ("SEMANTIC", "wSemantic"),
+        ("TAGS", "wTags"),
+        ("GENRES", "wGenres"),
+        ("TASTE", "wTaste"),
+    ):
+        android = re.search(rf"DEFAULT_W_{name} = (\d+)", kotlin)
+        web = re.search(rf'id="{slider}"[^>]*value="(\d+)"', markup)
+        assert android, f"FilterState has no DEFAULT_W_{name}"
+        assert web, f"web/index.html has no default for {slider}"
+        assert android.group(1) == web.group(1), (
+            f"{slider} default differs: Android {android.group(1)}, web {web.group(1)}"
+        )
+
+    # The server's own defaults are the same numbers as fractions, so an
+    # unweighted request from curl ranks like an untouched slider.
+    params = {p["name"]: p for p in schema_parameters("/recommend/{media_id}")}
+    for key, expected in (
+        ("w_semantic", 0.5),
+        ("w_tags", 0.3),
+        ("w_genres", 0.2),
+        ("w_taste", 0.0),
+    ):
+        assert params[key]["schema"].get("default") == expected, (
+            f"server default for {key} is not {expected}"
+        )
+
+
+def test_reset_restores_the_weights():
+    """Reset that leaves the weights is a button you cannot undo with.
+
+    The sliders persist across restarts on Android - the web client reloads
+    them from the markup every page load, which it gets for free - so
+    without this there is no way back to 50/30/20 but dragging by eye.
+    """
+    source = FILTER_STATE.read_text()
+    reset = source[source.index("fun reset()") :]
+    reset = reset[: reset.index("\n    }")]
+    for name in ("DEFAULT_W_SEMANTIC", "DEFAULT_W_TAGS", "DEFAULT_W_GENRES", "DEFAULT_W_TASTE"):
+        assert name in reset, f"reset() does not restore {name}"
