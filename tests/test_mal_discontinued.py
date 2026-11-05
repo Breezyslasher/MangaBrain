@@ -132,3 +132,29 @@ def test_the_absence_of_cast_data_is_recorded_as_measured():
     source = (Path(__file__).resolve().parent.parent / "api/routers/mal.py").read_text()
     assert "fields=characters" in source
     assert "voice_actors" in source
+
+
+def test_the_ci_probe_exercises_the_router_not_a_copy_of_it():
+    """A reimplementation would drift, and the first thing it would stop
+    catching is the reason the guard exists: MAL answers 200 to an unknown
+    field, so a typo returns a full list with no statuses and no error."""
+    from pathlib import Path
+
+    probe = (Path(__file__).resolve().parent.parent / "pipeline/probe_mal_list.py").read_text()
+    assert "from api.routers.mal import LIST_TYPES, _fetch_list" in probe
+    assert "api.myanimelist.net" not in probe, "the URL belongs to the router"
+
+
+def test_the_credential_reaches_ci_as_a_secret_not_a_commit():
+    """A MAL client id is not an OAuth secret, but its rate limit is the
+    owner's, and this repository has no reason to publish one."""
+    from pathlib import Path
+
+    workflow = (
+        Path(__file__).resolve().parent.parent / ".github/workflows/mal-list-probe.yml"
+    ).read_text()
+    assert "secrets.MAL_CLIENT_ID" in workflow
+    # A literal 32-hex client id must never appear in the workflow.
+    import re
+
+    assert not re.search(r"\b[0-9a-f]{32}\b", workflow)
