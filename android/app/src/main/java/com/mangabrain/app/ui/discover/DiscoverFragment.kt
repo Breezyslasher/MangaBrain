@@ -230,6 +230,9 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
                 val params = FilterState.recommendParams().toMutableMap()
                 params["medium"] = FilterState.medium
                 params["seeds"] = ForYouPrefs.seeds.toString()
+                // The Mix tab's switch used to set a field nobody sent, so
+                // turning rating weighting off changed nothing.
+                params["use_ratings"] = ForYouPrefs.useRatings.toString()
                 if (FilterState.excludeAnilist && FilterState.anilistUser.isNotBlank()) {
                     params["anilist_user"] = FilterState.anilistUser
                 }

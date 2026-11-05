@@ -142,6 +142,8 @@ def foryou(
     w_semantic: float = Query(0.5, ge=0),
     w_tags: float = Query(0.3, ge=0),
     w_genres: float = Query(0.2, ge=0),
+    w_taste: float = Query(0.0, ge=0),
+    cross_media: bool = False,
     exclude_franchise: bool = True,
     limit: int = Query(50, ge=1, le=200),
     adult: bool = False,
@@ -217,8 +219,8 @@ def foryou(
 
     return _recommend_for_seeds(
         seed_ids,
-        weights=Weights(w_semantic, w_tags, w_genres).normalized(),
-        cross_media=False,
+        weights=Weights(w_semantic, w_tags, w_genres, w_taste).normalized(),
+        cross_media=cross_media,
         exclude_franchise=exclude_franchise,
         limit=limit,
         filter_kwargs={

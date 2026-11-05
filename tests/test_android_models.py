@@ -390,3 +390,61 @@ def test_reset_restores_the_weights():
     reset = reset[: reset.index("\n    }")]
     for name in ("DEFAULT_W_SEMANTIC", "DEFAULT_W_TAGS", "DEFAULT_W_GENRES", "DEFAULT_W_TASTE"):
         assert name in reset, f"reset() does not restore {name}"
+
+
+# The endpoints that receive FilterState.recommendParams(). The union check
+# above cannot catch a parameter that one of them is missing, which is how
+# /foryou came to ignore w_taste and cross_media from both clients.
+RECOMMEND_PARAM_ENDPOINTS = ["/recommend/{media_id}", "/recommend", "/foryou"]
+
+
+def kotlin_function_body(source: str, signature: str) -> str:
+    """Source from a declaration to the next one.
+
+    Not "up to the next closing brace": recommendParams is an expression
+    body with no brace of its own, so that rule reads on into the function
+    after it. The first version of this helper did, and reported `medium`
+    (from searchParams) as a parameter /recommend ignores.
+    """
+    start = source.index(signature)
+    rest = source[start + len(signature) :]
+    end = rest.index("\n    fun ") if "\n    fun " in rest else len(rest)
+    return rest[:end]
+
+
+def recommend_param_keys() -> set[str]:
+    """Every key the map sent to those endpoints can carry."""
+    source = FILTER_STATE.read_text()
+    keys: set[str] = set()
+    for signature in ("fun filterParams()", "fun weightParams()", "fun recommendParams("):
+        block = kotlin_function_body(source, signature)
+        keys |= set(re.findall(r'"([a-z_]+)" to ', block))
+        keys |= set(re.findall(r'params\["([a-z_]+)"\]', block))
+    return keys
+
+
+@pytest.mark.parametrize("path", RECOMMEND_PARAM_ENDPOINTS)
+def test_every_endpoint_that_takes_the_weights_accepts_all_of_them(path):
+    """One map goes to three endpoints, so all three must read all of it.
+
+    FastAPI ignores an unknown query parameter in silence, so an endpoint
+    missing one does not fail: the control just stops working on that
+    screen with nothing to see. /foryou declared no w_taste and no
+    cross_media while both clients sent them, which is exactly that.
+    """
+    missing = sorted(recommend_param_keys() - server_params(path))
+    assert missing == [], f"{path} ignores parameters the client sends: {missing}"
+
+
+def test_the_for_you_feed_sends_the_ratings_switch():
+    """A switch that sets a field nobody transmits is a decoration.
+
+    The Mix tab toggles ForYouPrefs.useRatings and /foryou reads
+    use_ratings, but the request never carried it, so turning rating
+    weighting off left the feed rating-weighted.
+    """
+    source = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
+    ).read_text()
+    assert 'params["use_ratings"]' in source, "the for-you request omits use_ratings"
+    assert "use_ratings" in server_params("/foryou")
