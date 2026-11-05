@@ -85,6 +85,88 @@ GAP_SQL = """
 """
 
 
+# The same row shape as GAP_SQL for an explicit list of ids, without the
+# gap predicate: --ids is for checking titles someone has already decided
+# are interesting, and filtering them by our own gap again would silently
+# drop any that a later sync has since answered - which is information,
+# not noise.
+BY_ID_SQL = """
+    SELECT m.id, m.id_mal, m.title_romaji, m.title_english, m.popularity,
+           m.country_of_origin, m.cast_character_count,
+           m.dub_languages_source, m.dub_languages, m.measured_dub_languages,
+           (m.dub_languages @> ARRAY['en']::text[]
+            OR m.measured_dub_languages @> ARRAY['en']::text[]
+            OR m.english_va_count > 0
+            OR m.english_dub_inferred) AS english_known
+    FROM media m
+    WHERE m.id = ANY(%(ids)s)
+"""
+
+
+def parse_ids(raw: str) -> list[int]:
+    """Comma or whitespace separated AniList ids."""
+    return [int(part) for part in raw.replace(",", " ").split() if part.strip()]
+
+
+def run_for_ids(client: RateLimitedClient, ids: list[int]) -> None:
+    """Ask MAL about specific titles, one line of verdict each.
+
+    No sampling and no bands: this answers "can MAL fill these particular
+    holes", which is a different question from "what is MAL's rate", and
+    reporting a rate over a hand-picked list would be a statistic about
+    the picking.
+    """
+    with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        rows = conn.execute(BY_ID_SQL, {"ids": ids}).fetchall()
+    found = {row["id"] for row in rows}
+    missing = [i for i in ids if i not in found]
+    if missing:
+        print(f"not in the catalog: {missing}")
+
+    english = answered = absent = failed = no_mal_id = already = 0
+    for row in sorted(rows, key=lambda r: ids.index(r["id"])):
+        title = (row["title_english"] or row["title_romaji"] or "")[:46]
+        if row["english_known"]:
+            # Not an error: a sync may have answered it since the list was
+            # drawn up, and saying so is more useful than skipping it.
+            already += 1
+            print(f"  known  #{row['id']:>7}  {title}  (we already have an English dub)")
+            continue
+        if row["id_mal"] is None:
+            no_mal_id += 1
+            print(f"  NO MAL #{row['id']:>7}  {title}  (no id_mal stored; MAL cannot be asked)")
+            continue
+        langs, status = mal_languages(client, row["id_mal"])
+        if status == "absent":
+            absent += 1
+            print(f"  absent #{row['id']:>7}  {title}  (no MAL entry under id {row['id_mal']})")
+            continue
+        if status == "failed":
+            failed += 1
+            print(f"  FAILED #{row['id']:>7}  {title}  (request failed)")
+            continue
+        answered += 1
+        codes, unknown_names = dub_codes(langs, row["country_of_origin"])
+        if "en" in codes:
+            english += 1
+            print(f"  DUB    #{row['id']:>7}  {title}  languages={sorted(codes)}")
+        else:
+            shown = sorted(codes) or "none"
+            print(f"  no en  #{row['id']:>7}  {title}  languages={shown}")
+        for bad in unknown_names:
+            print(f"           unmapped language name: {bad}")
+
+    print(f"\nasked MAL about {answered} of {len(ids)} ids")
+    print(f"  English cast credited: {english}")
+    print(f"  answered, no English cast: {answered - english}")
+    print(f"  already answered by our own sources: {already}")
+    print(f"  no MAL entry: {absent}   no id_mal stored: {no_mal_id}   request failed: {failed}")
+    print(
+        "\nNo rate is reported: these ids were hand-picked, so a percentage"
+        "\nover them would describe the picking rather than MAL."
+    )
+
+
 def band_of(popularity: int | None) -> str:
     if popularity is None:
         return "unknown"
@@ -147,6 +229,11 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20261104)
     parser.add_argument("--min-interval", type=float, default=DEFAULT_INTERVAL)
     parser.add_argument("--cache-dir", default="", help="on-disk cache, so a rerun is free")
+    parser.add_argument(
+        "--ids",
+        default="",
+        help="check these AniList ids instead of sampling (comma or space separated)",
+    )
     args = parser.parse_args()
 
     client = RateLimitedClient(min_interval=args.min_interval, cache_dir=args.cache_dir)
@@ -161,6 +248,11 @@ def main() -> None:
             print("reachable, but no English cast on a certainly-dubbed title: investigate")
         else:
             print("Jikan is NOT reachable from here; the recorded blocker still holds.")
+        return
+
+    if args.ids:
+        run_for_ids(client, parse_ids(args.ids))
+        client.close()
         return
 
     rng = random.Random(args.seed)

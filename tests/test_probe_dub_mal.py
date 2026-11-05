@@ -135,3 +135,31 @@ def test_gap_set_matches_the_filter_the_ui_serves():
     start = source.index('if code == "en":')
     filter_columns = set(re.findall(r"m\.(\w+)", source[start : source.index("else:", start)]))
     assert probe_columns == filter_columns, (probe_columns, filter_columns)
+
+
+def test_ids_are_parsed_from_either_separator():
+    """The list comes from another probe's output, pasted by hand."""
+    from pipeline.probe_dub_mal import parse_ids
+
+    assert parse_ids("1959,5098,7729") == [1959, 5098, 7729]
+    assert parse_ids("1959 5098  7729") == [1959, 5098, 7729]
+    assert parse_ids("1959, 5098 , 7729,") == [1959, 5098, 7729]
+    assert parse_ids("") == []
+
+
+def test_the_id_query_does_not_re_apply_the_gap_filter():
+    """--ids checks titles someone already decided are interesting.
+
+    Filtering them by our own English-unknown predicate again would
+    silently drop any a later sync has since answered, and that a title
+    left the gap is information rather than noise - so the query reports
+    english_known instead of excluding on it.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline/probe_dub_mal.py").read_text()
+    by_id = source[source.index("BY_ID_SQL = ") :]
+    by_id = by_id[: by_id.index('"""', by_id.index('"""') + 3)]
+    assert "AS english_known" in by_id
+    assert "WHERE m.id = ANY(%(ids)s)" in by_id
+    assert "AND NOT (" not in by_id, "the gap predicate must not be re-applied"
