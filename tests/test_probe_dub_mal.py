@@ -291,3 +291,36 @@ def test_the_backfill_gap_query_matches_the_filter():
         "english_dub_inferred",
     ):
         assert column in gap, f"the gap query ignores {column}"
+
+
+def test_all_is_not_silently_capped_at_the_default():
+    """A default that truncates a full backfill is worse than no default.
+
+    The run would look complete, and because every row it stamped is
+    skipped next time, the untouched remainder would stay untouched.
+    """
+    from pipeline.backfill_dub_tenrai import DEFAULT_GAP_LIMIT, NO_LIMIT
+
+    assert NO_LIMIT > 100 * DEFAULT_GAP_LIMIT
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "pipeline/backfill_dub_tenrai.py"
+    ).read_text()
+    assert "NO_LIMIT if args.all else DEFAULT_GAP_LIMIT" in source
+
+
+def test_the_backfill_records_every_language_not_only_english():
+    """English is special in choosing which titles to ask about, not in
+    what gets written: a non-English dub nobody has recorded is exactly
+    what ANN's 31.8% name match leaves missing."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "pipeline/backfill_dub_tenrai.py"
+    ).read_text()
+    loop = source[source.index("for row in rows:") :]
+    assert 'dub_codes(langs, row["country_of_origin"])' in loop, (
+        "the title's own language must be excluded, which needs the country"
+    )
+    assert "sorted(codes)" in loop, "every code is written, not a filtered subset"

@@ -21,7 +21,18 @@ the data survives the source. Re-run it when coverage matters again.
 Default scope is the English gap: anime with an id_mal and no English dub
 answer from any existing source. --all walks every anime with an id_mal,
 which is what makes this a candidate to replace ANN's 31.8% name match
-for the non-English languages too.
+for the non-English languages too, and it is uncapped - about six hours
+for 22,000 titles at one request a second.
+
+EVERY language is written, not only English. dub_codes keeps whatever the
+cast API credits, minus the title's own: a Japanese cast on a Japanese
+show is the original, while a Japanese cast on a Chinese donghua is a
+dub, which is why country_of_origin is passed. English is special only in
+choosing WHICH titles to ask about, and in the dub badge.
+
+The walk is resumable. mal_dub_checked_at records that a title was asked,
+so a second run continues rather than restarting, and interrupting this
+costs only the titles in flight.
 """
 
 import argparse
@@ -69,6 +80,14 @@ WRITE_SQL = """
 """
 
 
+# A cap exists so a first run can be small on purpose. --all without one
+# means the whole catalog, not the first 500 of it: a default that
+# silently truncates a backfill is worse than no default, because the run
+# looks complete and the next pass skips every row it stamped.
+DEFAULT_GAP_LIMIT = 500
+NO_LIMIT = 10_000_000
+
+
 def backfill(limit: int, everything: bool, base_url: str) -> int:
     import psycopg
     from psycopg.rows import dict_row
@@ -85,6 +104,8 @@ def backfill(limit: int, everything: bool, base_url: str) -> int:
 
     written = with_english = 0
     unknown_names: set[str] = set()
+    scope = "every anime with an id_mal" if everything else "anime with no English answer"
+    print(f"scope: {scope}; cap: {limit}; one request a second")
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
         rows = conn.execute(ALL_SQL if everything else GAP_SQL, {"limit": limit}).fetchall()
         print(f"{len(rows)} titles to ask about")
@@ -117,7 +138,12 @@ def backfill(limit: int, everything: bool, base_url: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backfill dub languages from the MAL cast API")
-    parser.add_argument("--limit", type=int, default=500)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help=f"cap the run (default {DEFAULT_GAP_LIMIT}, or no cap with --all)",
+    )
     parser.add_argument(
         "--all",
         action="store_true",
@@ -125,7 +151,10 @@ def main() -> None:
     )
     parser.add_argument("--base-url", default=TENRAI_BASE)
     args = parser.parse_args()
-    backfill(args.limit, args.all, args.base_url)
+    limit = args.limit
+    if limit is None:
+        limit = NO_LIMIT if args.all else DEFAULT_GAP_LIMIT
+    backfill(limit, args.all, args.base_url)
 
 
 if __name__ == "__main__":
