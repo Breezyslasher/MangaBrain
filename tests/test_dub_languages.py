@@ -254,3 +254,79 @@ def test_a_measured_language_counts_as_having_a_dub():
     assert _has_dub({"measured_dub_languages": ["en"]}) is True
     assert _has_dub({"english_va_count": None}) is None
     assert _has_dub({"english_va_count": 0}) is False
+
+
+def test_the_cast_apis_region_spelling_lands_on_the_same_tag_as_anilists():
+    """The two sources spell one market two ways.
+
+    AniList writes "Portuguese (Brazil)", the MAL cast API writes
+    "Portuguese (BR)". Both have to reach pt-br, because that is the code
+    the dub filter and the web language list already use: measured, the
+    unmapped spelling was stored as portuguese-(br) on over a thousand
+    rows, so selecting Portuguese (Brazil) returned nothing while the
+    data sat in the column.
+    """
+    from pipeline.dub_language_codes import code_for
+
+    assert code_for("Portuguese (Brazil)") == ("pt-br", True)
+    assert code_for("Portuguese (BR)") == ("pt-br", True)
+
+
+def test_a_bracketed_region_is_derived_rather_than_enumerated():
+    """So the next market the source adds does not arrive as a slug."""
+    from pipeline.dub_language_codes import code_for
+
+    assert code_for("Spanish (MX)") == ("es-mx", True)
+    assert code_for("Chinese (HK)") == ("zh-hk", True)
+    # A base language nobody has mapped must still be reported, not guessed.
+    code, known = code_for("Klingon (US)")
+    assert known is False and code == "klingon-(us)"
+
+
+def test_a_stored_slug_can_be_mapped_without_asking_the_source_again():
+    """The backfill stamps what it has asked about, so a mapping gap found
+    afterwards is only fixable from the column. slug() has to be
+    reversible for that, which is the whole reason unknown names are
+    slugged instead of dropped."""
+    from pipeline.dub_language_codes import code_for, unslug
+
+    assert code_for(unslug("portuguese-(br)")) == ("pt-br", True)
+
+
+def test_a_code_is_not_mistaken_for_a_slug_or_the_reverse():
+    """is_code decides what --remap leaves alone; a false positive would
+    strand a slug and a false negative would re-map a good code."""
+    from pipeline.dub_language_codes import is_code
+
+    for code in ("en", "ja", "pt-br", "es-419", "zh-hk"):
+        assert is_code(code), code
+    for not_a_code in ("portuguese-(br)", "unknown", "brazilian-portuguese"):
+        assert not is_code(not_a_code), not_a_code
+
+
+def test_remap_sends_no_requests_and_restamps_nothing():
+    """It is a repair of stored values, so it must not touch the cast API
+    and must not move mal_dub_checked_at - which would either re-ask for
+    titles already answered or mark unasked ones as asked."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "pipeline/backfill_dub_tenrai.py"
+    ).read_text()
+    body = source[source.index("def remap(") : source.index("def main(")]
+    assert "mal_languages" not in body, "remap must not ask the source again"
+    assert "RateLimitedClient" not in body
+    assert "mal_dub_checked_at" not in body
+
+
+def test_an_unmapped_name_is_reported_when_it_is_first_seen():
+    """A run that only summarises at the end reports a vocabulary gap after
+    it has written every row the gap affects."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "pipeline/backfill_dub_tenrai.py"
+    ).read_text()
+    loop = source[source.index("for row in rows:") : source.index("def main(")]
+    assert "no code for" in loop
+    assert "--remap" in loop

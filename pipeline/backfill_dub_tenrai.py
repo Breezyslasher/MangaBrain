@@ -33,12 +33,24 @@ choosing WHICH titles to ask about, and in the dub badge.
 The walk is resumable. mal_dub_checked_at records that a title was asked,
 so a second run continues rather than restarting, and interrupting this
 costs only the titles in flight.
+
+That same stamp is why --remap exists. A language name the mapping did not
+know is stored as a reversible slug, and because this will not ask about a
+stamped title twice, the fix has to work on what is already in the column:
+
+    docker exec mangabrain-worker-1 python -m pipeline.backfill_dub_tenrai --remap
+
+Measured need for it: the cast API spells Brazilian Portuguese
+"Portuguese (BR)" where AniList spells it "Portuguese (Brazil)", so the
+first thousand rows went in as portuguese-(br) while the dub filter queries
+pt-br and matched none of them.
 """
 
 import argparse
 
 from api.config import settings
 from pipeline.client import RateLimitedClient
+from pipeline.dub_language_codes import code_for, is_code, unslug
 from pipeline.probe_dub_mal import TENRAI_BASE, dub_codes, mal_languages
 
 # One request per title, and the service is somebody's goodwill.
@@ -79,6 +91,21 @@ WRITE_SQL = """
     WHERE id = %(id)s
 """
 
+# Repair, not re-fetch. A name the mapping did not know was stored as a
+# reversible slug, so correcting it costs no requests - which is the only
+# reason it can be corrected at all, since checked_at means this will not
+# ask about those titles again.
+REMAP_SCAN_SQL = """
+    SELECT id, mal_dub_languages
+    FROM media
+    WHERE mal_dub_languages <> '{}'
+    ORDER BY id
+"""
+
+REMAP_WRITE_SQL = """
+    UPDATE media SET mal_dub_languages = %(langs)s WHERE id = %(id)s
+"""
+
 
 # A cap exists so a first run can be small on purpose. --all without one
 # means the whole catalog, not the first 500 of it: a default that
@@ -117,6 +144,12 @@ def backfill(limit: int, everything: bool, base_url: str) -> int:
                 print(f"  FAILED #{row['id']} mal={row['id_mal']}")
                 continue
             codes, unknown = dub_codes(langs, row["country_of_origin"])
+            fresh = unknown - unknown_names
+            if fresh:
+                # Named on sight rather than only in the summary: a six-hour
+                # run that reports a vocabulary gap at the end reports it
+                # after writing every row the gap affects.
+                print(f"  NOTE  no code for {sorted(fresh)} - rerun with --remap once mapped")
             unknown_names |= unknown
             conn.execute(WRITE_SQL, {"langs": sorted(codes), "id": row["id"]})
             written += 1
@@ -136,6 +169,45 @@ def backfill(limit: int, everything: bool, base_url: str) -> int:
     return written
 
 
+def remap() -> int:
+    """Re-map stored slugs now that the mapping knows the name.
+
+    Nothing is requested and nothing is re-stamped: this only rewrites
+    values the column already holds. Needed because the backfill records
+    which titles it has asked about, so a mapping gap found afterwards
+    cannot be fixed by running the backfill again.
+    """
+    import psycopg
+    from psycopg.rows import dict_row
+
+    changed = 0
+    still_unknown: set[str] = set()
+    with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        rows = conn.execute(REMAP_SCAN_SQL).fetchall()
+        for row in rows:
+            stored = row["mal_dub_languages"] or []
+            fixed: list[str] = []
+            for value in stored:
+                if is_code(value):
+                    fixed.append(value)
+                    continue
+                code, known = code_for(unslug(value))
+                if known:
+                    fixed.append(code)
+                else:
+                    still_unknown.add(value)
+                    fixed.append(value)
+            if sorted(set(fixed)) != sorted(set(stored)):
+                conn.execute(REMAP_WRITE_SQL, {"langs": sorted(set(fixed)), "id": row["id"]})
+                changed += 1
+        conn.commit()
+
+    print(f"scanned {len(rows)} rows with languages; remapped {changed}")
+    if still_unknown:
+        print(f"still no code for: {sorted(still_unknown)}")
+    return changed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backfill dub languages from the MAL cast API")
     parser.add_argument(
@@ -150,7 +222,15 @@ def main() -> None:
         help="every anime with an id_mal, not only those with no English answer",
     )
     parser.add_argument("--base-url", default=TENRAI_BASE)
+    parser.add_argument(
+        "--remap",
+        action="store_true",
+        help="re-map stored language slugs against the current mapping; sends no requests",
+    )
     args = parser.parse_args()
+    if args.remap:
+        remap()
+        return
     limit = args.limit
     if limit is None:
         limit = NO_LIMIT if args.all else DEFAULT_GAP_LIMIT

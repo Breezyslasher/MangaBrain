@@ -53,14 +53,26 @@ def test_japanese_on_a_donghua_is_a_dub():
 
 
 def test_unmapped_language_names_are_reported_not_dropped():
-    """MAL writes 'Portuguese (BR)', which no code map has.
+    """Dropping a name the mapping does not know would make a vocabulary
+    gap look like an absence of dubs, which is the single mistake this
+    investigation keeps having to undo.
 
-    Dropping it would make a vocabulary gap look like an absence of dubs,
-    which is the single mistake this investigation keeps having to undo.
+    This used to assert that "Portuguese (BR)" was unmapped - the name the
+    cast API really sends - which pinned a bug as intended behaviour. It
+    maps to pt-br now; the reporting path is tested with a name no source
+    sends instead.
     """
-    codes, unknown = dub_codes({"Portuguese (BR)"}, "JP")
-    assert unknown == {"Portuguese (BR)"}
+    codes, unknown = dub_codes({"Esperanto"}, "JP")
+    assert unknown == {"Esperanto"}
     assert codes, "an unmapped name still has to appear as some code"
+
+
+def test_the_cast_apis_brazilian_portuguese_is_not_an_unmapped_name():
+    """It is the one language the first thousand backfilled rows got
+    wrong, and the filter queries pt-br."""
+    codes, unknown = dub_codes({"Portuguese (BR)"}, "JP")
+    assert unknown == set()
+    assert codes == {"pt-br"}
 
 
 def test_no_languages_at_all_is_empty_not_an_error():
