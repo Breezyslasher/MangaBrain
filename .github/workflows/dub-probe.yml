@@ -80,11 +80,14 @@ on:
         default: "false"
       jikan:
         description: >-
-          one request to api.jikan.moe/v4/anime/1/characters. ANSWERED:
-          it hangs for four minutes and fails, from a runner and from the
-          deployment host, because the public API was discontinued on
-          1 Oct 2026 (jikan-rest issue #613). Kept so the finding can be
-          reproduced rather than taken on trust.
+          one request to a Jikan-shaped /anime/{id}/characters. "jikan"
+          (or "true") hits api.jikan.moe, whose public API was
+          discontinued on 1 Oct 2026 - measured here, it hangs four
+          minutes and fails. "tenrai" hits api.tenrai.org/v1, the
+          successor the migrating projects name and report to be
+          schema-compatible with Jikan v4. Any other value is used as a
+          base URL verbatim. Reported compatibility is not measured
+          compatibility, which is what this step is for.
         required: false
         default: "false"
       fandom:
@@ -199,9 +202,15 @@ jobs:
       # host answers at all. No database, so it runs here rather than on
       # the deployment host - which is the point, since the recorded
       # blocker was measured from both and deserves re-checking from both.
-      - name: Is Jikan reachable from a runner
-        if: inputs.jikan == 'true'
-        run: python -m pipeline.probe_dub_mal --check
+      - name: Is the cast API reachable from a runner
+        if: inputs.jikan != '' && inputs.jikan != 'false'
+        env:
+          # Through the environment: the value may be a URL from a
+          # dispatch form, and ${{ }} is substituted before bash sees it.
+          BASE: ${{ inputs.jikan }}
+        run: |
+          [ "$BASE" = "true" ] && BASE=jikan
+          python -m pipeline.probe_dub_mal --check --base-url "$BASE"
 
       # Structure first, measurement second. The parser in the module is
       # a guess at a format nobody has inspected; this step is how that

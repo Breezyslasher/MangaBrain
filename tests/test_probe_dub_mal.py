@@ -177,7 +177,11 @@ def test_an_ids_run_checks_reachability_before_spending_requests():
     source = (Path(__file__).resolve().parent.parent / "pipeline/probe_dub_mal.py").read_text()
     body = source[source.index("def run_for_ids(") :]
     body = body[: body.index("\ndef ")]
-    probe_call = body.index("mal_languages(client, 1)")
+    # Matched loosely: the point is that the known-good probe happens
+    # before the catalog query, not how many arguments it takes. The
+    # first version of this pinned the exact call text and broke when
+    # the base URL became configurable.
+    probe_call = body.index("mal_languages(client, 1")
     assert probe_call < body.index("BY_ID_SQL"), "check before querying the catalog"
     assert 'status != "ok"' in body
 
@@ -191,3 +195,30 @@ def test_ids_can_come_from_a_file():
     source = (Path(__file__).resolve().parent.parent / "pipeline/probe_dub_mal.py").read_text()
     assert "--ids-file" in source
     assert "args.ids_file" in source
+
+
+def test_the_cast_host_is_configurable_with_shorthands():
+    """Jikan's public API shut down on 1 Oct 2026, so the host this probe
+    asks is now a question rather than a constant.
+
+    Tenrai is reported to be schema-compatible with Jikan v4 - the same
+    /anime/{id}/characters with voice_actors[].language - which means a
+    base URL should be the only change. Reported, not measured, so the
+    flag exists to settle it with one request.
+    """
+    from pipeline.probe_dub_mal import JIKAN_BASE, KNOWN_BASES, TENRAI_BASE
+
+    assert KNOWN_BASES["jikan"] == JIKAN_BASE
+    assert KNOWN_BASES["tenrai"] == TENRAI_BASE
+    assert TENRAI_BASE.startswith("https://")
+
+
+def test_the_language_is_still_read_from_the_same_place():
+    """If a successor's schema differs, the probe must not silently report
+    "no English cast" - that reads as evidence about dubs when it is
+    evidence about parsing. The check step says so explicitly."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline/probe_dub_mal.py").read_text()
+    assert 'actor.get("language")' in source
+    assert "voice_actors[].language" in source, "the check must name what a schema change breaks"

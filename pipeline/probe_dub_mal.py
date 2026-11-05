@@ -73,7 +73,20 @@ from pipeline.client import RateLimitedClient
 from pipeline.dub_language_codes import code_for
 from pipeline.stats import wilson_interval
 
+# Jikan's own public API is gone (see the note above). Tenrai is the
+# successor named by the projects that migrated off it, and is reported to
+# be schema-compatible with Jikan v4 - the same /anime/{id}/characters
+# shape with voice_actors[].language - so a base URL is all that should
+# need to change. Reported, not verified: --base-url exists so the claim
+# can be tested with one request instead of believed.
 JIKAN_BASE = "https://api.jikan.moe/v4"
+TENRAI_BASE = "https://api.tenrai.org/v1"
+
+# Shorthands, so a dispatch can say "tenrai" rather than paste a URL.
+KNOWN_BASES = {
+    "jikan": JIKAN_BASE,
+    "tenrai": TENRAI_BASE,
+}
 
 # Jikan allows 3 requests/second but also 60/minute, and the per-minute limit
 # is the binding one: 1.1s between requests stays under it with margin. A
@@ -147,7 +160,7 @@ def parse_ids(raw: str) -> list[int]:
     return [int(part) for part in raw.replace(",", " ").split() if part.strip()]
 
 
-def run_for_ids(client: RateLimitedClient, ids: list[int]) -> None:
+def run_for_ids(client: RateLimitedClient, ids: list[int], base_url: str = JIKAN_BASE) -> None:
     """Ask MAL about specific titles, one line of verdict each.
 
     No sampling and no bands: this answers "can MAL fill these particular
@@ -160,7 +173,7 @@ def run_for_ids(client: RateLimitedClient, ids: list[int]) -> None:
     # produces one "request failed" line per title and buries the only
     # fact that matters - and this investigation has already spent four
     # probes reporting their own transport failure as a finding.
-    _, status = mal_languages(client, 1)
+    _, status = mal_languages(client, 1, base_url)
     if status != "ok":
         print(
             f"\nJikan did not answer for a known-good title (status={status})."
@@ -191,7 +204,7 @@ def run_for_ids(client: RateLimitedClient, ids: list[int]) -> None:
             no_mal_id += 1
             print(f"  NO MAL #{row['id']:>7}  {title}  (no id_mal stored; MAL cannot be asked)")
             continue
-        langs, status = mal_languages(client, row["id_mal"])
+        langs, status = mal_languages(client, row["id_mal"], base_url)
         if status == "absent":
             absent += 1
             print(f"  absent #{row['id']:>7}  {title}  (no MAL entry under id {row['id_mal']})")
@@ -233,7 +246,9 @@ def band_of(popularity: int | None) -> str:
     return "unknown"
 
 
-def mal_languages(client: RateLimitedClient, id_mal: int) -> tuple[set[str], str]:
+def mal_languages(
+    client: RateLimitedClient, id_mal: int, base_url: str = JIKAN_BASE
+) -> tuple[set[str], str]:
     """(languages MAL credits, status). Status is ok, absent, or failed.
 
     A 404 means MAL has no entry under that id, which is a real answer about
@@ -242,7 +257,7 @@ def mal_languages(client: RateLimitedClient, id_mal: int) -> tuple[set[str], str
     "0/200 (0.0%)" in this very investigation.
     """
     try:
-        data = client.request("GET", f"{JIKAN_BASE}/anime/{id_mal}/characters")
+        data = client.request("GET", f"{base_url}/anime/{id_mal}/characters")
     except httpx.HTTPStatusError as exc:
         return set(), "absent" if exc.response.status_code == 404 else "failed"
     except httpx.HTTPError:
@@ -280,6 +295,11 @@ def dub_codes(langs: set[str], country: str | None) -> tuple[set[str], set[str]]
 def main() -> None:
     parser = argparse.ArgumentParser(description="Measure MAL as a dub source")
     parser.add_argument("--check", action="store_true", help="one request, test reachability")
+    parser.add_argument(
+        "--base-url",
+        default="jikan",
+        help="jikan, tenrai, or a full base URL (Jikan's public API shut down 1 Oct 2026)",
+    )
     parser.add_argument("--per-band", type=int, default=40, help="titles sampled per band")
     parser.add_argument("--seed", type=int, default=20261104)
     parser.add_argument("--min-interval", type=float, default=DEFAULT_INTERVAL)
@@ -296,16 +316,19 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    base_url = KNOWN_BASES.get(args.base_url, args.base_url).rstrip("/")
     client = RateLimitedClient(min_interval=args.min_interval, cache_dir=args.cache_dir)
     if args.check:
         # Settle the stale blocker before spending a sample on it.
-        langs, status = mal_languages(client, 1)
+        langs, status = mal_languages(client, 1, base_url)
         client.close()
+        print(f"base: {base_url}")
         print(f"MAL anime 1 (Cowboy Bebop): status={status} languages={sorted(langs)}")
         if status == "ok" and "English" in langs:
-            print("Jikan IS reachable from here, and credits an English cast. Run the probe.")
+            print("Reachable, and it credits an English cast. Run the probe.")
         elif status == "ok":
             print("reachable, but no English cast on a certainly-dubbed title: investigate")
+            print("(a schema change would look exactly like this: check voice_actors[].language)")
         else:
             print(
                 "Jikan did not answer. Not a blocker to work around: the public"
@@ -320,7 +343,7 @@ def main() -> None:
         raw = args.ids
         if args.ids_file:
             raw = f"{raw} {pathlib.Path(args.ids_file).read_text()}"
-        run_for_ids(client, parse_ids(raw))
+        run_for_ids(client, parse_ids(raw), base_url)
         client.close()
         return
 
@@ -353,7 +376,7 @@ def main() -> None:
         chosen = pool if len(pool) <= args.per_band else rng.sample(pool, args.per_band)
         english = answered = absent = failed = 0
         for row in chosen:
-            langs, status = mal_languages(client, row["id_mal"])
+            langs, status = mal_languages(client, row["id_mal"], base_url)
             if status == "absent":
                 absent += 1
                 continue
