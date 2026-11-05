@@ -171,6 +171,100 @@ def _connect():
     return psycopg.connect(settings.database_url, row_factory=dict_row)
 
 
+ID_MAL_QUERY = """
+query ($ids: [Int]) {
+  Page(page: 1, perPage: 50) {
+    media(id_in: $ids, type: ANIME) { id idMal title { romaji english } }
+  }
+}
+"""
+
+
+def resolve_id_mal(client: RateLimitedClient, ids: list[int]) -> dict[int, dict]:
+    """AniList id -> {id_mal, title}, asked of AniList rather than the catalog.
+
+    The catalog knows this already, but only the deployment host has the
+    catalog, and that is the single reason this check could not run in CI.
+    AniList serves idMal on the media it owns, 50 per page, so the mapping
+    costs one request per fifty titles and the probe runs anywhere.
+
+    Not a replacement for the database path: that one also reports whether
+    our own sources have since answered for a title, which AniList cannot
+    know.
+    """
+    from pipeline.sync_anilist import fetch_page
+
+    out: dict[int, dict] = {}
+    for start in range(0, len(ids), 50):
+        chunk = ids[start : start + 50]
+        page = fetch_page(client, ID_MAL_QUERY, {"ids": chunk})
+        for media in page.get("media") or []:
+            titles = media.get("title") or {}
+            out[media["id"]] = {
+                "id_mal": media.get("idMal"),
+                "title": titles.get("english") or titles.get("romaji") or "",
+            }
+    return out
+
+
+def run_for_ids_via_anilist(client: RateLimitedClient, ids: list[int], base_url: str) -> None:
+    """The same question without a catalog: map through AniList, then ask.
+
+    Reports no "already known" column, because that fact lives in our
+    database and this path does not have one. Saying so beats inventing a
+    value for it.
+    """
+    print(f"parsed {len(ids)} ids")
+    _, status = mal_languages(client, 1, base_url)
+    if status != "ok":
+        print(f"\nthe cast API did not answer for a known-good title (status={status});")
+        print("nothing below would mean anything, so stopping.")
+        return
+
+    mapping = resolve_id_mal(client, ids)
+    missing = [i for i in ids if i not in mapping]
+    if missing:
+        print(f"AniList returned nothing for: {missing}")
+
+    english = answered = absent = failed = no_mal_id = 0
+    for media_id in ids:
+        entry = mapping.get(media_id)
+        if entry is None:
+            continue
+        title = entry["title"][:46]
+        id_mal = entry["id_mal"]
+        if not id_mal:
+            no_mal_id += 1
+            print(f"  NO MAL #{media_id:>7}  {title}  (AniList stores no idMal)")
+            continue
+        langs, status = mal_languages(client, id_mal, base_url)
+        if status == "absent":
+            absent += 1
+            print(f"  absent #{media_id:>7}  {title}  (no entry under mal id {id_mal})")
+            continue
+        if status == "failed":
+            failed += 1
+            print(f"  FAILED #{media_id:>7}  {title}  (request failed)")
+            continue
+        answered += 1
+        codes, _unknown = dub_codes(langs, None)
+        if "en" in codes:
+            english += 1
+            print(f"  DUB    #{media_id:>7}  {title}  languages={sorted(codes)}")
+        else:
+            print(f"  no en  #{media_id:>7}  {title}  languages={sorted(codes) or 'none'}")
+
+    print(f"\nasked about {answered} of {len(ids)} ids")
+    print(f"  English cast credited: {english}")
+    print(f"  answered, no English cast: {answered - english}")
+    print(f"  no entry: {absent}   no idMal on AniList: {no_mal_id}   failed: {failed}")
+    print(
+        "\nNo rate is reported: these ids were hand-picked, so a percentage"
+        "\nover them would describe the picking. No 'already known' column"
+        "\neither - that lives in the catalog, which this path does not have."
+    )
+
+
 def parse_ids(raw: str) -> list[int]:
     """Comma or whitespace separated AniList ids."""
     return [int(part) for part in raw.replace(",", " ").split() if part.strip()]
@@ -330,6 +424,11 @@ def main() -> None:
         help="check these AniList ids instead of sampling (comma or space separated)",
     )
     parser.add_argument(
+        "--via-anilist",
+        action="store_true",
+        help="map ids through AniList instead of the catalog, so this runs without a database",
+    )
+    parser.add_argument(
         "--ids-file",
         default="",
         help="read the ids from a file instead, which a shell cannot wrap mid-number",
@@ -363,7 +462,11 @@ def main() -> None:
         raw = args.ids
         if args.ids_file:
             raw = f"{raw} {pathlib.Path(args.ids_file).read_text()}"
-        run_for_ids(client, parse_ids(raw), base_url)
+        ids = parse_ids(raw)
+        if args.via_anilist:
+            run_for_ids_via_anilist(client, ids, base_url)
+        else:
+            run_for_ids(client, ids, base_url)
         client.close()
         return
 

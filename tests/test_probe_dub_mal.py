@@ -222,3 +222,23 @@ def test_the_language_is_still_read_from_the_same_place():
     source = (Path(__file__).resolve().parent.parent / "pipeline/probe_dub_mal.py").read_text()
     assert 'actor.get("language")' in source
     assert "voice_actors[].language" in source, "the check must name what a schema change breaks"
+
+
+def test_the_id_run_can_map_without_a_catalog():
+    """Only the deployment host has the database, and that was the only
+    reason a 37-title check could not run in CI.
+
+    AniList serves idMal on the media it owns, fifty per page, so the
+    mapping costs one request. The path reports no "already known"
+    column, because that fact lives in the catalog and inventing a value
+    for it would be worse than its absence.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline/probe_dub_mal.py").read_text()
+    assert "def resolve_id_mal(" in source
+    assert "idMal" in source
+    body = source[source.index("def run_for_ids_via_anilist(") :]
+    body = body[: body.index("\ndef ")]
+    assert "_connect(" not in body, "the no-database path must not open one"
+    assert "already known" in body, "its absence has to be stated, not hidden"

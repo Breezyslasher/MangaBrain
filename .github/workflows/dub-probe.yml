@@ -90,6 +90,15 @@ on:
           compatibility, which is what this step is for.
         required: false
         default: "false"
+      cast_ids:
+        description: >-
+          AniList ids (comma or space separated) to ask the cast API about,
+          mapped through AniList's own idMal so no catalog is needed. This
+          is what lets the 37 English-unknown titles from the Dubbing Wiki
+          census be checked here rather than on the deployment host. Uses
+          the host named by the jikan input, or Tenrai by default.
+        required: false
+        default: ""
       fandom:
         description: >-
           inspect dubbing.fandom.com page structure (recon). "true" uses the
@@ -118,7 +127,7 @@ permissions:
 # and deleted by a reports probe queued while it was still working.
 concurrency:
   group: >-
-    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}-${{ inputs.fandom || 'n' }}-${{ inputs.jikan || 'n' }}
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}-${{ inputs.fandom || 'n' }}-${{ inputs.jikan || 'n' }}-${{ inputs.cast_ids && 'ids' || 'n' }}
   cancel-in-progress: true
 
 jobs:
@@ -212,6 +221,19 @@ jobs:
           [ "$BASE" = "true" ] && BASE=jikan
           python -m pipeline.probe_dub_mal --check --base-url "$BASE"
 
+      # The catalog knows every title's id_mal, but only the deployment
+      # host has the catalog, and that was the only reason this check
+      # could not run here. AniList serves idMal fifty at a time, so the
+      # mapping costs one request and the question moves to CI.
+      - name: Ask the cast API about specific titles
+        if: inputs.cast_ids != ''
+        env:
+          IDS: ${{ inputs.cast_ids }}
+          BASE: ${{ inputs.jikan }}
+        run: |
+          [ -z "$BASE" ] || [ "$BASE" = "false" ] || [ "$BASE" = "true" ] && BASE=tenrai
+          python -m pipeline.probe_dub_mal --ids "$IDS" --via-anilist --base-url "$BASE"
+
       # Structure first, measurement second. The parser in the module is
       # a guess at a format nobody has inspected; this step is how that
       # guess gets replaced by what the pages actually contain. The probe
@@ -268,6 +290,7 @@ jobs:
           && inputs.one_call != 'true' && inputs.signals != 'true' && inputs.studios != 'true' && inputs.wikidata != 'true'
           && (inputs.fandom == '' || inputs.fandom == 'false')
           && (inputs.jikan == '' || inputs.jikan == 'false')
+          && inputs.cast_ids == ''
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \
