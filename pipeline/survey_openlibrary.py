@@ -29,6 +29,7 @@ the measurement.
 
 import argparse
 import gzip
+import io
 import json
 import statistics
 import time
@@ -40,6 +41,35 @@ DUMP_URL = "https://openlibrary.org/data/ol_dump_works_latest.txt.gz"
 # The same floor the source probe used, and for the same reason: below
 # this a description is a tagline, not something to embed.
 MIN_DESCRIPTION = 200
+
+
+class ChunkReader(io.RawIOBase):
+    """A file-like view over httpx's chunk iterator.
+
+    gzip.GzipFile wants an object with .read(); iter_raw() yields bytes.
+    Passing the generator straight in raised "'generator' object has no
+    attribute 'read'" on the first byte of a multi-gigabyte download,
+    which is a cheap failure but only at runtime - hence the test that
+    drives real gzip bytes through this in chunks.
+    """
+
+    def __init__(self, chunks) -> None:
+        self._chunks = iter(chunks)
+        self._buffer = b""
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, target) -> int:
+        while not self._buffer:
+            try:
+                self._buffer = next(self._chunks)
+            except StopIteration:
+                return 0
+        size = min(len(target), len(self._buffer))
+        target[:size] = self._buffer[:size]
+        self._buffer = self._buffer[size:]
+        return size
 
 
 def description_of(work: dict) -> str:
@@ -58,7 +88,8 @@ def survey(limit: int | None, min_description: int) -> dict:
 
     with httpx.stream("GET", DUMP_URL, timeout=120.0, follow_redirects=True) as resp:
         resp.raise_for_status()
-        with gzip.GzipFile(fileobj=resp.iter_raw(), mode="rb") as stream:  # type: ignore[arg-type]
+        reader = io.BufferedReader(ChunkReader(resp.iter_raw()), buffer_size=1 << 20)
+        with gzip.GzipFile(fileobj=reader, mode="rb") as stream:
             for raw in stream:
                 counts["rows"] += 1
                 if limit and counts["rows"] > limit:
