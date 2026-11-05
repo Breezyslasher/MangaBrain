@@ -75,3 +75,52 @@ def test_only_a_normalised_title_match_is_accepted():
     assert confirm("The Amazing 3", "the amazing 3")
     assert not confirm("Discode", "Discode (disambiguation)")
     assert not confirm("Monster", "Monster Rancher")
+
+
+REAL_SHAPE = """{{Infobox
+|title = Example
+}}
+==Dubbing History==
+Some prose.
+==Cast==
+{| class="wikitable"
+! Character !! {{Flag|United States}} English !! {{Flag|Brazil}} Portuguese
+|-
+| Hero || [[Jane Doe]] || [[Alguem]]
+|}
+==External Links==
+{{IMDb title|tt0000001}}
+{{ANN title|anime|1234}}
+{{AniList title|5678}}
+[[Category:Anime]]
+"""
+
+
+def test_the_real_page_shape_has_no_english_section():
+    """What the first recon run actually found, pinned as a regression.
+
+    Cowboy Bebop and The Amazing 3 both have headings Dubbing History /
+    Cast / Additional Voices and NO per-language sections: languages are
+    columns in a wikitable, marked with {{Flag}}. The provisional
+    english_cast() guess therefore returns nothing on a real page, which
+    is why its output was labelled an upper bound rather than a finding.
+    """
+    from pipeline.probe_dub_fandom import english_cast, headings
+
+    assert "English" not in headings(REAL_SHAPE)
+    assert english_cast(REAL_SHAPE) == [], "the guess does not fit the real format"
+    assert section(REAL_SHAPE, "cast") != "", "the cast is under a Cast heading"
+
+
+def test_cross_reference_templates_are_captured_verbatim():
+    """The AniList template is the find: a page carrying it can be joined
+    by id, which removes the title matching that this source was assumed
+    to be stuck with."""
+    from pipeline.probe_dub_fandom import template_calls
+
+    calls = template_calls(REAL_SHAPE)
+    assert "{{AniList title|5678}}" in calls
+    assert "{{ANN title|anime|1234}}" in calls
+    # Flag and Infobox are not cross-reference templates and must not be
+    # dragged in by a loose match.
+    assert not any("Flag" in call or "Infobox" in call for call in calls)

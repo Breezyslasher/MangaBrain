@@ -47,7 +47,22 @@ MIN_INTERVAL = 1.0
 
 SEARCH_LIMIT = 10
 
+# Cross-reference templates seen on real pages. The first one is the
+# reason this source is worth more than the first recon assumed: a page
+# that carries {{AniList title|...}} can be joined by id, which removes
+# the title matching that caps ANN at 31.8% and that got Discode nothing.
+ID_TEMPLATES = (
+    "AniList title",
+    "ANN title",
+    "MyAnimeList title",
+    "DubDB title",
+    "IMDb title",
+)
+
 HEADING_RE = re.compile(r"^(={2,6})\s*(.+?)\s*\1\s*$", re.MULTILINE)
+# A whole flat template invocation, so the recon can show what its
+# parameters look like instead of guessing at them.
+TEMPLATE_CALL_RE = re.compile(r"\{\{\s*([^|}\n]+?)\s*(\|[^{}]*)?\}\}")
 TEMPLATE_RE = re.compile(r"\{\{\s*([^|}\n]+)")
 LINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 
@@ -148,6 +163,20 @@ def english_cast(wikitext: str) -> list[str]:
     ]
 
 
+def template_calls(wikitext: str, names: tuple[str, ...] = ID_TEMPLATES) -> list[str]:
+    """Raw invocations of the named templates, verbatim.
+
+    Printed rather than parsed. The parameter shape of {{AniList title}}
+    is exactly the kind of thing to read off a real page instead of
+    assuming, which is what the English-section guess got wrong.
+    """
+    found = []
+    for match in TEMPLATE_CALL_RE.finditer(wikitext):
+        if match.group(1).strip() in names:
+            found.append(match.group(0))
+    return found
+
+
 def recon_one(client: RateLimitedClient, title: str) -> dict:
     """What a title's page is shaped like, without interpreting it."""
     hits = search(client, title)
@@ -168,6 +197,8 @@ def recon_one(client: RateLimitedClient, title: str) -> dict:
             "has_english_section": bool(section(wikitext, "english")),
             "english_links": len(english_cast(wikitext)),
             "table_markup": wikitext.count("{|"),
+            "id_templates": template_calls(wikitext),
+            "cast_sample": section(wikitext, "cast")[:600],
         }
     )
     return report
@@ -193,6 +224,11 @@ def print_recon(report: dict) -> None:
         f"  english section: {report['has_english_section']}"
         f"  links under it: {report['english_links']}"
     )
+    print(f"  id templates: {report['id_templates'] or 'none'}")
+    if report.get("cast_sample"):
+        print("  --- cast section, first 600 chars ---")
+        for line in report["cast_sample"].splitlines():
+            print(f"  | {line}")
 
 
 # Controls worth including in any run: one title our sources handle, and
@@ -215,6 +251,51 @@ def run_recon(titles: list[str]) -> int:
         matched += report["confirmed"] is not None
     print(f"\nmatched {matched}/{len(titles)} by normalised title")
     return matched
+
+
+def count_pages_with_template(client: RateLimitedClient, template: str, cap: int = 20) -> dict:
+    """How many wiki pages embed a template, via list=embeddedin.
+
+    This is the number that decides whether the wiki can be joined by id
+    at all. If {{AniList title}} appears on a few hundred pages it is a
+    curiosity; if it appears on thousands, it is a mapping table that
+    needs no title matching.
+    """
+    titles: list[str] = []
+    params = {
+        "action": "query",
+        "list": "embeddedin",
+        "eititle": f"Template:{template}",
+        "eilimit": "500",
+        "einamespace": "0",
+        "format": "json",
+        "formatversion": "2",
+    }
+    pages = 0
+    while pages < cap:
+        data = client.request("GET", API_URL, params=params)
+        titles.extend(item["title"] for item in data.get("query", {}).get("embeddedin", []))
+        pages += 1
+        cont = data.get("continue", {}).get("eicontinue")
+        if not cont:
+            return {"template": template, "count": len(titles), "complete": True,
+                    "sample": titles[:5]}
+        params["eicontinue"] = cont
+    return {"template": template, "count": len(titles), "complete": False, "sample": titles[:5]}
+
+
+def run_coverage() -> None:
+    """How many pages carry each cross-reference id template."""
+    client = RateLimitedClient(min_interval=MIN_INTERVAL, max_retries=2, timeout=20.0)
+    for template in ID_TEMPLATES:
+        try:
+            result = count_pages_with_template(client, template)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{template}: REQUEST FAILED ({type(exc).__name__}: {exc})")
+            continue
+        suffix = "" if result["complete"] else " (capped, more exist)"
+        print(f"{template}: {result['count']} article pages{suffix}")
+        print(f"  e.g. {', '.join(result['sample'])}")
 
 
 def run_probe(sample_size: int, seed: int) -> None:
@@ -287,6 +368,11 @@ def main() -> None:
     recon = sub.add_parser("recon", help="inspect page structure; no database needed")
     recon.add_argument("--title", action="append", default=None)
 
+    sub.add_parser(
+        "coverage",
+        help="how many wiki pages carry each cross-reference id template",
+    )
+
     probe = sub.add_parser("probe", help="measure against the catalog's dub gap")
     probe.add_argument("--sample", type=int, default=100)
     probe.add_argument("--seed", type=int, default=20261105)
@@ -294,6 +380,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "recon":
         run_recon(args.title or DEFAULT_TITLES)
+    elif args.command == "coverage":
+        run_coverage()
     else:
         run_probe(args.sample, args.seed)
 

@@ -199,6 +199,11 @@ jobs:
             done
             python -m pipeline.probe_dub_fandom recon "${ARGS[@]}"
           fi
+          # How many pages carry each cross-reference id template. This is
+          # the number that decides whether the wiki can be joined by id
+          # instead of by title, which is the difference between a usable
+          # source and another ANN.
+          python -m pipeline.probe_dub_fandom coverage
 
       - name: Probe AniList's dub languages
         if: inputs.languages == 'true'
