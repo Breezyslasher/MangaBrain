@@ -463,3 +463,27 @@ def test_rebuilding_the_filter_panel_does_not_stack_text_watchers():
     assert "removeTextChangedListener" in source, (
         "bindTextFields adds a watcher without removing the previous one"
     )
+
+
+def test_opening_a_title_starts_at_the_top_but_a_re_rank_does_not():
+    """Both clients make the same distinction, for the same reason.
+
+    Tapping a result replaces the whole page, so leaving the list where it
+    was hid the new seed card above the fold. Moving a weight slider
+    re-ranks the same seeds, and scrolling then would throw the reader out
+    of the list they were reading. The web client compares the seed ids
+    before scrolling; the Android one has to as well.
+    """
+    source = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
+    ).read_text()
+    javascript = (ROOT / "web/app.js").read_text()
+
+    assert "scrollToPosition(0)" in source, "the grid never returns to the top"
+    assert "shownSeedIds" in source and "shownSeedIds" in javascript, (
+        "both clients track the seeds on screen to decide whether to scroll"
+    )
+    # The scroll must be guarded by that comparison, not unconditional.
+    render = source[source.index("private fun render("):]
+    render = render[: render.index("\n    /**")]
+    assert "if (ids != shownSeedIds)" in render, "a re-rank must not move the list"
