@@ -197,6 +197,41 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw_768
     ON embeddings USING hnsw ((embedding::vector(768)) vector_cosine_ops)
     WHERE vector_dims(embedding) = 768;
 
+-- A binary-quantized copy of the embedding, for a coarse pass that can
+-- read the whole catalog.
+--
+-- Measured, not assumed. An exact sequential scan over the 768-dimension
+-- embeddings took 4.0 s, and EXPLAIN (ANALYZE, BUFFERS) named the reason:
+-- 1,880,352 shared buffer hits, about 15 GB of traffic for a few hundred
+-- MB of data, roughly 11 buffer accesses per row. A 768-dim float32
+-- vector is 3,072 bytes, over the ~2 KB TOAST threshold, so every vector
+-- lives out of line in chunks and every row costs an index descent, chunk
+-- fetches and decompression. The arithmetic was never the problem -
+-- reaching the vectors was. HNSW avoids it by storing vectors in the
+-- index; a sequential scan cannot.
+--
+-- 768 bits is 96 bytes, which stores INLINE. The whole catalog becomes
+-- ~16 MB, resident in shared buffers, with no out-of-line fetch and no
+-- decompression - the condition that makes an exact scan affordable.
+--
+-- varbit rather than bit(768), for the same reason the vector column is
+-- dimension-untyped: two embedding versions coexist during a re-embed,
+-- and a fixed width cannot hold both. Queries cast to bit(dim) and
+-- predicate on length(), mirroring the vector side.
+--
+-- Deliberately NOT a generated column. GENERATED ALWAYS AS ... STORED
+-- rewrites the table, TOAST included, under an exclusive lock - minutes
+-- of it here - and ensure_schema() runs at API startup, so a boot would
+-- stall past its healthcheck. A plain ADD COLUMN is instant;
+-- pipeline.embed writes it alongside the vector, pipeline.quantize fills
+-- what came before, and a test pins the two together so they cannot
+-- drift apart.
+ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS embedding_bits VARBIT;
+
+-- No index on it, by design: the point is an exact scan of a small
+-- column. An ANN index here would reintroduce the approximation this
+-- exists to remove.
+
 -- Cached MAL user lists pulled via Jikan. Everything on either list is
 -- excluded from recommendation results when mal_user is passed.
 CREATE TABLE IF NOT EXISTS mal_list_entries (

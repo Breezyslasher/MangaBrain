@@ -197,6 +197,18 @@ def test_the_dataset_workflow_builds_dub_data_into_the_snapshot():
     ).read_text()
     assert "pipeline.backfill_dub_ann" in workflow
     assert "pipeline.propagate_dub" in workflow
+    # All four dub sources, not two. backfill_dub_languages and
+    # backfill_dub_tenrai were both missing, so a restoring user got
+    # AniList's English count and ANN's title-matched languages while
+    # measured_dub_languages and mal_dub_languages arrived empty - the two
+    # columns the filter prefers, because both are id answers rather than
+    # name matches.
+    assert "pipeline.backfill_dub_languages" in workflow
+    assert "pipeline.backfill_dub_tenrai" in workflow
+    # --all, because the default scope asks only about titles with no
+    # English answer, and a title with an English dub can still have a
+    # German or Chinese one nobody has measured.
+    assert "backfill_dub_tenrai --all" in workflow
     # Runs regardless of the embed outcome: dub data is unrelated to
     # embeddings, and without this a timed-out embed would skip it on every
     # run of a long re-embed chain, so the languages would never arrive.
@@ -206,10 +218,52 @@ def test_the_dataset_workflow_builds_dub_data_into_the_snapshot():
     # after it and losing the resume is worse than partial dub data.
     assert workflow.index("Upload checkpoint to cache") < workflow.index("id: dub_ann")
     assert workflow.index("Dispatch resume run") < workflow.index("id: dub_ann")
-    assert workflow.index("id: dub_ann") < workflow.index("Dump snapshot")
+    assert workflow.index("id: dub_ann") < workflow.index("- name: Dump snapshot")
+    assert workflow.index("id: dub_mal") < workflow.index("- name: Dump snapshot")
+    assert workflow.index("id: dub_languages") < workflow.index("- name: Dump snapshot")
     assert "runs-on: ubuntu-24.04" in workflow
     # The resume must continue on the ref it started from. gh defaults to the
     # default branch, so without this a branch run resumes with a different
     # workflow definition than it began with.
     assert '--ref "$GITHUB_REF_NAME"' in workflow
     assert "runs-on: ubuntu-latest" not in workflow
+
+
+def test_a_long_dub_pass_cannot_cost_the_week_its_dataset():
+    """Every dub step is best-effort, because the publish is not.
+
+    "Dump snapshot" runs only on success, and a step that hits its
+    timeout-minutes cap fails. So one dub pass running long used to fail
+    the job and publish nothing - trading a whole week's catalog for a
+    column. Each pass is incremental and the next run continues it, so a
+    thinner dub column is strictly better than no dataset.
+    """
+    import yaml
+
+    workflow = yaml.safe_load(
+        (Path(__file__).parent.parent / ".github" / "workflows" / "dataset-publish.yml").read_text()
+    )
+    steps = workflow["jobs"]["build-dataset"]["steps"]
+    dub_steps = [s for s in steps if str(s.get("id", "")).startswith("dub_")]
+    assert len(dub_steps) == 4, [s.get("id") for s in dub_steps]
+    for step in dub_steps:
+        assert step.get("continue-on-error") is True, step.get("id")
+        assert step.get("timeout-minutes"), step.get("id")
+
+    # And the publish itself must NOT be best-effort: a failure there is a
+    # real failure and should be visible.
+    publish = [s for s in steps if s.get("name") == "Publish release"]
+    assert publish and publish[0].get("continue-on-error") is None
+
+
+def test_the_mal_pass_is_bounded_so_it_fits_the_job():
+    """A full walk is about six hours at one request a second, against a
+    358-minute job - and against a volunteer service. The cap is what
+    makes it a weekly slice that converges, rather than a walk that is
+    killed at the same place every week and never finishes."""
+    workflow = (
+        Path(__file__).parent.parent / ".github" / "workflows" / "dataset-publish.yml"
+    ).read_text()
+    step = workflow[workflow.index("id: dub_mal") :]
+    step = step[: step.index("- name: Dump snapshot")]
+    assert "--limit" in step, "an uncapped walk cannot fit the job"
