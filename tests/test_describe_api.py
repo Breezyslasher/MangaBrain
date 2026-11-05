@@ -42,8 +42,7 @@ def test_every_router_prefix_is_guarded():
     unguarded = sorted(
         path
         for path in main.app.openapi()["paths"]
-        if not path.startswith(main.API_PREFIXES)
-        and path not in {"/healthz", "/", "/openapi.json"}
+        if not path.startswith(main.API_PREFIXES) and path not in {"/healthz", "/", "/openapi.json"}
     )
     assert unguarded == [], f"these endpoints bypass auth and the rate limit: {unguarded}"
 
@@ -90,9 +89,7 @@ def test_the_web_client_asks_for_description_search_correctly():
 
     from api.main import app
 
-    accepted = {
-        p["name"] for p in app.openapi()["paths"]["/describe"]["get"].get("parameters", [])
-    }
+    accepted = {p["name"] for p in app.openapi()["paths"]["/describe"]["get"].get("parameters", [])}
     assert "exclude_list" in accepted, "must match what filterParams() emits"
     for name in ("q", "medium", "limit", "adult", "dub_lang"):
         assert name in accepted

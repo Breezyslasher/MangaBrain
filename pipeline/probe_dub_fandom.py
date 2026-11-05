@@ -431,7 +431,7 @@ def run_census(use_db: bool) -> None:
         "\nThe English figure is the one to decide on: a title with a known"
         "\nPortuguese cast counts as answered in the first block while still"
         "\nbeing invisible to a reader filtering for an English dub. What the"
-        "\nwiki names is still only \"Dub Actor\" - a dub, not an English one -"
+        '\nwiki names is still only "Dub Actor" - a dub, not an English one -'
         "\nso treat even this as an upper bound until a parser reads the"
         "\nlanguage out of the page."
     )
