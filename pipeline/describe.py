@@ -8,6 +8,7 @@ container.
 
     python -m pipeline.describe "a quiet story about grief in a seaside town"
     python -m pipeline.describe --medium manga --limit 20 "revenge, court intrigue"
+    python -m pipeline.describe --why "a time loop that only one person notices"
 
 Two things to keep in mind when reading the output.
 
@@ -49,7 +50,7 @@ def build_sql(dim: int, filter_sql: str) -> str:
     """
     return f"""
         SELECT m.id, m.title_romaji, m.title_english, m.medium, m.format,
-               m.start_year, m.average_score,
+               m.start_year, m.average_score, m.description_clean,
                1 - (e.embedding <=> %(query_vec)s) AS similarity
         FROM media m
         JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
@@ -100,12 +101,31 @@ def describe(text: str, medium: str | None, limit: int, adult: bool) -> list[dic
         return conn.execute(sql, params).fetchall()
 
 
-def format_row(index: int, row: dict) -> str:
+SYNOPSIS_CHARS = 220
+
+
+def format_row(index: int, row: dict, why: bool = False) -> str:
+    """One result. With why=True, the opening of the synopsis underneath.
+
+    Judging whether a match is good means knowing what the title is about,
+    and a list of unfamiliar names cannot be judged at all - which is the
+    only question this tool exists to answer. Titles with no synopsis are
+    embedded from their titles alone (pipeline.embed.embed_text), so an
+    empty line here is itself the explanation for a weak match.
+    """
     title = row["title_english"] or row["title_romaji"] or f"#{row['id']}"
     bits = [str(row["start_year"] or "----"), row["medium"]]
     if row["format"]:
         bits.append(row["format"])
-    return f"{index:>3}. {row['similarity']:.3f}  {title}  ({' / '.join(bits)})"
+    line = f"{index:>3}. {row['similarity']:.3f}  {title}  ({' / '.join(bits)})"
+    if not why:
+        return line
+    synopsis = " ".join((row.get("description_clean") or "").split())
+    if not synopsis:
+        return line + "\n       (no synopsis: embedded from its title alone)"
+    if len(synopsis) > SYNOPSIS_CHARS:
+        synopsis = synopsis[:SYNOPSIS_CHARS].rsplit(" ", 1)[0] + "..."
+    return line + f"\n       {synopsis}"
 
 
 def main() -> None:
@@ -114,6 +134,9 @@ def main() -> None:
     parser.add_argument("--medium", choices=sorted(MEDIUM_GROUPS), default=None)
     parser.add_argument("--limit", type=int, default=15)
     parser.add_argument("--adult", action="store_true", help="include adult titles")
+    parser.add_argument(
+        "--why", action="store_true", help="print the opening of each synopsis"
+    )
     args = parser.parse_args()
 
     rows = describe(" ".join(args.text), args.medium, args.limit, args.adult)
@@ -121,7 +144,7 @@ def main() -> None:
         print("no matches; is the catalog embedded?")
         return
     for index, row in enumerate(rows, start=1):
-        print(format_row(index, row))
+        print(format_row(index, row, why=args.why))
 
 
 if __name__ == "__main__":
