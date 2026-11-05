@@ -42,8 +42,6 @@ import random
 from collections import Counter
 
 import httpx
-import psycopg
-from psycopg.rows import dict_row
 
 from api.config import settings
 from pipeline.backfill_dub_ann import NATIVE_LANGS
@@ -104,6 +102,22 @@ BY_ID_SQL = """
 """
 
 
+def _connect():
+    """Open a catalog connection.
+
+    Imported here rather than at module scope so --check, which asks one
+    question of Jikan and touches no database, runs anywhere httpx is
+    installed. A CI run died at `import psycopg` before reaching the
+    reachability test it existed to perform, which is a silly way to fail
+    a probe whose entire job is to distinguish "the host refused" from
+    everything else.
+    """
+    import psycopg
+    from psycopg.rows import dict_row
+
+    return psycopg.connect(settings.database_url, row_factory=dict_row)
+
+
 def parse_ids(raw: str) -> list[int]:
     """Comma or whitespace separated AniList ids."""
     return [int(part) for part in raw.replace(",", " ").split() if part.strip()]
@@ -133,7 +147,7 @@ def run_for_ids(client: RateLimitedClient, ids: list[int]) -> None:
         )
         return
 
-    with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+    with _connect() as conn:
         rows = conn.execute(BY_ID_SQL, {"ids": ids}).fetchall()
     found = {row["id"] for row in rows}
     missing = [i for i in ids if i not in found]
@@ -281,7 +295,7 @@ def main() -> None:
         return
 
     rng = random.Random(args.seed)
-    with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+    with _connect() as conn:
         rows = conn.execute(GAP_SQL).fetchall()
     print(f"{len(rows)} anime in the gap set with an id_mal (no English dub from any source)")
 

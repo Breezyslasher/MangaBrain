@@ -133,8 +133,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install httpx
-        run: pip install "httpx>=0.27"
+      # httpx alone was enough while every probe here spoke only HTTP.
+      # probe_dub_mal reaches api.config and, through NATIVE_LANGS in
+      # backfill_dub_ann, psycopg - at import, before any database is
+      # touched. Making the connection lazy in probe_dub_mal was not
+      # enough on its own because of that transitive import, and chasing
+      # it further would mean refactoring a backfill module to suit a
+      # reachability check.
+      - name: Install dependencies
+        run: |
+          pip install "httpx>=0.27" "pydantic-settings>=2.3" \
+            "psycopg[binary]>=3.2" "psycopg-pool>=3.2"
 
       # Runners have open outbound internet, unlike the dev container whose
       # egress proxy blocks these hosts. That distinction is why the other
