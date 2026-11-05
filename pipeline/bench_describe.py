@@ -91,6 +91,25 @@ def ann_sql(dim: int) -> str:
 ANIME_MEDIUMS = ["anime"]
 
 
+def as_array(value):
+    """A sampled embedding as numpy, whatever pgvector handed back.
+
+    register_vector returns a pgvector Vector in some versions and a
+    numpy array in others. Every raw query here is indifferent - psycopg
+    adapts either back as a parameter - so this only matters where the
+    benchmark calls pipeline.describe.rank, which reads vectors[0].shape.
+    That is the one code path that is the real one, and it is the last
+    thing to run, so getting this wrong costs a whole benchmark run.
+    """
+    import numpy as np
+
+    if hasattr(value, "to_numpy"):
+        return value.to_numpy()
+    if isinstance(value, np.ndarray):
+        return value
+    return np.asarray(list(value), dtype=np.float32)
+
+
 def configure_scan(conn, pool: int) -> None:
     """Set the scan up exactly as pipeline.describe.rank does.
 
@@ -145,7 +164,7 @@ def main() -> None:
         print(f"pgvector {version}; {total} embedded anime at {args.dim} dimensions")
 
         vectors = [
-            row["embedding"]
+            as_array(row["embedding"])
             for row in conn.execute(SAMPLE_SQL, {"dim": args.dim, "n": args.queries}).fetchall()
         ]
         if not vectors:

@@ -270,3 +270,31 @@ def test_every_benchmark_statistic_has_something_to_average():
     assert averaged, "expected the benchmark to summarise something"
     for name in sorted(averaged):
         assert re.search(rf"\b{name}\.append\(", source), f"{name} is averaged but never filled"
+
+
+def test_the_benchmark_hands_rank_numpy_not_whatever_the_driver_returned():
+    """pipeline.describe.rank reads vectors[0].shape, and register_vector
+    returns a pgvector Vector in some versions.
+
+    This broke twice. The second time it was collateral from removing the
+    binary stage: as_array sat between the deleted SQL and the next
+    constant, so it went with them, and the sweep - the last thing to run
+    - died after minutes of timings had already completed.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline/bench_describe.py").read_text()
+    assert "def as_array(" in source
+    sampling = source[source.index("vectors = [") :]
+    sampling = sampling[: sampling.index("]")]
+    assert "as_array(" in sampling, "sampled embeddings must be converted before rank() sees them"
+
+
+def test_the_benchmark_calls_rank_rather_than_reimplementing_it():
+    """A copy of the fusion SQL would drift from the endpoint exactly
+    where the measurement is supposed to be about the endpoint."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline/bench_describe.py").read_text()
+    assert "describe_module.rank(" in source
+    assert "RRF_K" not in source, "fusion belongs to pipeline.describe, not to its benchmark"
