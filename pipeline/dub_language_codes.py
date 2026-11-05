@@ -14,8 +14,18 @@ AniList adds shows up as a slug to be mapped rather than as absent data.
 import re
 
 # Codes follow what the rest of the dub columns already use: ISO-639-1 where
-# one exists, and a language-region tag only where it separates real dub
-# markets, as ANN's zh-hk/zh-cn/zh-tw and pt-br do.
+# one exists, and a language-region tag ONLY where another source emits the
+# same tag. Measured in the live catalog: ANN writes zh-cn, zh-hk and zh-tw,
+# so those separate real markets. It writes pt-br for nothing - 830 rows
+# carry pt and 0 carry pt-br - and AniList cannot write it at all, because
+# its StaffLanguage enum has a single Portuguese value.
+#
+# So Brazilian Portuguese is pt here, even though the MAL cast API spells it
+# "Portuguese (BR)". Mapping it to pt-br split one market across two codes:
+# 331 of the 338 titles stored as pt-br already carried pt from another
+# source, which put them behind a second dropdown entry and took them out
+# of the results for the first. A tag no other source uses does not
+# distinguish a dub; it hides one.
 LANGUAGE_V2_CODES: dict[str, str] = {
     "JAPANESE": "ja",
     "ENGLISH": "en",
@@ -54,21 +64,25 @@ LANGUAGE_V2_CODES: dict[str, str] = {
     "BASQUE": "eu",
     "GALICIAN": "gl",
     "VALENCIAN": "ca",
-    "PORTUGUESE (BRAZIL)": "pt-br",
-    "BRAZILIAN PORTUGUESE": "pt-br",
-    "SPANISH (LATIN AMERICA)": "es-419",
+    "PORTUGUESE (BRAZIL)": "pt",
+    "BRAZILIAN PORTUGUESE": "pt",
+    "SPANISH (LATIN AMERICA)": "es",
     "MANDARIN": "zh",
     "CANTONESE": "zh-hk",
 }
 
 # A region written as a two-letter code in brackets, which is how the MAL
 # cast API spells what AniList spells out: "Portuguese (BR)" against
-# "Portuguese (Brazil)". Derived rather than enumerated, because the cost of
-# a missing pairing is not a visible error. Measured: "Portuguese (BR)" was
-# slugged to portuguese-(br) and written to over a thousand rows, where the
-# dub filter queries pt-br and matched none of them, so a Brazilian dub
-# filter returned nothing while the data was sitting in the column.
-REGION_RE = re.compile(r"^(.+?)\s*\(([A-Z]{2})\)$")
+# "Portuguese (Brazil)". It resolves to the BASE language's code, and
+# deliberately does not synthesise a region tag.
+#
+# Synthesising one was the first attempt and it was wrong in the direction
+# that hides data. "Portuguese (BR)" became pt-br, a code no other source
+# writes, so those titles vanished from the Portuguese filter and appeared
+# under a second entry instead. A region tag has to be added explicitly
+# above, once another source is known to emit it - never invented from a
+# spelling.
+REGION_RE = re.compile(r"^(.+?)\s*\(([A-Za-z]{2,3})\)$")
 
 # What a stored value looks like once it IS a code: two letters, optionally
 # a region tag. Anything else in the column is a slug of a name the mapping
@@ -86,6 +100,20 @@ def slug(language: str) -> str:
     """
     cleaned = "-".join(language.strip().lower().split())
     return cleaned or "unknown"
+
+
+# Codes this project no longer writes, and what they become. Applied to
+# values already stored, because the mapping changed after a backfill had
+# written them and the backfill will not revisit a title it has stamped.
+CODE_ALIASES: dict[str, str] = {
+    "pt-br": "pt",
+    "es-419": "es",
+}
+
+
+def canonical(code: str) -> str:
+    """A stored code, under the code the whole catalog uses."""
+    return CODE_ALIASES.get(code, code)
 
 
 def is_code(value: str) -> bool:
@@ -116,5 +144,6 @@ def code_for(language: str | None) -> tuple[str, bool]:
     if region:
         base = LANGUAGE_V2_CODES.get(region.group(1).strip())
         if base:
-            return f"{base}-{region.group(2).lower()}", True
+            # The base code, not base-region: see REGION_RE.
+            return base, True
     return slug(language), False

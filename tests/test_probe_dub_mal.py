@@ -68,11 +68,12 @@ def test_unmapped_language_names_are_reported_not_dropped():
 
 
 def test_the_cast_apis_brazilian_portuguese_is_not_an_unmapped_name():
-    """It is the one language the first thousand backfilled rows got
-    wrong, and the filter queries pt-br."""
+    """The one language the backfill got wrong twice: first as the slug
+    portuguese-(br), then as pt-br, a code no other source writes. pt is
+    what the catalog uses for that market."""
     codes, unknown = dub_codes({"Portuguese (BR)"}, "JP")
     assert unknown == set()
-    assert codes == {"pt-br"}
+    assert codes == {"pt"}
 
 
 def test_no_languages_at_all_is_empty_not_an_error():
