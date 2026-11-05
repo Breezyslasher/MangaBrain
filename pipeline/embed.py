@@ -43,11 +43,18 @@ SELECT_MISSING_SQL = """
     LIMIT %s
 """
 
+# embedding_bits is written here, from the same value, rather than by a
+# later pass. A second writer is how a derived column drifts, and this
+# project has already paid for that twice - a dub column the filter read
+# and the picker did not, and a measurement selected but never served.
+# binary_quantize runs in the database, so the vector crosses the wire
+# once.
 UPSERT_SQL = """
-    INSERT INTO embeddings (media_id, embed_model, embedding, updated_at)
-    VALUES (%s, %s, %s, now())
+    INSERT INTO embeddings (media_id, embed_model, embedding, embedding_bits, updated_at)
+    VALUES (%s, %s, %s, binary_quantize(%s), now())
     ON CONFLICT (media_id, embed_model) DO UPDATE SET
         embedding = EXCLUDED.embedding,
+        embedding_bits = EXCLUDED.embedding_bits,
         updated_at = now()
 """
 
@@ -175,7 +182,7 @@ def embed_missing(
             with conn.cursor() as cur:
                 cur.executemany(
                     UPSERT_SQL,
-                    [(row[0], stored_id, vec) for row, vec in zip(rows, vectors, strict=True)],
+                    [(row[0], stored_id, vec, vec) for row, vec in zip(rows, vectors, strict=True)],
                 )
             conn.commit()
             total += len(rows)

@@ -18,9 +18,20 @@ Three timings per query vector, warm:
   ann     what /describe does now - the same query with the cast, at the
           facet pool depth.
   served  the single-facet path, which asks only for what it returns.
+  binary  an exact Hamming scan over the quantized copy, reranked on the
+          real vectors. Exact over the whole catalog, like the first,
+          but reading 96 bytes a row instead of a TOAST fetch.
 
-It also reports the pgvector version, because binary quantization - the
-fallback if exact is too slow - needs 0.7 or newer.
+Measured once already, on 165,000 embeddings: exact 4.0 s, with
+EXPLAIN naming 1,880,352 shared buffer hits - about 15 GB for a few
+hundred MB of data, because a 3,072-byte vector is over the TOAST
+threshold and every row costs an out-of-line fetch. That is what the
+binary column is for, and this is what tells you whether it worked.
+
+Recall is reported beside the time, because a fast answer that is not
+the right answer is not an answer. The number to watch is binary's
+recall of the exact top N: if it is at or near 100%, /describe can scan
+the whole catalog and the facet pool can go.
 """
 
 import argparse
@@ -80,6 +91,32 @@ def ann_sql(dim: int) -> str:
     """
 
 
+# Two stage: an exact Hamming scan narrows to RERANK_DEPTH, then the real
+# vectors decide the order. Only the reranked rows are detoasted, so the
+# cost that made the exact scan 4 s is paid on a few thousand rows rather
+# than all 165,000.
+def binary_sql(dim: int, rerank: int) -> str:
+    return f"""
+        WITH coarse AS (
+            SELECT e.media_id
+            FROM media m
+            JOIN embeddings e ON e.media_id = m.id
+            WHERE m.medium = ANY(%(mediums)s)
+              AND length(e.embedding_bits) = {dim}
+              AND coalesce(m.description_clean, '') <> ''
+            ORDER BY e.embedding_bits <~> binary_quantize(%(query_vec)s)
+            LIMIT {rerank}
+        )
+        SELECT c.media_id AS id
+        FROM coarse c
+        JOIN embeddings e ON e.media_id = c.media_id
+        ORDER BY e.embedding::vector({dim}) <=> %(query_vec)s
+        LIMIT %(limit)s
+    """
+
+
+QUANTIZED_SQL = "SELECT count(*) AS n FROM embeddings WHERE embedding_bits IS NOT NULL"
+
 ANIME_MEDIUMS = ["anime"]
 
 
@@ -103,6 +140,7 @@ def main() -> None:
     parser.add_argument("--queries", type=int, default=5, help="random query vectors")
     parser.add_argument("--runs", type=int, default=3, help="timed runs per query")
     parser.add_argument("--limit", type=int, default=60, help="results served")
+    parser.add_argument("--rerank", type=int, default=2000, help="binary stage depth")
     args = parser.parse_args()
 
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
@@ -120,8 +158,15 @@ def main() -> None:
             print("no embeddings at that dimension; nothing to measure")
             return
 
-        exact, ann, served = [], [], []
-        agreement = []
+        quantized = (conn.execute(QUANTIZED_SQL).fetchone() or {})["n"]
+        if quantized < total:
+            print(
+                f"  {total - quantized} embeddings have no quantized copy;"
+                " run python -m pipeline.quantize first"
+            )
+
+        exact, ann, served, binary = [], [], [], []
+        agreement, binary_recall = [], []
         for vector in vectors:
             base = {"query_vec": vector, "mediums": ANIME_MEDIUMS}
             ms_exact, ids_exact = time_query(
@@ -136,6 +181,15 @@ def main() -> None:
             exact.append(ms_exact)
             ann.append(ms_ann)
             served.append(ms_served)
+            if quantized:
+                ms_binary, ids_binary = time_query(
+                    conn,
+                    binary_sql(args.dim, args.rerank),
+                    {**base, "limit": args.limit},
+                    args.runs,
+                )
+                binary.append(ms_binary)
+                binary_recall.append(len(set(ids_binary) & set(ids_exact)) / max(len(ids_exact), 1))
             # What the index misses: how much of the exact top-N the
             # approximate scan found at the same depth.
             top = set(ids_ann[: args.limit])
@@ -145,11 +199,26 @@ def main() -> None:
         print(f"exact  full scan, top {args.limit:<5} median {statistics.median(exact):8.1f} ms")
         print(f"ann    pool of {FACET_POOL:<10} median {statistics.median(ann):8.1f} ms")
         print(f"ann    top {args.limit:<13} median {statistics.median(served):8.1f} ms")
-        print(f"recall of the exact top {args.limit}: {statistics.mean(agreement):.1%}")
+        if binary:
+            print(
+                f"binary rerank {args.rerank:<7} median {statistics.median(binary):8.1f} ms"
+                f"   recall {statistics.mean(binary_recall):.1%}"
+            )
+        print(f"ann recall of the exact top {args.limit}: {statistics.mean(agreement):.1%}")
         print()
         # Three facets is the shape that motivated this.
-        print(f"a three-facet query costs about {statistics.median(ann) * 3:.0f} ms today,")
-        print(f"and {statistics.median(exact) * 3:.0f} ms exact with no pool and no truncation.")
+        print(f"three facets cost about {statistics.median(ann) * 3:.0f} ms today (pooled,")
+        print(f"truncated), {statistics.median(exact) * 3:.0f} ms exact by sequential scan", end="")
+        if binary:
+            print(f", {statistics.median(binary) * 3:.0f} ms exact over the quantized copy.")
+            print()
+            if statistics.mean(binary_recall) >= 0.99:
+                print("binary recall is at or above 99%: the facet pool can go.")
+            else:
+                print(f"binary recall is {statistics.mean(binary_recall):.1%};")
+                print("raise --rerank and measure again before trusting it.")
+        else:
+            print(".")
 
 
 if __name__ == "__main__":
