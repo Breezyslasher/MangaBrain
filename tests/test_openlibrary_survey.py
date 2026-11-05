@@ -61,3 +61,47 @@ def test_a_partial_survey_says_it_is_partial():
     A limited run is an estimate and the module has to say so."""
     source = SURVEY.read_text()
     assert "skews" in source or "estimate" in source
+
+
+def test_a_chunked_stream_reads_as_a_file():
+    """gzip.GzipFile wants .read(); httpx yields chunks.
+
+    Passing the iterator straight in raised "'generator' object has no
+    attribute 'read'" on the first byte of a multi-gigabyte download.
+    Driving real gzip bytes through the adapter in awkward chunk sizes
+    is cheap and catches it here instead of in CI.
+    """
+    import gzip
+    import io
+
+    from pipeline.survey_openlibrary import ChunkReader
+
+    payload = b"".join(f"line {n}\n".encode() for n in range(500))
+    compressed = gzip.compress(payload)
+    # Deliberately uneven, and smaller than any gzip header or member.
+    chunks = [compressed[i : i + 7] for i in range(0, len(compressed), 7)]
+
+    reader = io.BufferedReader(ChunkReader(chunks))
+    with gzip.GzipFile(fileobj=reader, mode="rb") as stream:
+        assert stream.read() == payload
+
+
+def test_the_adapter_yields_lines_in_order():
+    """The survey iterates the stream line by line, so the adapter has
+    to behave for readline() too, not only read()."""
+    import gzip
+    import io
+
+    from pipeline.survey_openlibrary import ChunkReader
+
+    payload = b"first\tsecond\n" + b"third\tfourth\n"
+    chunks = [gzip.compress(payload)[i : i + 3] for i in range(0, len(gzip.compress(payload)), 3)]
+    reader = io.BufferedReader(ChunkReader(chunks))
+    with gzip.GzipFile(fileobj=reader, mode="rb") as stream:
+        assert [line for line in stream] == [b"first\tsecond\n", b"third\tfourth\n"]
+
+
+def test_an_empty_stream_ends_rather_than_hangs():
+    from pipeline.survey_openlibrary import ChunkReader
+
+    assert ChunkReader([]).readinto(bytearray(8)) == 0
