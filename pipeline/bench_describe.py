@@ -160,6 +160,11 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=3, help="timed runs per query")
     parser.add_argument("--limit", type=int, default=60, help="results served")
     parser.add_argument("--rerank", type=int, default=2000, help="binary stage depth")
+    parser.add_argument(
+        "--sweep",
+        default="",
+        help="comma-separated facet pool depths to compare, e.g. 200,400,800,2000",
+    )
     args = parser.parse_args()
 
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
@@ -244,6 +249,63 @@ def main() -> None:
                 print("raise --rerank and measure again before trusting it.")
         else:
             print(".")
+
+        if args.sweep:
+            depths = sorted(
+                (int(part) for part in args.sweep.split(",") if part.strip()), reverse=True
+            )
+            # Three facets, because that is the shape whose cost is in
+            # question; one facet never uses the pool at all.
+            sweep(conn, vectors[:3], depths, args.limit, args.runs)
+
+
+def sweep(conn, vectors, depths: list[int], limit: int, runs: int) -> None:
+    """Time a real multi-facet query at each pool depth, and say how much
+    the answer changes.
+
+    Through pipeline.describe.rank, not a copy of its SQL: the question
+    is what the endpoint would do, and a reimplementation would drift
+    from it exactly where the answer matters.
+
+    The deepest depth is the baseline, because that is what ships today.
+    Agreement is of the served ids, so a depth that returns the same 60
+    titles is costing time for nothing.
+    """
+    import pipeline.describe as describe_module
+
+    original = describe_module.FACET_POOL
+    baseline: list[int] = []
+    print()
+    print(f"facet pool sweep, {len(vectors)} facets, top {limit}")
+    try:
+        for depth in depths:
+            describe_module.FACET_POOL = depth
+            timings = []
+            served: list[int] = []
+            for attempt in range(runs + 1):
+                started = time.perf_counter()
+                rows = describe_module.rank(
+                    conn,
+                    vectors,
+                    mediums=ANIME_MEDIUMS,
+                    limit=limit,
+                    filter_sql="",
+                    filter_params={},
+                )
+                elapsed = (time.perf_counter() - started) * 1000
+                if attempt:
+                    timings.append(elapsed)
+                served = [row["id"] for row in rows]
+            if not baseline:
+                baseline = served
+            same = len(set(served) & set(baseline)) / max(len(baseline), 1)
+            order = "same order" if served == baseline else "reordered"
+            print(
+                f"  pool {depth:<6} {statistics.median(timings):8.1f} ms"
+                f"   {same:6.1%} of the deepest pool's results, {order}"
+            )
+    finally:
+        describe_module.FACET_POOL = original
 
 
 if __name__ == "__main__":
