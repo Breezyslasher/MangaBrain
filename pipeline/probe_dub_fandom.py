@@ -199,6 +199,8 @@ def recon_one(client: RateLimitedClient, title: str) -> dict:
             "table_markup": wikitext.count("{|"),
             "id_templates": template_calls(wikitext),
             "cast_sample": section(wikitext, "cast")[:600],
+            "flags": flags(wikitext).most_common(12),
+            "history_sample": section(wikitext, "dubbing history")[:800],
         }
     )
     return report
@@ -225,6 +227,11 @@ def print_recon(report: dict) -> None:
         f"  links under it: {report['english_links']}"
     )
     print(f"  id templates: {report['id_templates'] or 'none'}")
+    print(f"  flags: {report['flags'] or 'none'}")
+    if report.get("history_sample"):
+        print("  --- dubbing history, first 800 chars ---")
+        for line in report["history_sample"].splitlines():
+            print(f"  > {line}")
     if report.get("cast_sample"):
         print("  --- cast section, first 600 chars ---")
         for line in report["cast_sample"].splitlines():
@@ -258,6 +265,14 @@ def run_recon(titles: list[str]) -> int:
 # AniList id, so the join is verifiable and not merely plausible.
 ANILIST_ID_RE = re.compile(r"\{\{\s*AniList title\s*\|\s*#\s*=\s*(\d+)\s*\}\}")
 
+# {{Flag|United States}} and friends. A page was observed carrying a dub
+# COUNTRY elsewhere on it, which is the language evidence the cast table
+# withholds - its columns say "Dub Actor" and never which dub. Captured
+# here for inspection, not yet interpreted: a country is not a language
+# (Canada ships both English and French dubs) and the mapping has to be
+# read off real pages before it decides anything.
+FLAG_RE = re.compile(r"\{\{\s*Flag\s*\|\s*([^|}\n]+?)\s*(?:\|[^}]*)?\}\}")
+
 # The cast tables seen on real pages have a "Dub Actor" column beside
 # "Seiyu". Its presence is evidence the page names a dub cast at all; it
 # does NOT say which language, and nothing here pretends otherwise.
@@ -271,6 +286,11 @@ BATCH_SIZE = 50
 def anilist_id(wikitext: str) -> int | None:
     match = ANILIST_ID_RE.search(wikitext)
     return int(match.group(1)) if match else None
+
+
+def flags(wikitext: str) -> Counter:
+    """Every {{Flag|...}} value on the page, counted."""
+    return Counter(value.strip() for value in FLAG_RE.findall(wikitext))
 
 
 def names_a_dub_cast(wikitext: str) -> bool:
@@ -431,7 +451,7 @@ def run_census(use_db: bool) -> None:
         "\nThe English figure is the one to decide on: a title with a known"
         "\nPortuguese cast counts as answered in the first block while still"
         "\nbeing invisible to a reader filtering for an English dub. What the"
-        "\nwiki names is still only \"Dub Actor\" - a dub, not an English one -"
+        '\nwiki names is still only "Dub Actor" - a dub, not an English one -'
         "\nso treat even this as an upper bound until a parser reads the"
         "\nlanguage out of the page."
     )

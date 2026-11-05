@@ -127,9 +127,7 @@ def build_sql(dim: int, filter_sql: str, require_synopsis: bool = True) -> str:
     # on the strength of their titles alone. They are excluded here by
     # default, which the recommender does not do - there a seed's own
     # genres and tags still carry real signal.
-    synopsis_sql = "" if not require_synopsis else (
-        " AND coalesce(m.description_clean, '') <> ''"
-    )
+    synopsis_sql = "" if not require_synopsis else (" AND coalesce(m.description_clean, '') <> ''")
     return f"""
         SELECT m.id,
                1 - (e.embedding <=> %(query_vec)s) AS similarity
@@ -300,9 +298,7 @@ def main() -> None:
     parser.add_argument("--medium", choices=sorted(MEDIUM_GROUPS), default=None)
     parser.add_argument("--limit", type=int, default=15)
     parser.add_argument("--adult", action="store_true", help="include adult titles")
-    parser.add_argument(
-        "--why", action="store_true", help="print the opening of each synopsis"
-    )
+    parser.add_argument("--why", action="store_true", help="print the opening of each synopsis")
     parser.add_argument(
         "--include-title-only",
         action="store_true",

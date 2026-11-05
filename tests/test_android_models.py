@@ -290,9 +290,7 @@ def test_tapping_a_facet_requires_it_the_way_the_web_chip_does():
     builders read that map. Writing anything else here would be a filter the
     panel cannot see and the user cannot clear.
     """
-    fragment = (
-        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
-    )
+    fragment = ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
     source = fragment.read_text()
     assert "FilterState.genreState" in source and "FilterState.tagState" in source
     assert 'state[name] = "inc"' in source, "a chip tap must require, not exclude"
@@ -484,7 +482,7 @@ def test_opening_a_title_starts_at_the_top_but_a_re_rank_does_not():
         "both clients track the seeds on screen to decide whether to scroll"
     )
     # The scroll must be guarded by that comparison, not unconditional.
-    render = source[source.index("private fun render("):]
+    render = source[source.index("private fun render(") :]
     render = render[: render.index("\n    /**")]
     assert "if (ids != shownSeedIds)" in render, "a re-rank must not move the list"
 
@@ -492,14 +490,12 @@ def test_opening_a_title_starts_at_the_top_but_a_re_rank_does_not():
 def test_the_android_client_can_search_by_description():
     """The box, the call, and a parameter spelling the endpoint reads."""
     api = API_FILE.read_text()
-    assert 'fun describe(' in api, "no describe call on the API interface"
+    assert "fun describe(" in api, "no describe call on the API interface"
     block = api[api.index("fun describe(") : api.index("fun recommend(")]
     used = set(re.findall(r'@Query\("([^"]+)"\)', block))
     assert used - server_params("/describe") == set()
 
-    layout = (
-        ROOT / "android/app/src/main/res/layout/fragment_discover.xml"
-    ).read_text()
+    layout = (ROOT / "android/app/src/main/res/layout/fragment_discover.xml").read_text()
     assert 'android:id="@+id/describeInput"' in layout
 
     fragment = (
