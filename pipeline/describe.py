@@ -7,8 +7,18 @@ on real output before it costs an API endpoint, a UI, and torch in the API
 container.
 
     python -m pipeline.describe "a quiet story about grief in a seaside town"
-    python -m pipeline.describe --medium manga --limit 20 "revenge, court intrigue"
     python -m pipeline.describe --why "a time loop that only one person notices"
+    python -m pipeline.describe --medium manga "revenge, court intrigue, unreliable narrator"
+
+A comma-separated query is treated as separate facets rather than averaged
+into one vector, because averaging loses the facet the catalog covers
+least. Measured: "revenge, court intrigue" peaks at 0.789 against the
+thousands of near-identical revenge manhwa, while "unreliable narrator"
+peaks at 0.714 against a handful of titles; averaged, the first drowns the
+second completely, and the reader who typed both gets only one. Each facet
+is ranked separately and the rankings are fused by reciprocal rank, so a
+title has to do well on all of them to rise. Ranks are comparable across
+facets; raw cosines from different neighbourhoods are not.
 
 Two things to keep in mind when reading the output.
 
@@ -39,8 +49,39 @@ from api.media_groups import ALL_MEDIUMS, MEDIUM_GROUPS
 # long before a filtered query has collected its rows.
 EF_SEARCH = 500
 
+# Reciprocal rank fusion: score = sum over facets of 1 / (RRF_K + rank).
+# K=60 is the constant from the original paper; it damps the top of each
+# ranking so one facet's first place cannot outweigh being present in all
+# of them, which is the entire point of fusing.
+RRF_K = 60
 
-def build_sql(dim: int, filter_sql: str) -> str:
+# How deep each facet's ranking goes before fusion. Deeper costs one ANN
+# scan per facet either way; this bounds the rows carried in memory.
+FACET_POOL = 200
+
+
+def split_facets(text: str) -> list[str]:
+    """Commas separate facets; anything else is one description.
+
+    Prose is the better input and stays a single vector - connected
+    meaning is what the model reads best. A comma list is the shape people
+    reach for when they want several things at once, and that is the shape
+    averaging handles worst.
+    """
+    parts = [part.strip() for part in text.split(",") if part.strip()]
+    return parts or [text.strip()]
+
+
+def fuse(rankings: list[list[int]]) -> dict[int, float]:
+    """Reciprocal rank fusion of per-facet rankings: {media_id: score}."""
+    scores: dict[int, float] = {}
+    for ranking in rankings:
+        for rank, media_id in enumerate(ranking, start=1):
+            scores[media_id] = scores.get(media_id, 0.0) + 1.0 / (RRF_K + rank)
+    return scores
+
+
+def build_sql(dim: int, filter_sql: str, require_synopsis: bool = True) -> str:
     """The ranking query.
 
     The dimension is inlined as a literal rather than bound, because the ANN
@@ -48,6 +89,16 @@ def build_sql(dim: int, filter_sql: str) -> str:
     uses it when the ORDER BY cast and the vector_dims predicate match the
     index definition textually. Everything else is a bound parameter.
     """
+    # Titles with no synopsis are embedded from their own name
+    # (pipeline.embed.embed_text), so they match a description by
+    # coincidence of wording and can say nothing about their content:
+    # "Liar" and "Ghost Writer" both surfaced for "unreliable narrator"
+    # on the strength of their titles alone. They are excluded here by
+    # default, which the recommender does not do - there a seed's own
+    # genres and tags still carry real signal.
+    synopsis_sql = "" if not require_synopsis else (
+        " AND coalesce(m.description_clean, '') <> ''"
+    )
     return f"""
         SELECT m.id, m.title_romaji, m.title_english, m.medium, m.format,
                m.start_year, m.average_score, m.description_clean,
@@ -56,14 +107,18 @@ def build_sql(dim: int, filter_sql: str) -> str:
         JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
         WHERE m.medium = ANY(%(mediums)s)
           AND vector_dims(e.embedding) = {dim}
+          {synopsis_sql}
           {filter_sql}
         ORDER BY e.embedding::vector({dim}) <=> %(query_vec)s
         LIMIT %(limit)s
     """
 
 
-def encode(text: str):
-    """Embed one query with the production model.
+def encode(texts: list[str]):
+    """Embed one or more queries with the production model.
+
+    One call for all facets: loading the model costs seconds and encoding
+    a handful of short strings costs milliseconds.
 
     Imported here, not at module scope: torch costs seconds and hundreds of
     megabytes, and --help, the tests, and anything importing build_sql
@@ -81,24 +136,62 @@ def encode(text: str):
     # normalize_embeddings mirrors pipeline.embed: the stored vectors are
     # unit length, and mixing normalized with unnormalized would make cosine
     # distance disagree with what the index was built on.
-    return model.encode([text], normalize_embeddings=True)[0]
+    return model.encode(texts, normalize_embeddings=True)
 
 
-def describe(text: str, medium: str | None, limit: int, adult: bool) -> list[dict]:
-    vector = encode(text)
+def describe(
+    text: str,
+    medium: str | None,
+    limit: int,
+    adult: bool,
+    require_synopsis: bool = True,
+) -> list[dict]:
+    """Rank the catalog against a description.
+
+    One facet is one ANN scan. Several facets are one scan each, fused by
+    rank - more expensive, and the only way a facet the catalog barely
+    covers survives next to one it covers thousands of times over.
+    """
+    facets = split_facets(text)
+    vectors = encode(facets)
     filter_sql, filter_params = build_filters(adult=adult)
-    sql = build_sql(int(vector.shape[0]), filter_sql)
-    params = {
-        "query_vec": vector,
-        "model": embed_model_id(),
-        "mediums": MEDIUM_GROUPS[medium] if medium else ALL_MEDIUMS,
-        "limit": limit,
-        **filter_params,
-    }
+    sql = build_sql(int(vectors[0].shape[0]), filter_sql, require_synopsis)
+    mediums = MEDIUM_GROUPS[medium] if medium else ALL_MEDIUMS
+
+    rankings: list[list[int]] = []
+    rows_by_id: dict[int, dict] = {}
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
         register_vector(conn)
-        conn.execute("SELECT set_config('hnsw.ef_search', %s, true)", (str(EF_SEARCH),))
-        return conn.execute(sql, params).fetchall()
+        conn.execute("SELECT set_config(%s, %s, true)", ("hnsw.ef_search", str(EF_SEARCH)))
+        for vector in vectors:
+            rows = conn.execute(
+                sql,
+                {
+                    "query_vec": vector,
+                    "model": embed_model_id(),
+                    "mediums": mediums,
+                    "limit": limit if len(facets) == 1 else FACET_POOL,
+                    **filter_params,
+                },
+            ).fetchall()
+            rankings.append([row["id"] for row in rows])
+            for row in rows:
+                # Keep the best cosine any facet gave a title, for display
+                # only: the ordering below is by fused rank, not by this.
+                previous = rows_by_id.get(row["id"])
+                if previous is None or row["similarity"] > previous["similarity"]:
+                    rows_by_id[row["id"]] = row
+
+    if len(facets) == 1:
+        return [{**rows_by_id[i], "facets_hit": 1, "facet_count": 1} for i in rankings[0]]
+
+    scores = fuse(rankings)
+    hits = {media_id: sum(media_id in r for r in rankings) for media_id in scores}
+    ordered = sorted(scores, key=lambda i: (-scores[i], -hits[i], i))[:limit]
+    return [
+        {**rows_by_id[i], "rrf": scores[i], "facets_hit": hits[i], "facet_count": len(facets)}
+        for i in ordered
+    ]
 
 
 SYNOPSIS_CHARS = 220
@@ -117,7 +210,13 @@ def format_row(index: int, row: dict, why: bool = False) -> str:
     bits = [str(row["start_year"] or "----"), row["medium"]]
     if row["format"]:
         bits.append(row["format"])
-    line = f"{index:>3}. {row['similarity']:.3f}  {title}  ({' / '.join(bits)})"
+    if row.get("facet_count", 1) > 1:
+        # No single cosine exists for a fused result, so the honest summary
+        # is how many facets found it at all.
+        score = f"{row['facets_hit']}/{row['facet_count']} facets"
+    else:
+        score = f"{row['similarity']:.3f}"
+    line = f"{index:>3}. {score}  {title}  ({' / '.join(bits)})"
     if not why:
         return line
     synopsis = " ".join((row.get("description_clean") or "").split())
@@ -137,9 +236,20 @@ def main() -> None:
     parser.add_argument(
         "--why", action="store_true", help="print the opening of each synopsis"
     )
+    parser.add_argument(
+        "--include-title-only",
+        action="store_true",
+        help="also match titles the catalog has no synopsis for",
+    )
     args = parser.parse_args()
 
-    rows = describe(" ".join(args.text), args.medium, args.limit, args.adult)
+    rows = describe(
+        " ".join(args.text),
+        args.medium,
+        args.limit,
+        args.adult,
+        require_synopsis=not args.include_title_only,
+    )
     if not rows:
         print("no matches; is the catalog embedded?")
         return
