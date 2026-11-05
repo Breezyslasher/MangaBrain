@@ -33,10 +33,12 @@ def main() -> None:
         print("MAL_CLIENT_ID is not set; nothing to probe.")
         raise SystemExit(1)
 
+    # The client's own defaults, not the interactive budget: that short
+    # budget exists for endpoints a person is waiting on, and a pipeline
+    # pass should ride out a blip rather than fail on it. A test enforces
+    # the split, and it caught this module borrowing the wrong one.
     client = RateLimitedClient(
         min_interval=args.min_interval or settings.mal_min_interval,
-        max_retries=settings.interactive_max_retries,
-        timeout=settings.interactive_timeout,
         extra_headers={"X-MAL-CLIENT-ID": settings.mal_client_id},
     )
     failures = 0
