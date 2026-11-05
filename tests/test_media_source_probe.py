@@ -75,3 +75,39 @@ def test_tags_and_synopsis_are_both_reported():
     source = PROBE.read_text()
     assert "synopsis_lengths" in source
     assert "tag_counts" in source
+
+
+def test_one_source_failing_does_not_discard_the_others():
+    """Measured the hard way on the first live run.
+
+    A domain's probes were built as one list, so when Google Books
+    raised RuntimeError("retries exhausted") - which no probe caught,
+    because the client raises it rather than an httpx error - it took
+    two and a half minutes of completed Open Library sampling with it,
+    unprinted. Each source is now invoked, caught and printed on its
+    own.
+    """
+    source = PROBE.read_text()
+    body = source[source.index("def run(") : source.index("def gated(")]
+    assert "except Exception" in body, "a failing source must not stop the run"
+    assert body.index("except Exception") < body.index("print(found.report()")
+
+
+def test_a_source_can_be_named_before_its_result_exists():
+    """A probe that raises has no Finding to report itself with, so the
+    name has to live beside the probe rather than inside it."""
+    from pipeline.probe_media_sources import PROBES
+
+    for domain, probes in PROBES.items():
+        for entry in probes:
+            name, probe = entry
+            assert isinstance(name, str) and name, domain
+            assert callable(probe), domain
+
+
+def test_reconnaissance_does_not_retry_five_times():
+    """The client's default backoff turned one rate-limited source into
+    two and a half minutes of waiting. A source that needs several
+    attempts has already answered the question being asked."""
+    source = PROBE.read_text()
+    assert "max_retries=1" in source
