@@ -97,6 +97,21 @@ ALTER TABLE media ADD COLUMN IF NOT EXISTS ann_id INTEGER;
 CREATE INDEX IF NOT EXISTS idx_media_dub_languages
     ON media USING gin (dub_languages);
 
+-- Per-entry dub languages from the MAL-derived cast API (pipeline
+-- .backfill_dub_tenrai), joined on id_mal and therefore free of the name
+-- matching that caps dub_languages at 31.8% of the catalog. Kept in its
+-- own column rather than merged into measured_dub_languages, which means
+-- "AniList answered for this id": provenance is what lets dub_source tell
+-- a reader which database believes a title is dubbed.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS mal_dub_languages TEXT[] NOT NULL DEFAULT '{}';
+-- When it was asked, so a resumable walk can pick up where it stopped and
+-- a stale row can be re-asked later. NULL means never asked, which is not
+-- the same as asked and found nothing.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS mal_dub_checked_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_media_mal_dub_languages
+    ON media USING gin (mal_dub_languages);
+
 -- Partial index: the filter only ever asks for titles known to be dubbed.
 CREATE INDEX IF NOT EXISTS idx_media_english_dub
     ON media (id) WHERE english_va_count > 0;

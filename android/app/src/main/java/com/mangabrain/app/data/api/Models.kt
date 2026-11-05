@@ -41,6 +41,7 @@ data class MediaOut(
     val dub_groups: List<String> = emptyList(),
     val dub_languages: List<String> = emptyList(),
     val measured_dub_languages: List<String> = emptyList(),
+    val mal_dub_languages: List<String> = emptyList(),
     val dub_source: String? = null
 ) {
     /** Same precedence the web client uses for its "English when available". */

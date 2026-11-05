@@ -60,6 +60,7 @@ ALL_ANIME_SQL = """
            m.english_va_count, m.cast_character_count, m.english_dub_inferred,
            m.dub_languages, m.dub_languages_source, m.ann_id,
            m.measured_dub_languages,
+           m.mal_dub_languages,
            m.measured_dub_checked_at IS NOT NULL AS lang_checked,
            m.dub_checked_at IS NOT NULL AS en_checked
     FROM media m
@@ -80,6 +81,7 @@ def has_english_dub(row: dict) -> bool:
     return bool(
         "en" in (row["dub_languages"] or [])
         or "en" in (row["measured_dub_languages"] or [])
+        or "en" in (row["mal_dub_languages"] or [])
         or (row["english_va_count"] or 0) > 0
         or row["english_dub_inferred"]
     )
@@ -89,6 +91,8 @@ def dub_source(row: dict) -> str:
     """Which source answered, for a covered row. Measured beats inferred."""
     if (row["english_va_count"] or 0) > 0:
         return "anilist_english_cast"
+    if "en" in (row["mal_dub_languages"] or []):
+        return "mal"
     if "en" in (row["measured_dub_languages"] or []):
         return "anilist_language_walk"
     if "en" in (row["dub_languages"] or []):

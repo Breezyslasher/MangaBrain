@@ -50,6 +50,10 @@ class MediaOut(BaseModel):
     # (ANN, matched on title) so a client can tell an exact answer from a
     # name match that resolves 31.8% of the catalog.
     measured_dub_languages: list[str] = []
+    # Per-entry languages from the MAL-derived cast API, joined on id_mal.
+    # Separate from the two above because a reader deciding whether to
+    # trust a dub badge is entitled to know which database said so.
+    mal_dub_languages: list[str] = []
     # "measured" when AniList credits an English voice actor for this entry,
     # "ann" when ANN's record supplied it, "franchise" when a related entry
     # is dubbed and this one inherited the flag, None when unknown. A client

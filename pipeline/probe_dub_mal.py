@@ -126,12 +126,15 @@ BANDS: tuple[tuple[str, int | None, int | None], ...] = (
 GAP_SQL = """
     SELECT m.id, m.id_mal, m.title_romaji, m.title_english, m.popularity,
            m.country_of_origin, m.cast_character_count,
-           m.dub_languages_source, m.dub_languages, m.measured_dub_languages
+           m.dub_languages_source, m.dub_languages, m.measured_dub_languages,
+           m.mal_dub_languages
     FROM media m
     WHERE m.media_type = 'ANIME'
       AND m.id_mal IS NOT NULL
       AND NOT (m.dub_languages @> ARRAY['en']::text[]
                OR m.measured_dub_languages @> ARRAY['en']::text[]
+            OR m.mal_dub_languages @> ARRAY['en']::text[]
+               OR m.mal_dub_languages @> ARRAY['en']::text[]
                OR m.english_va_count > 0
                OR m.english_dub_inferred)
 """
@@ -146,8 +149,10 @@ BY_ID_SQL = """
     SELECT m.id, m.id_mal, m.title_romaji, m.title_english, m.popularity,
            m.country_of_origin, m.cast_character_count,
            m.dub_languages_source, m.dub_languages, m.measured_dub_languages,
+           m.mal_dub_languages,
            (m.dub_languages @> ARRAY['en']::text[]
             OR m.measured_dub_languages @> ARRAY['en']::text[]
+            OR m.mal_dub_languages @> ARRAY['en']::text[]
             OR m.english_va_count > 0
             OR m.english_dub_inferred) AS english_known
     FROM media m

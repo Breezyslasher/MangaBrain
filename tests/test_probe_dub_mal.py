@@ -242,3 +242,52 @@ def test_the_id_run_can_map_without_a_catalog():
     body = body[: body.index("\ndef ")]
     assert "_connect(" not in body, "the no-database path must not open one"
     assert "already known" in body, "its absence has to be stated, not hidden"
+
+
+def test_the_backfill_never_stamps_a_failed_request():
+    """checked_at means "asked"; a transport failure is not an answer.
+
+    Stamping one would be worse than not running: the next pass skips
+    rows that already have a timestamp, so a blip would permanently hide
+    those titles from the backfill.
+    """
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "pipeline/backfill_dub_tenrai.py"
+    ).read_text()
+    loop = source[source.index("for row in rows:") :]
+    loop = loop[: loop.index("conn.commit()")]
+    failed = loop.index('status == "failed"')
+    write = loop.index("WRITE_SQL")
+    assert failed < write, "the failure branch must continue before the write"
+    assert "continue" in loop[failed:write]
+
+
+def test_the_backfill_checks_the_host_before_touching_the_catalog():
+    """A dead host would stamp thousands of rows as "asked, nothing known"."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "pipeline/backfill_dub_tenrai.py"
+    ).read_text()
+    body = source[source.index("def backfill(") :]
+    assert body.index("mal_languages(client, 1") < body.index("psycopg.connect")
+
+
+def test_the_backfill_gap_query_matches_the_filter():
+    """Same drift guard the audit has: its scope is "no English answer",
+    and that phrase has to mean what api/filters.py means by it."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    source = (root / "pipeline/backfill_dub_tenrai.py").read_text()
+    gap = source[source.index("GAP_SQL = ") : source.index("ALL_SQL = ")]
+    for column in (
+        "dub_languages",
+        "measured_dub_languages",
+        "mal_dub_languages",
+        "english_va_count",
+        "english_dub_inferred",
+    ):
+        assert column in gap, f"the gap query ignores {column}"
