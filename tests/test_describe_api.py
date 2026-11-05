@@ -69,3 +69,43 @@ def test_importing_the_app_does_not_load_the_model():
     from api.embedding import is_loaded
 
     assert not is_loaded()
+
+
+def test_the_web_client_asks_for_description_search_correctly():
+    """The box exists, posts to /describe, and sends a spelling the
+    endpoint reads.
+
+    filterParams() emits exclude_list, which /search spells exclude_lists -
+    a difference that has already silently dropped exclusions once in this
+    codebase. /describe deliberately takes the filterParams spelling.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    markup = (root / "web/index.html").read_text()
+    javascript = (root / "web/app.js").read_text()
+
+    assert 'id="describe"' in markup and 'id="describeBtn"' in markup
+    assert 'api("/describe"' in javascript
+
+    from api.main import app
+
+    accepted = {
+        p["name"] for p in app.openapi()["paths"]["/describe"]["get"].get("parameters", [])
+    }
+    assert "exclude_list" in accepted, "must match what filterParams() emits"
+    for name in ("q", "medium", "limit", "adult", "dub_lang"):
+        assert name in accepted
+
+
+def test_described_results_show_facet_coverage_not_a_percentage():
+    """A raw query-document cosine is not the calibrated match percentage
+    the recommender shows, and rendering it as one would be a lie in the
+    most visible possible place."""
+    from pathlib import Path
+
+    javascript = (Path(__file__).resolve().parent.parent / "web/app.js").read_text()
+    described = javascript[javascript.index("function renderDescribed(") :]
+    described = described[: described.index("\n}")]
+    assert "similarity: null" in described
+    assert "facets_hit" in described

@@ -411,8 +411,11 @@ function renderPending() {
   const grid = $("results");
   const next = state.pending.slice(state.shown, state.shown + PAGE_SIZE);
   for (const item of next) {
+    // A described result has no percentage to show, only how many of the
+    // query's facets found it.
+    const badge = "badge" in item ? item.badge : `${item.similarity}%`;
     grid.appendChild(
-      card(item.media, `${item.similarity}%`, () => loadRecommendations(item.media.id), item.components)
+      card(item.media, badge, () => loadRecommendations(item.media.id), item.components)
     );
   }
   state.shown += next.length;
@@ -425,6 +428,46 @@ function renderPending() {
     btn.addEventListener("click", renderPending);
     grid.after(btn);
   }
+}
+
+// Description search: the catalog ranked by how well each synopsis matches
+// a sentence, rather than by name. Filters apply the same way they do to a
+// browse, so "a quiet story about grief" can still be narrowed to manga
+// from the 1990s with an English dub.
+async function runDescribe(text) {
+  const term = text.trim();
+  if (term.length < 3) return;
+  state.mode = null;
+  clearResults();
+  setStatus("Reading the catalog...");
+  try {
+    const params = { ...filterParams(), medium: state.medium, q: term, limit: "60" };
+    const data = await api("/describe", params);
+    renderDescribed(data);
+  } catch (err) {
+    setStatus(err.message);
+  }
+}
+
+function renderDescribed(data) {
+  const multi = (data.facets || []).length > 1;
+  state.pending = data.results.map((item) => ({
+    media: item.media,
+    // No percentage here. The server returns a raw query-document cosine,
+    // and display_similarity calibrates a different comparison entirely;
+    // dressing one up as the other would invent confidence nobody
+    // measured. Facet coverage is a fact about the query, so it is shown.
+    similarity: null,
+    badge: multi ? `${item.facets_hit}/${item.facet_count}` : "",
+    components: null,
+  }));
+  state.shown = 0;
+  renderPending();
+  setStatus(
+    data.results.length
+      ? ""
+      : "Nothing matches that description. Try fewer words, or loosen the filters."
+  );
 }
 
 // Typing searches titles by name only, which is what the box has always
@@ -1065,6 +1108,12 @@ function bindEvents() {
   // typing stays a plain title lookup so picking a seed is not slowed down
   // by a dozen filter clauses on every keystroke.
   on("browseBtn", "click", () => runSearch($("search").value, true));
+  on("describeBtn", "click", () => runDescribe($("describe").value));
+  on("describe", "keydown", (e) => {
+    // Enter only: a description is a sentence, and re-ranking the whole
+    // catalog on every keystroke would be one ANN scan per character.
+    if (e.key === "Enter") runDescribe($("describe").value);
+  });
   // Enter in the box means "I have finished typing", which is the natural
   // moment to honour the filters too.
   on("search", "keydown", (e) => {

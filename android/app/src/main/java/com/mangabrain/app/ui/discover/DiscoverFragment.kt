@@ -71,6 +71,7 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         object Mix : Mode
         object ForYou : Mode
         data class Browse(val query: String, val withFilters: Boolean) : Mode
+        data class Describe(val query: String) : Mode
     }
 
     private var mode: Mode? = null
@@ -120,6 +121,18 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
             searchJob?.cancel()
             runOnScope { runSearch(input.text.toString().trim(), withFilters = true) }
         }
+        val describeInput: EditText = view.findViewById(R.id.describeInput)
+        view.findViewById<Button>(R.id.describeButton).setOnClickListener {
+            runOnScope { runDescribe(describeInput.text.toString()) }
+        }
+        // No debounce on this one, unlike the title box: every facet of a
+        // description is its own ANN scan, so searching per keystroke
+        // would be one vector search per character typed.
+        describeInput.setOnEditorActionListener { _, _, _ ->
+            runOnScope { runDescribe(describeInput.text.toString()) }
+            true
+        }
+
         view.findViewById<Button>(R.id.forYouButton).setOnClickListener { loadForYou() }
         view.findViewById<Button>(R.id.surpriseButton).setOnClickListener { surprise() }
     }
@@ -197,6 +210,45 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
             shownSeedIds = null
             scrollToTop()
             status(if (response.results.isEmpty()) getString(R.string.no_matches) else null)
+        }
+    }
+
+    /**
+     * Rank the catalog by how well each synopsis matches a sentence.
+     *
+     * No weights are sent: there is no seed here, so the synopsis / tags /
+     * genres sliders have nothing to weigh against each other.
+     */
+    private suspend fun runDescribe(text: String) {
+        val api = api() ?: return
+        val query = text.trim()
+        if (query.length < MIN_DESCRIPTION) return
+        mode = Mode.Describe(query)
+        status(getString(R.string.describing))
+        call {
+            val response = api.describe(
+                query, FilterState.describeParams(),
+                FilterState.formats, FilterState.genreIn, FilterState.genreEx,
+                FilterState.tagIn, FilterState.tagEx, FilterState.excludeLists
+            )
+            val multi = response.facets.size > 1
+            grid.submit(
+                response.results.map { item ->
+                    GridAdapter.Row(
+                        item.media,
+                        badge = if (!multi) null else getString(
+                            R.string.facet_coverage, item.facets_hit, item.facet_count
+                        )
+                    )
+                }
+            )
+            header.show(null, emptyList(), response.results.size)
+            shownSeedIds = null
+            scrollToTop()
+            status(
+                if (response.results.isEmpty()) getString(R.string.no_description_matches)
+                else null
+            )
         }
     }
 
@@ -287,6 +339,7 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
             is Mode.Mix -> loadMix()
             is Mode.ForYou -> loadForYou()
             is Mode.Browse -> runOnScope { runSearch(current.query, current.withFilters) }
+            is Mode.Describe -> runOnScope { runDescribe(current.query) }
             null -> Unit
         }
     }
@@ -343,6 +396,9 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         shownSeedIds = null
     }
 }
+
+/** Matches the server's min_length on q: shorter cannot describe anything. */
+private const val MIN_DESCRIPTION = 3
 
 /** For-you sampling options, shared with the Mix tab that edits them. */
 object ForYouPrefs {

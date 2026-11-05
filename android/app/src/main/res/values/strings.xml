@@ -8,6 +8,11 @@
 
     <string name="search_hint">Search titles…</string>
     <string name="browse">Browse</string>
+    <string name="describe_hint">Describe what you want…</string>
+    <string name="find">Find</string>
+    <string name="describing">Reading the catalog…</string>
+    <string name="no_description_matches">Nothing matches that description. Try fewer words, or loosen the filters.</string>
+    <string name="facet_coverage">%1$d/%2$d</string>
     <string name="seed">Seed</string>
     <string name="add_to_mix">+ Add to mix</string>
     <string name="read_more">Read more</string>

@@ -36,6 +36,22 @@ interface MangaBrainApi {
         @Query("exclude_lists") excludeLists: List<String>? = null
     ): SearchResponse
 
+    /**
+     * Free-text description search. Takes the recommend spelling of the
+     * exclusion parameter (exclude_list), not the /search one.
+     */
+    @GET("describe")
+    suspend fun describe(
+        @Query("q") q: String,
+        @QueryMap params: Map<String, String>,
+        @Query("format") format: List<String>? = null,
+        @Query("genre_in") genreIn: List<String>? = null,
+        @Query("genre_ex") genreEx: List<String>? = null,
+        @Query("tag_in") tagIn: List<String>? = null,
+        @Query("tag_ex") tagEx: List<String>? = null,
+        @Query("exclude_list") excludeList: List<String>? = null
+    ): DescribeResponse
+
     @GET("recommend/{mediaId}")
     suspend fun recommend(
         @Path("mediaId") mediaId: Int,

@@ -487,3 +487,52 @@ def test_opening_a_title_starts_at_the_top_but_a_re_rank_does_not():
     render = source[source.index("private fun render("):]
     render = render[: render.index("\n    /**")]
     assert "if (ids != shownSeedIds)" in render, "a re-rank must not move the list"
+
+
+def test_the_android_client_can_search_by_description():
+    """The box, the call, and a parameter spelling the endpoint reads."""
+    api = API_FILE.read_text()
+    assert 'fun describe(' in api, "no describe call on the API interface"
+    block = api[api.index("fun describe(") : api.index("fun recommend(")]
+    used = set(re.findall(r'@Query\("([^"]+)"\)', block))
+    assert used - server_params("/describe") == set()
+
+    layout = (
+        ROOT / "android/app/src/main/res/layout/fragment_discover.xml"
+    ).read_text()
+    assert 'android:id="@+id/describeInput"' in layout
+
+    fragment = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
+    ).read_text()
+    assert "R.id.describeInput" in fragment and "api.describe(" in fragment
+
+
+def test_describe_sends_filters_but_not_weights():
+    """A description has no seed, so the sliders have nothing to weigh.
+
+    Sending them would not break anything - /describe ignores unknown
+    parameters like every FastAPI route - but it would imply the sliders
+    do something on that screen, which is the dead-control pattern this
+    codebase keeps finding.
+    """
+    source = FILTER_STATE.read_text()
+    block = kotlin_function_body(source, "fun describeParams(")
+    assert "filterParams()" in block
+    assert "weightParams()" not in block
+
+
+def test_described_results_do_not_borrow_the_match_percentage():
+    """A raw query-document cosine and a calibrated recommendation score
+    are different measurements; showing both as "81%" makes them look like
+    one."""
+    grid = (ROOT / "android/app/src/main/java/com/mangabrain/app/ui/GridAdapter.kt").read_text()
+    assert "val badge: String? = null" in grid, "no way to label a non-percentage result"
+
+    fragment = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
+    ).read_text()
+    describe = fragment[fragment.index("private suspend fun runDescribe(") :]
+    describe = describe[: describe.index("\n    fun loadRecommendations(")]
+    assert "facet_coverage" in describe
+    assert "similarity" not in describe, "a described row must not carry a match percentage"

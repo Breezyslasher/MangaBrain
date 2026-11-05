@@ -53,6 +53,42 @@
             android:text="@string/browse" />
     </LinearLayout>
 
+    <!-- Searching by name finds a title you can already name; this finds
+         one you can only describe. Separate box rather than a mode switch
+         on the one above: they answer different questions, and a reader
+         who knows the title should not have to describe it. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="8dp">
+
+        <EditText
+            android:id="@+id/describeInput"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="@string/describe_hint"
+            android:imeOptions="actionSearch"
+            android:inputType="textCapSentences"
+            android:maxLines="2"
+            android:minHeight="48dp"
+            android:textColor="@color/text"
+            android:textColorHint="@color/muted"
+            android:textSize="16sp"
+            android:autofillHints="" />
+
+        <Button
+            android:id="@+id/describeButton"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minHeight="48dp"
+            android:text="@string/find" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/statusText"
         android:layout_width="match_parent"

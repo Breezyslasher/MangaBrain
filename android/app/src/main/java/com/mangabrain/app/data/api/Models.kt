@@ -68,6 +68,25 @@ data class SearchResponse(
     val results: List<MediaOut> = emptyList()
 )
 
+/**
+ * One description-search result.
+ *
+ * similarity is a raw query-document cosine, NOT the calibrated percentage
+ * a recommendation carries, so the UI shows facet coverage instead of
+ * dressing it up as a match score.
+ */
+data class DescribeItem(
+    val media: MediaOut,
+    val similarity: Double? = null,
+    val facets_hit: Int = 1,
+    val facet_count: Int = 1
+)
+
+data class DescribeResponse(
+    val facets: List<String> = emptyList(),
+    val results: List<DescribeItem> = emptyList()
+)
+
 data class ScoreComponents(
     val semantic: Double,
     val tags: Double,
