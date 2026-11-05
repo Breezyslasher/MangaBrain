@@ -154,9 +154,18 @@ def build_filters(
         # are different titles), so a list entry only excludes rows of the
         # matching media type: list_type anime <-> media_type ANIME, manga <->
         # MANGA (which covers manhwa, manhua, light novels, and one-shots).
-        # MAL list status codes (via Jikan): 1 watching/reading, 2 completed,
-        # 3 on hold, 4 dropped, 6 plan to watch/read; unknown stays excluded.
-        planned_guard = " AND l.status <> '6'" if keep_planned else ""
+        # Two status vocabularies, because the source changed. The official
+        # MAL API sends strings ("plan_to_watch", "plan_to_read"); Jikan,
+        # which this used to read, sent numeric codes where 6 was plan to
+        # watch/read. Rows cached under either shape must honour the toggle,
+        # and a list cached before the switch is not re-fetched just because
+        # the integration changed underneath it.
+        #
+        # Unknown status stays excluded: both syncs coerce a missing status
+        # to "", which matches neither planned value.
+        planned_guard = (
+            " AND l.status NOT IN ('6', 'plan_to_watch', 'plan_to_read')" if keep_planned else ""
+        )
         clauses.append(
             "NOT EXISTS (SELECT 1 FROM mal_list_entries l"
             " WHERE l.username = %(f_mal_user)s AND l.id_mal = m.id_mal"

@@ -98,9 +98,13 @@ def test_keep_planned_adds_status_guards_to_every_list_source():
     sql, _ = build_filters(
         mal_user="u", anilist_user="u", exclude_lists=["kitsu"], keep_planned=True
     )
-    # MAL status code 6 is plan to watch/read; AniList uses the
+    # MAL has two status vocabularies because the source changed: the
+    # official API sends "plan_to_watch"/"plan_to_read", and Jikan - which
+    # this read until its user endpoints were discontinued - sent numeric
+    # codes where 6 was plan to watch/read. A list cached under either
+    # shape must honour the toggle, so both are guarded; AniList uses the
     # MediaListStatus PLANNING value; generic lists carry a planned flag.
-    assert "l.status <> '6'" in sql
+    assert "l.status NOT IN ('6', 'plan_to_watch', 'plan_to_read')" in sql
     assert "al.status <> 'PLANNING'" in sql
     assert "NOT ce.planned" in sql
 
