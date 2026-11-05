@@ -29,6 +29,7 @@ these hosts.
 
 import argparse
 import json
+import re
 import statistics
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -268,7 +269,13 @@ def probe_steam(client: RateLimitedClient, raw: httpx.Client) -> Finding:
             continue  # delisted, or not a store item
         data = entry.get("data") or {}
         found.sampled += 1
-        found.synopsis_lengths.append(len(str(data.get("short_description") or "")))
+        # about_the_game, not short_description: Valve defines the latter
+        # as a one-line blurb, and measuring it reported Steam at 56%
+        # with a 212-character median, which was a verdict on the wrong
+        # field. The long-form text is HTML, so tags are stripped before
+        # measuring - what gets embedded would be the text, not markup.
+        prose = str(data.get("about_the_game") or data.get("detailed_description") or "")
+        found.synopsis_lengths.append(len(re.sub(r"<[^>]+>", " ", prose).strip()))
         found.tag_counts.append(len(data.get("genres") or []) + len(data.get("categories") or []))
     return found
 
