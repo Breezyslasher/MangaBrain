@@ -1,0 +1,58 @@
+name: media-source-probe
+
+# Could this engine cover books, games, screen and comics the way it
+# covers anime? The scoring reads a synopsis, tags and a stable id, and
+# nothing else, so the only question that decides a medium is whether a
+# real source answers with those for most of its catalogue. This measures
+# that on a live sample rather than reading feature lists.
+#
+# Runs here because the dev container's egress proxy refuses most of
+# these hosts. Results are in the step logs; nothing is written anywhere
+# and no credential is used - key-gated APIs are called WITHOUT a key on
+# purpose, so "needs a key" is a measured refusal.
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: which media family to measure
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - books
+          - boardgames
+          - videogames
+          - screen
+          - comics
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-source-probe-${{ github.ref }}-${{ inputs.domain }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Without this the probe's streaming log stays empty until it exits.
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # httpx alone: this probe touches no database and imports nothing
+      # that reaches one.
+      - name: Install dependencies
+        run: pip install "httpx>=0.27" "pydantic-settings>=2.3"
+
+      - name: Measure
+        run: python -m pipeline.probe_media_sources "${{ inputs.domain || 'all' }}"
