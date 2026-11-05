@@ -186,3 +186,21 @@ def test_the_census_asks_about_english_the_way_the_filter_does():
     # And both figures are reported, so the difference between them stays
     # visible rather than being a silent choice of definition.
     assert "any_answer" in census and "english_answer" in census
+
+
+def test_flag_templates_are_collected_for_inspection():
+    """A page was observed carrying a dub COUNTRY, which is the language
+    evidence the cast table withholds.
+
+    Collected, not interpreted: a country is not a language, and the
+    mapping has to be read off real pages before it decides anything a
+    reader will see.
+    """
+    from pipeline.probe_dub_fandom import flags
+
+    counted = flags("{{Flag|United States}} x {{Flag|Japan}} y {{Flag|United States}}")
+    assert counted["United States"] == 2
+    assert counted["Japan"] == 1
+    # A flag with extra parameters is still that country.
+    assert flags("{{Flag|Canada|size=20px}}")["Canada"] == 1
+    assert flags("no flags here") == {}
