@@ -206,19 +206,68 @@ jobs:
       # incremental, so a 35-minute cap would not have lost data, but it
       # would never have finished one and the published dataset would have
       # carried partly-null dub columns indefinitely.
+      # continue-on-error on every dub step, because "Dump snapshot" runs
+      # only on success. A step that hits its timeout-minutes cap FAILS, so
+      # before this one dub pass running long meant the job failed and no
+      # dataset was published at all - trading the whole week's catalog for
+      # a column. Every one of these passes is incremental and best-effort:
+      # the next run continues it, and a dataset with thinner dub data is
+      # worth far more than no dataset.
       - name: English dub measurement from AniList
         id: dub_anilist
         if: always()
+        continue-on-error: true
         timeout-minutes: 75
         run: python -m pipeline.backfill_dub
+
+      # The per-language AniList pass, which fills measured_dub_languages.
+      # It was missing here, so the published dataset carried two of the
+      # four dub signals: a restoring user got AniList's English count and
+      # ANN's title-matched languages, and nothing AniList had measured per
+      # entry - the column api/filters.py prefers over ANN precisely because
+      # it is an id answer rather than a name match. --max-seconds rather
+      # than a bare cap so the pass stops itself tidily inside the step
+      # budget instead of being killed mid-request.
+      - name: Dub languages from AniList
+        id: dub_languages
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 45
+        run: python -m pipeline.backfill_dub_languages --max-seconds 2400
 
       - name: Dub languages from ANN
         id: dub_ann
         if: always()
+        continue-on-error: true
         timeout-minutes: 40
         run: |
           python -m pipeline.backfill_dub_ann
           python -m pipeline.propagate_dub
+
+      # The MAL-derived cast API, measured per entry on an id_mal join. It
+      # is the only source that answers for languages ANN resolves by title
+      # match: on a full local walk of 21,042 titles it added 973 Chinese,
+      # 656 Spanish, 613 French and 503 German dubs that no other source
+      # knew, against ANN's 31.8% match rate.
+      #
+      # Bounded and accumulating rather than a single walk. One request per
+      # title at a one-second floor is about six hours for the catalog,
+      # which does not fit a 358-minute job, and the service is a volunteer
+      # successor to one that was switched off - a weekly slice is the
+      # courteous shape as well as the only feasible one. mal_dub_checked_at
+      # travels in the checkpoint, so each run continues the last and the
+      # catalog converges over roughly eight weeks; after that only newly
+      # synced titles need asking.
+      #
+      # --all, not the default English-gap scope: a title that already has
+      # an English dub on record can still have a German or Chinese one
+      # nobody has measured, and those are the gap this source closes.
+      - name: Dub languages from the MAL cast API
+        id: dub_mal
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 45
+        run: python -m pipeline.backfill_dub_tenrai --all --limit 2500
 
       - name: Dump snapshot
         run: python -m pipeline.snapshot --out mangabrain-dataset.dump
