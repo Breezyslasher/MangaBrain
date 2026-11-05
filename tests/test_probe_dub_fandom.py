@@ -204,3 +204,79 @@ def test_flag_templates_are_collected_for_inspection():
     # A flag with extra parameters is still that country.
     assert flags("{{Flag|Canada|size=20px}}")["Canada"] == 1
     assert flags("no flags here") == {}
+
+
+MARINE_BOY = """==Dubbing History==
+Re-packaged for the English-speaking market.
+==Cast==
+{|
+! Image
+! Character
+! Seiyū {{Flag|Japan}}
+! Dub Actor {{Flag|United States}}
+|-
+| Marine Boy || [[Yoshiko Ota]] || [[Corinne Orr]]
+|}
+==Transmission==
+{{Flag|Australia}} {{Flag|United Kingdom}}
+"""
+
+AMAZING_3 = """==Dubbing History==
+Dubbed by Copri International Films.
+==Cast==
+{|
+!'''Character'''
+!'''Dub Name'''
+!'''Seiyū'''
+!'''Dub Actor'''
+|}
+==Transmission==
+{{Flag|United States}} {{Flag|Australia}} {{Flag|Japan}}
+"""
+
+
+def test_the_dub_language_is_read_from_the_column_header_only():
+    """Per-dub evidence, not per-page.
+
+    Marine Boy flags its Dub Actor column United States, which says what
+    language that cast is in. The Amazing 3 flags United States and
+    Australia in its Transmission section - those are broadcast countries,
+    and reading them as a dub language would assert an English dub from
+    the fact that a show once aired somewhere English-speaking.
+    """
+    from pipeline.probe_dub_fandom import dub_actor_countries, names_an_english_dub
+
+    assert dub_actor_countries(MARINE_BOY) == ["United States"]
+    assert names_an_english_dub(MARINE_BOY)
+
+    assert dub_actor_countries(AMAZING_3) == []
+    assert not names_an_english_dub(AMAZING_3), "a broadcast country is not a dub language"
+
+
+def test_the_seiyu_column_flag_is_not_mistaken_for_the_dub():
+    """Header cells can share one line, separated by !!.
+
+    A line-level match would read the Seiyu column's Japan flag as the
+    dub's country and report every such page as a Japanese dub.
+    """
+    from pipeline.probe_dub_fandom import dub_actor_countries
+
+    line = "==Cast==\n! Character !! Seiyū {{Flag|Japan}} !! Dub Actor {{Flag|United States}}\n"
+    assert dub_actor_countries(line) == ["United States"]
+
+
+def test_canada_counts_as_english_but_is_tracked_separately():
+    """The Vancouver studios dubbed a lot of anime into English, so Canada
+    belongs in the set - and it is the one entry that can be wrong, since
+    Canada also produces French dubs, so the census reports how many
+    titles rest on it alone."""
+    from pipeline.probe_dub_fandom import (
+        AMBIGUOUS_ENGLISH_COUNTRIES,
+        ENGLISH_DUB_COUNTRIES,
+        names_an_english_dub,
+    )
+
+    assert "Canada" in ENGLISH_DUB_COUNTRIES
+    assert AMBIGUOUS_ENGLISH_COUNTRIES == {"Canada"}
+    assert names_an_english_dub("==Cast==\n! Dub Actor {{Flag|Canada}}\n")
+    assert not names_an_english_dub("==Cast==\n! Dub Actor {{Flag|Brazil}}\n")
