@@ -1,0 +1,62 @@
+name: openlibrary-survey
+
+# How much of Open Library carries enough content to rank? The answer
+# decides the catalogue size, the embedding hours, and whether books
+# ship as their own dataset artifact - so it is measured before a schema
+# is designed around a guess.
+#
+# A separate workflow rather than a step in media-source-probe: that one
+# answers "which sources are usable" in a couple of minutes, this one
+# streams tens of gigabytes and takes tens of minutes. Sharing a job
+# would mean a quick reconnaissance could not be run without paying for
+# a full survey.
+#
+# Runs here rather than on the deployment host because a runner has the
+# bandwidth for the dump and nothing else to do with it. The survey
+# needs no database, no credential and no disk: the dump is streamed and
+# counted, never stored.
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "rows to read; 0 reads the whole dump (tens of minutes)"
+        required: false
+        default: "2000000"
+      min_description:
+        description: characters of description a work must have to count
+        required: false
+        default: "200"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openlibrary-survey-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  survey:
+    runs-on: ubuntu-latest
+    # The dump is tens of gigabytes uncompressed and parsed line by
+    # line, so a full pass is tens of minutes. Short of the 360-minute
+    # ceiling, with room for the dump to grow.
+    timeout-minutes: 180
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install "httpx>=0.27"
+
+      - name: Survey
+        run: |
+          python -m pipeline.survey_openlibrary \
+            --limit "${{ inputs.limit || '2000000' }}" \
+            --min-description "${{ inputs.min_description || '200' }}"
