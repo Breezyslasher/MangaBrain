@@ -241,7 +241,11 @@ def probe_wikidata(client: RateLimitedClient) -> Finding:
 
 
 def run(domains: list[str]) -> None:
-    client = RateLimitedClient(min_interval=1.0, timeout=30.0)
+    # One retry, not five. This is reconnaissance: a source needing
+    # several attempts has already told us what we came to find out, and
+    # the default backoff spent two and a half minutes on a rate-limited
+    # Google Books before raising.
+    client = RateLimitedClient(min_interval=1.0, timeout=30.0, max_retries=1)
     raw = httpx.Client(
         timeout=30.0,
         follow_redirects=True,
@@ -249,9 +253,20 @@ def run(domains: list[str]) -> None:
     )
     try:
         for domain in domains:
-            print(f"\n{domain}")
-            for found in PROBES[domain](client, raw):
-                print(found.report())
+            print(f"\n{domain}", flush=True)
+            for name, probe in PROBES[domain]:
+                # Printed as each source finishes, and every failure
+                # contained. Measured the hard way: a domain's probes were
+                # built as one list, so when Google Books raised
+                # RuntimeError("retries exhausted") - which no probe was
+                # catching, because the client raises it rather than an
+                # httpx error - it took two and a half minutes of
+                # completed Open Library sampling down with it, unprinted.
+                try:
+                    found = probe(client, raw)
+                except Exception as exc:  # noqa: BLE001 - one source must not stop the run
+                    found = Finding(name, note=f"{type(exc).__name__}: {exc}")
+                print(found.report(), flush=True)
     finally:
         client.close()
         raw.close()
@@ -262,32 +277,35 @@ def run(domains: list[str]) -> None:
     )
 
 
-PROBES = {
-    "books": lambda c, r: [probe_open_library(c), probe_google_books(c)],
-    "boardgames": lambda c, r: [probe_bgg(r)],
-    "videogames": lambda c, r: [
-        probe_steam(c),
-        probe_keyless_refusal(
-            r, "IGDB", "https://api.igdb.com/v4/games", "Twitch client id + secret, free"
-        ),
-        probe_keyless_refusal(r, "RAWG", "https://api.rawg.io/api/games", "free key, 20k/month"),
+def gated(source: str, url: str, note: str):
+    """A key-gated source, as a (name, probe) pair like the others."""
+    return source, lambda c, r: probe_keyless_refusal(r, source, url, note)
+
+
+# (display name, probe) per source, so the runner can name a source that
+# fails before its Finding exists, and print each result as it arrives.
+PROBES: dict[str, list[tuple]] = {
+    "books": [
+        ("Open Library", lambda c, r: probe_open_library(c)),
+        ("Google Books", lambda c, r: probe_google_books(c)),
     ],
-    "screen": lambda c, r: [
-        probe_keyless_refusal(
-            r, "TMDB", "https://api.themoviedb.org/3/movie/550", "free key, no review"
-        ),
-        probe_wikidata(c),
+    "boardgames": [("BoardGameGeek", lambda c, r: probe_bgg(r))],
+    "videogames": [
+        ("Steam store", lambda c, r: probe_steam(c)),
+        gated("IGDB", "https://api.igdb.com/v4/games", "Twitch client id + secret, free"),
+        gated("RAWG", "https://api.rawg.io/api/games", "free key, 20k/month"),
     ],
-    "comics": lambda c, r: [
-        probe_keyless_refusal(
-            r,
+    "screen": [
+        gated("TMDB", "https://api.themoviedb.org/3/movie/550", "free key, no review"),
+        ("Wikidata (film)", lambda c, r: probe_wikidata(c)),
+    ],
+    "comics": [
+        gated(
             "Comic Vine",
             "https://comicvine.gamespot.com/api/issues/?format=json",
             "free key, 200 requests/hour",
         ),
-        probe_keyless_refusal(
-            r, "Metron", "https://metron.cloud/api/issue/", "free account, basic auth"
-        ),
+        gated("Metron", "https://metron.cloud/api/issue/", "free account, basic auth"),
     ],
 }
 
