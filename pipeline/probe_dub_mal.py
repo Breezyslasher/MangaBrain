@@ -37,6 +37,7 @@ about dubs.
 """
 
 import argparse
+import pathlib
 import random
 from collections import Counter
 
@@ -116,6 +117,22 @@ def run_for_ids(client: RateLimitedClient, ids: list[int]) -> None:
     reporting a rate over a hand-picked list would be a statistic about
     the picking.
     """
+    print(f"parsed {len(ids)} ids")
+    # Reachability first, in one request. Without this a blocked host
+    # produces one "request failed" line per title and buries the only
+    # fact that matters - and this investigation has already spent four
+    # probes reporting their own transport failure as a finding.
+    _, status = mal_languages(client, 1)
+    if status != "ok":
+        print(
+            f"\nJikan did not answer for a known-good title (status={status})."
+            "\nNothing below would mean anything, so stopping. The dub data"
+            "\nlives on api.jikan.moe/v4/anime/{id}/characters - note that is"
+            "\nNOT the official MAL API this project now uses for lists, and"
+            "\nthe official API has no cast resource to fall back on."
+        )
+        return
+
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
         rows = conn.execute(BY_ID_SQL, {"ids": ids}).fetchall()
     found = {row["id"] for row in rows}
@@ -234,6 +251,11 @@ def main() -> None:
         default="",
         help="check these AniList ids instead of sampling (comma or space separated)",
     )
+    parser.add_argument(
+        "--ids-file",
+        default="",
+        help="read the ids from a file instead, which a shell cannot wrap mid-number",
+    )
     args = parser.parse_args()
 
     client = RateLimitedClient(min_interval=args.min_interval, cache_dir=args.cache_dir)
@@ -250,8 +272,11 @@ def main() -> None:
             print("Jikan is NOT reachable from here; the recorded blocker still holds.")
         return
 
-    if args.ids:
-        run_for_ids(client, parse_ids(args.ids))
+    if args.ids or args.ids_file:
+        raw = args.ids
+        if args.ids_file:
+            raw = f"{raw} {pathlib.Path(args.ids_file).read_text()}"
+        run_for_ids(client, parse_ids(raw))
         client.close()
         return
 
