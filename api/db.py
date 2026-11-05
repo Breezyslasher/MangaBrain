@@ -112,6 +112,22 @@ MEDIA_COLS = """
     m.measured_dub_languages, m.mal_dub_languages
 """
 
+# Full rows for an already-decided set of ids.
+#
+# The pattern this serves: rank on a narrow query over a large pool, then
+# widen to full rows for the few that survive. MEDIA_COLS carries every
+# synopsis, so using it for the pool meant reading thousands of them per
+# request and discarding almost all - /describe pools 2,000 per facet and
+# /recommend 500, where both serve 60.
+#
+# Rows come back in index order, not the caller's, so the caller keys by id
+# and re-applies its own ranking.
+MEDIA_ROWS_SQL = f"""
+    SELECT {MEDIA_COLS}
+    FROM media m
+    WHERE m.id = ANY(%(ids)s)
+"""
+
 
 def media_from_row(row: dict[str, Any]) -> MediaOut:
     return MediaOut(

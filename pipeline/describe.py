@@ -99,17 +99,14 @@ def build_rows_sql() -> str:
     only to discard 99% of them is the same waste the recommender makes
     with its 500-row candidate fetch.
     """
-    from api.db import MEDIA_COLS
-
     # The full column list, because the API builds MediaOut from these
     # rows: a trimmed set would serve a response with no cover and no
     # genres. Only the handful of rows that survived ranking are fetched,
-    # so the width costs nothing.
-    return f"""
-        SELECT {MEDIA_COLS}
-        FROM media m
-        WHERE m.id = ANY(%(ids)s)
-    """
+    # so the width costs nothing. Shared with /recommend, which made the
+    # same mistake with its 500-row candidate fetch.
+    from api.db import MEDIA_ROWS_SQL
+
+    return MEDIA_ROWS_SQL
 
 
 def build_sql(dim: int, filter_sql: str, require_synopsis: bool = True) -> str:

@@ -58,10 +58,17 @@ def dub_coverage() -> DubCoverageOut:
     )
 
 
-# Both sources, unioned, counted by distinct title. The two differ in kind -
+# Every source, unioned, counted by distinct title. They differ in kind -
 # measured_dub_languages is AniList answering for the id it was given,
-# dub_languages is ANN matched on title - but a language is offerable if
-# either knows about it, which is the same rule the filter applies.
+# dub_languages is ANN matched on title, mal_dub_languages is the MAL-derived
+# cast API answering on an id_mal join - but a language is offerable if any of
+# them knows about it, which is the same rule api/filters.py applies.
+#
+# That "same rule" is the point. This query and the filter have to read the
+# same columns or the picker and the results disagree: when mal_dub_languages
+# was missing here, the filter already matched it, so a language could be
+# filterable and unofferable at once, and the counts next to the ones that did
+# appear were short by whatever that column held.
 LANGUAGES_SQL = """
     SELECT lang, count(DISTINCT id) AS titles
     FROM (
@@ -69,6 +76,9 @@ LANGUAGES_SQL = """
         FROM media WHERE media_type = 'ANIME'
         UNION ALL
         SELECT id, unnest(measured_dub_languages) AS lang
+        FROM media WHERE media_type = 'ANIME'
+        UNION ALL
+        SELECT id, unnest(mal_dub_languages) AS lang
         FROM media WHERE media_type = 'ANIME'
     ) t
     WHERE lang <> ''

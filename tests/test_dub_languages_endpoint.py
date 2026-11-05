@@ -66,17 +66,40 @@ def test_the_floor_is_a_parameter_with_a_default():
     assert getattr(default, "default", default) == 10
 
 
-def test_the_query_unions_both_sources():
-    """A language either source knows about is offerable, matching the filter."""
+def test_the_query_unions_every_source():
+    """A language any source knows about is offerable, matching the filter."""
     from api.routers.dub import LANGUAGES_SQL
 
     assert "unnest(dub_languages)" in LANGUAGES_SQL
     assert "unnest(measured_dub_languages)" in LANGUAGES_SQL
+    assert "unnest(mal_dub_languages)" in LANGUAGES_SQL
     assert "UNION ALL" in LANGUAGES_SQL
 
 
+def test_the_picker_reads_the_same_columns_as_the_filter():
+    """Otherwise a language is filterable and unofferable at once.
+
+    That is not hypothetical: mal_dub_languages was added to the filter and
+    not to this query, so a backfill wrote thousands of per-language answers
+    that the dropdown could not offer, and shortened the counts beside the
+    languages it did offer. Comparing the two sets catches the next column
+    rather than the last one.
+    """
+    import re
+
+    from api.routers.dub import LANGUAGES_SQL
+
+    filters = (Path(__file__).parent.parent / "api" / "filters.py").read_text()
+    in_filter = set(re.findall(r"m\.(\w*dub_languages)\b", filters))
+    in_picker = set(re.findall(r"unnest\((\w*dub_languages)\)", LANGUAGES_SQL))
+    assert in_filter, "expected the filter to read at least one dub language column"
+    assert in_filter == in_picker, (
+        f"filter reads {sorted(in_filter)}, picker reads {sorted(in_picker)}"
+    )
+
+
 def test_the_query_counts_distinct_titles():
-    """Both sources can name the same title; it must not be counted twice."""
+    """Several sources can name the same title; it must not be counted twice."""
     from api.routers.dub import LANGUAGES_SQL
 
     assert "count(DISTINCT id)" in LANGUAGES_SQL
@@ -86,7 +109,8 @@ def test_the_query_applies_the_floor_and_is_anime_only():
     from api.routers.dub import LANGUAGES_SQL
 
     assert "HAVING count(DISTINCT id) >= %(min_titles)s" in LANGUAGES_SQL
-    assert LANGUAGES_SQL.count("media_type = 'ANIME'") == 2
+    # One per unioned source: a branch without it would count manga rows.
+    assert LANGUAGES_SQL.count("media_type = 'ANIME'") == LANGUAGES_SQL.count("unnest(")
 
 
 def test_the_markup_no_longer_hardcodes_the_language_set():
