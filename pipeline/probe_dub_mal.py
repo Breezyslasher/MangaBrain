@@ -21,7 +21,23 @@ Why it is the strongest remaining candidate, on structure rather than hope:
     obscurity (100% at the top, ~20% at rank 5000); there is no a priori
     reason MAL's falls off the same way.
 
-SUPERSEDED, and worth reading before trusting anything below: Jikan's
+MEASURED, 5 Nov 2026: Tenrai (api.tenrai.org/v1) answers this probe's
+exact request shape. Cowboy Bebop returns English, French, German,
+Hungarian, Italian, Japanese, Korean, Portuguese (BR) and Spanish, in one
+second, read by the unmodified voice_actors[].language parser below. It
+is the default base URL for that reason.
+
+That is bigger than the question it was run for. Per-entry cast joined on
+id_mal, with a language on every voice actor, is what ANN's title match
+only ever delivered for 31.8% of the catalog - so this is a candidate for
+the whole non-English language walk, not only for the 37 titles the
+Dubbing Wiki census left unanswered.
+
+Caveat worth keeping: Tenrai is a community service a month into this
+role. Fine to measure against; a catalog that depends on it inherits its
+uptime.
+
+The history, kept because it cost two investigations: Jikan's
 public API was discontinued on 1 October 2026 (jikan-rest issue #613,
 announced that June). A run of --check hangs for four minutes and then
 reports failure, from a GitHub runner and from the deployment host alike,
@@ -160,7 +176,7 @@ def parse_ids(raw: str) -> list[int]:
     return [int(part) for part in raw.replace(",", " ").split() if part.strip()]
 
 
-def run_for_ids(client: RateLimitedClient, ids: list[int], base_url: str = JIKAN_BASE) -> None:
+def run_for_ids(client: RateLimitedClient, ids: list[int], base_url: str = TENRAI_BASE) -> None:
     """Ask MAL about specific titles, one line of verdict each.
 
     No sampling and no bands: this answers "can MAL fill these particular
@@ -247,7 +263,7 @@ def band_of(popularity: int | None) -> str:
 
 
 def mal_languages(
-    client: RateLimitedClient, id_mal: int, base_url: str = JIKAN_BASE
+    client: RateLimitedClient, id_mal: int, base_url: str = TENRAI_BASE
 ) -> tuple[set[str], str]:
     """(languages MAL credits, status). Status is ok, absent, or failed.
 
@@ -297,8 +313,12 @@ def main() -> None:
     parser.add_argument("--check", action="store_true", help="one request, test reachability")
     parser.add_argument(
         "--base-url",
-        default="jikan",
-        help="jikan, tenrai, or a full base URL (Jikan's public API shut down 1 Oct 2026)",
+        # Tenrai by default, because the alternative is defaulting to a host
+        # that was switched off on 1 Oct 2026 and hangs for four minutes
+        # before saying so. "jikan" still works as a shorthand, for anyone
+        # pointing this at a self-hosted jikan-rest.
+        default="tenrai",
+        help="tenrai (default), jikan, or a full base URL",
     )
     parser.add_argument("--per-band", type=int, default=40, help="titles sampled per band")
     parser.add_argument("--seed", type=int, default=20261104)
