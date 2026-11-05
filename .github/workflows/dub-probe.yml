@@ -76,6 +76,16 @@ on:
           match onto measured per-entry coverage of the whole catalog.
         required: false
         default: "false"
+      jikan:
+        description: >-
+          one request to api.jikan.moe/v4/anime/1/characters, to re-test
+          whether it refuses GitHub's runners. The blocker is recorded
+          (ConnectError Errno 101) but a recorded blocker is worth
+          re-measuring: the identical conclusion about MAL list sync turned
+          out to be stale. Jikan is the ONLY remaining route to cast data -
+          the official MAL API has no characters resource, measured.
+        required: false
+        default: "false"
       fandom:
         description: >-
           inspect dubbing.fandom.com page structure (recon). "true" uses the
@@ -104,7 +114,7 @@ permissions:
 # and deleted by a reports probe queued while it was still working.
 concurrency:
   group: >-
-    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}-${{ inputs.fandom || 'n' }}
+    dub-probe-${{ github.ref }}-${{ inputs.crosscheck || 'n' }}-${{ inputs.sources || 'n' }}-${{ inputs.paged_cast || 'n' }}-${{ inputs.languages || 'n' }}-${{ inputs.kitsu || 'n' }}-${{ inputs.anidb || 'n' }}-${{ inputs.one_call || 'n' }}-${{ inputs.signals || 'n' }}-${{ inputs.studios || 'n' }}-${{ inputs.wikidata || 'n' }}-${{ inputs.fandom || 'n' }}-${{ inputs.jikan || 'n' }}
   cancel-in-progress: true
 
 jobs:
@@ -175,6 +185,14 @@ jobs:
         if: inputs.kitsu == 'true'
         run: python -m pipeline.probe_kitsu_shape --skip-docs
 
+      # One request, and the only thing it can establish: whether the
+      # host answers at all. No database, so it runs here rather than on
+      # the deployment host - which is the point, since the recorded
+      # blocker was measured from both and deserves re-checking from both.
+      - name: Is Jikan reachable from a runner
+        if: inputs.jikan == 'true'
+        run: python -m pipeline.probe_dub_mal --check
+
       # Structure first, measurement second. The parser in the module is
       # a guess at a format nobody has inspected; this step is how that
       # guess gets replaced by what the pages actually contain. The probe
@@ -230,6 +248,7 @@ jobs:
           && inputs.kitsu != 'true' && inputs.anidb != 'true'
           && inputs.one_call != 'true' && inputs.signals != 'true' && inputs.studios != 'true' && inputs.wikidata != 'true'
           && (inputs.fandom == '' || inputs.fandom == 'false')
+          && inputs.jikan != 'true'
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \
