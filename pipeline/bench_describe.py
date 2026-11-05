@@ -170,6 +170,9 @@ def main() -> None:
             exact.append(ms_exact)
             ann.append(ms_ann)
             served.append(ms_served)
+            # What the index misses, measured on what a caller is served
+            # rather than on a slice of the pool.
+            agreement.append(len(set(ids_served) & set(ids_exact)) / max(len(ids_exact), 1))
         print()
         print(f"exact  full scan, top {args.limit:<5} median {statistics.median(exact):8.1f} ms")
         print(f"ann    pool of {FACET_POOL:<10} median {statistics.median(ann):8.1f} ms")

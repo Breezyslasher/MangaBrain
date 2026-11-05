@@ -241,3 +241,32 @@ def test_the_pooled_distance_is_computed_once():
     sql = build_sql(768, "", True)
     assert sql.count("e.embedding <=> %(query_vec)s") == 0
     assert sql.count("e.embedding::vector(768) <=> %(query_vec)s") == 2
+
+
+def test_every_benchmark_statistic_has_something_to_average():
+    """Removing a measurement must remove its summary line too.
+
+    Deleting the binary stage took the recall computation with it - the
+    append sat between the block removed and the prints kept - and the
+    benchmark then ran its slowest queries to completion before dying on
+    an empty list. A crash at the end of a multi-minute run is the worst
+    place to put one.
+    """
+    import ast
+    import re
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline/bench_describe.py").read_text()
+    averaged = set()
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"mean", "median"}
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+        ):
+            averaged.add(node.args[0].id)
+    assert averaged, "expected the benchmark to summarise something"
+    for name in sorted(averaged):
+        assert re.search(rf"\b{name}\.append\(", source), f"{name} is averaged but never filled"
