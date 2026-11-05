@@ -166,8 +166,17 @@ def test_the_enum_languages_are_all_mapped():
 
 
 def test_regions_are_kept_only_where_they_separate_dub_markets():
-    assert LANGUAGE_V2_CODES["BRAZILIAN PORTUGUESE"] == "pt-br"
+    """The rule this test was always named for, now applied to Portuguese.
+
+    It used to assert pt-br, which contradicted the rule: measured in the
+    live catalog, ANN writes zh-cn/zh-hk/zh-tw but 0 rows of pt-br against
+    830 of pt, and AniList cannot write pt-br at all because StaffLanguage
+    has one Portuguese value. So Cantonese is a market two sources can
+    express and Brazilian Portuguese is not.
+    """
     assert LANGUAGE_V2_CODES["CANTONESE"] == "zh-hk"
+    assert LANGUAGE_V2_CODES["BRAZILIAN PORTUGUESE"] == "pt"
+    assert LANGUAGE_V2_CODES["PORTUGUESE (BRAZIL)"] == "pt"
     # ...and collapsed otherwise.
     assert LANGUAGE_V2_CODES["GERMAN"] == "de"
 
@@ -256,28 +265,34 @@ def test_a_measured_language_counts_as_having_a_dub():
     assert _has_dub({"english_va_count": 0}) is False
 
 
-def test_the_cast_apis_region_spelling_lands_on_the_same_tag_as_anilists():
-    """The two sources spell one market two ways.
+def test_the_cast_apis_region_spelling_lands_on_the_catalogs_code():
+    """Three spellings of one market, one code.
 
-    AniList writes "Portuguese (Brazil)", the MAL cast API writes
-    "Portuguese (BR)". Both have to reach pt-br, because that is the code
-    the dub filter and the web language list already use: measured, the
-    unmapped spelling was stored as portuguese-(br) on over a thousand
-    rows, so selecting Portuguese (Brazil) returned nothing while the
-    data sat in the column.
+    AniList writes "Portuguese", the MAL cast API writes
+    "Portuguese (BR)", and ANN writes pt. All three have to reach pt, or
+    the market is split across codes and each filter shows part of it -
+    which is exactly what happened: 331 of the 338 titles stored as pt-br
+    already carried pt from another source.
     """
     from pipeline.dub_language_codes import code_for
 
-    assert code_for("Portuguese (Brazil)") == ("pt-br", True)
-    assert code_for("Portuguese (BR)") == ("pt-br", True)
+    assert code_for("Portuguese") == ("pt", True)
+    assert code_for("Portuguese (Brazil)") == ("pt", True)
+    assert code_for("Portuguese (BR)") == ("pt", True)
 
 
-def test_a_bracketed_region_is_derived_rather_than_enumerated():
-    """So the next market the source adds does not arrive as a slug."""
+def test_a_bracketed_region_resolves_to_the_base_language():
+    """Never to a synthesised region tag.
+
+    Inventing one from a spelling is what split Portuguese: a code no
+    other source writes takes titles out of the filter they belong in and
+    puts them under a dropdown entry of their own. A region tag is added
+    explicitly, once a source is known to emit it.
+    """
     from pipeline.dub_language_codes import code_for
 
-    assert code_for("Spanish (MX)") == ("es-mx", True)
-    assert code_for("Chinese (HK)") == ("zh-hk", True)
+    assert code_for("Spanish (MX)") == ("es", True)
+    assert code_for("Chinese (HK)") == ("zh", True)
     # A base language nobody has mapped must still be reported, not guessed.
     code, known = code_for("Klingon (US)")
     assert known is False and code == "klingon-(us)"
@@ -290,7 +305,32 @@ def test_a_stored_slug_can_be_mapped_without_asking_the_source_again():
     slugged instead of dropped."""
     from pipeline.dub_language_codes import code_for, unslug
 
-    assert code_for(unslug("portuguese-(br)")) == ("pt-br", True)
+    assert code_for(unslug("portuguese-(br)")) == ("pt", True)
+
+
+def test_a_code_the_catalog_has_stopped_using_is_converged():
+    """A mapping can change after a backfill has written rows, and the
+    backfill will not revisit a title it has stamped - so the repair has
+    to work on codes, not only on unmapped slugs."""
+    from pipeline.dub_language_codes import canonical
+
+    assert canonical("pt-br") == "pt"
+    assert canonical("es-419") == "es"
+    # A code in use is left exactly as it is.
+    for code in ("pt", "en", "zh-hk", "zh-cn", "zh-tw"):
+        assert canonical(code) == code
+
+
+def test_remap_converges_aliases_as_well_as_slugs():
+    """is_code("pt-br") is true, so a remap that only looked at slugs
+    would walk straight past the 338 rows that need fixing."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "pipeline/backfill_dub_tenrai.py"
+    ).read_text()
+    body = source[source.index("def remap(") : source.index("def main(")]
+    assert body.count("canonical(") >= 2, "both the code and the slug branch must converge"
 
 
 def test_a_code_is_not_mistaken_for_a_slug_or_the_reverse():

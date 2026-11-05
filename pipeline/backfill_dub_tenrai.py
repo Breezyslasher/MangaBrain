@@ -40,17 +40,21 @@ stamped title twice, the fix has to work on what is already in the column:
 
     docker exec mangabrain-worker-1 python -m pipeline.backfill_dub_tenrai --remap
 
-Measured need for it: the cast API spells Brazilian Portuguese
+It has now been needed twice. The cast API spells Brazilian Portuguese
 "Portuguese (BR)" where AniList spells it "Portuguese (Brazil)", so the
-first thousand rows went in as portuguese-(br) while the dub filter queries
-pt-br and matched none of them.
+first rows went in as the slug portuguese-(br), which no filter matched.
+Mapping it then produced pt-br - a code neither ANN nor AniList writes,
+measured at 0 rows against 830 and 1,637 carrying pt - so 331 titles that
+already had a Portuguese dub on record were split across two codes and
+dropped out of the Portuguese filter. Both are repairs to stored values,
+and both are what --remap is for.
 """
 
 import argparse
 
 from api.config import settings
 from pipeline.client import RateLimitedClient
-from pipeline.dub_language_codes import code_for, is_code, unslug
+from pipeline.dub_language_codes import canonical, code_for, is_code, unslug
 from pipeline.probe_dub_mal import TENRAI_BASE, dub_codes, mal_languages
 
 # One request per title, and the service is somebody's goodwill.
@@ -189,11 +193,14 @@ def remap() -> int:
             fixed: list[str] = []
             for value in stored:
                 if is_code(value):
-                    fixed.append(value)
+                    # A code can still be one the catalog has stopped
+                    # using: pt-br was written for a market every other
+                    # source files under pt, which split it in two.
+                    fixed.append(canonical(value))
                     continue
                 code, known = code_for(unslug(value))
                 if known:
-                    fixed.append(code)
+                    fixed.append(canonical(code))
                 else:
                     still_unknown.add(value)
                     fixed.append(value)
