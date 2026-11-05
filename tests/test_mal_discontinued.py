@@ -102,3 +102,33 @@ def test_keep_planned_understands_both_status_vocabularies():
 
     without, _ = build_filters(mal_user="someone", keep_planned=False)
     assert "plan_to_watch" not in without, "every status excludes when the toggle is off"
+
+
+def test_a_list_with_no_statuses_is_refused_rather_than_stored():
+    """MAL answers 200 to an unknown field name instead of rejecting it.
+
+    Measured against the live API: fields=characters, voice_actors and cast
+    all return the default payload with no such key and no error. So a typo
+    in LIST_PARAMS would not fail - it would store a complete list in which
+    every entry has an empty status and no score, which looks like a
+    successful sync while silently disabling keep_planned and flattening
+    the For-you rating weights.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "api/routers/mal.py").read_text()
+    fetch = source[source.index("def _fetch_list(") :]
+    fetch = fetch[: fetch.index("\n@router")]
+    assert "with_status" in fetch
+    assert "if entries and not with_status:" in fetch
+    assert "cached list is unchanged" in fetch
+
+
+def test_the_absence_of_cast_data_is_recorded_as_measured():
+    """So nobody re-tries fields=characters on the assumption it was never
+    checked - it was, and the API answered 200 with nothing."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "api/routers/mal.py").read_text()
+    assert "fields=characters" in source
+    assert "voice_actors" in source
