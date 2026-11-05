@@ -121,6 +121,24 @@ QUANTIZED_SQL = "SELECT count(*) AS n FROM embeddings WHERE embedding_bits IS NO
 ANIME_MEDIUMS = ["anime"]
 
 
+def configure_scan(conn, pool: int) -> None:
+    """Set the scan up exactly as pipeline.describe.rank does.
+
+    Omitting this made the first run of this benchmark meaningless.
+    pgvector's default ef_search is 40, so a LIMIT 2000 query returned
+    about forty rows - which read as a 1.7 ms "pool of 2000" and an ANN
+    recall of 48%, both of them measurements of the wrong query. A
+    benchmark that does not configure the scan the way the caller does
+    is not measuring the caller.
+    """
+    from api.db import hnsw_supports_iterative_scan
+
+    ef_search = min(max(pool, 40), 1000)
+    conn.execute("SELECT set_config('hnsw.ef_search', %s, false)", (str(ef_search),))
+    if hnsw_supports_iterative_scan(conn):
+        conn.execute("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', false)")
+
+
 def time_query(conn, sql: str, params: dict, runs: int) -> tuple[float, list[int]]:
     """Median milliseconds over `runs`, discarding the first as cold."""
     ids: list[int] = []
@@ -178,10 +196,12 @@ def main() -> None:
             ms_exact, ids_exact = time_query(
                 conn, exact_sql(args.dim), {**base, "limit": args.limit}, args.runs
             )
-            ms_ann, ids_ann = time_query(
+            configure_scan(conn, FACET_POOL)
+            ms_ann, _ = time_query(
                 conn, ann_sql(args.dim), {**base, "limit": FACET_POOL}, args.runs
             )
-            ms_served, _ = time_query(
+            configure_scan(conn, args.limit)
+            ms_served, ids_served = time_query(
                 conn, ann_sql(args.dim), {**base, "limit": args.limit}, args.runs
             )
             exact.append(ms_exact)
@@ -196,10 +216,9 @@ def main() -> None:
                 )
                 binary.append(ms_binary)
                 binary_recall.append(len(set(ids_binary) & set(ids_exact)) / max(len(ids_exact), 1))
-            # What the index misses: how much of the exact top-N the
-            # approximate scan found at the same depth.
-            top = set(ids_ann[: args.limit])
-            agreement.append(len(top & set(ids_exact)) / max(len(ids_exact), 1))
+            # What the index misses, measured on what a caller is actually
+            # served rather than on a slice of the pool.
+            agreement.append(len(set(ids_served) & set(ids_exact)) / max(len(ids_exact), 1))
 
         print()
         print(f"exact  full scan, top {args.limit:<5} median {statistics.median(exact):8.1f} ms")
