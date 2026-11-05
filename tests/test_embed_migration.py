@@ -105,80 +105,26 @@ def test_progress_line_defaults_to_the_pass_when_no_catalog_total():
     assert progress_line(50, 200, elapsed=10.0).startswith("[embed] 50/200 (25.0%)")
 
 
-def test_the_quantized_copy_is_written_by_the_same_statement_as_the_vector():
-    """A derived column with a second writer drifts.
+def test_the_quantized_column_is_gone():
+    """Binary quantization was built, measured and removed.
 
-    This project has paid for that twice already: mal_dub_languages was
-    read by the filter and not by the language picker, and
-    measured_dub_languages was selected and never served. embedding_bits
-    is written in the embedding's own upsert so there is no window where
-    a row has one and not the other.
+    232 ms at 77-85% recall of the exact top 60, against the HNSW index
+    at 5.8 ms and 96% on the path a caller actually uses. A column
+    nothing reads is the drift this project keeps paying for, so it is
+    dropped rather than left dormant - the reasoning stays in
+    db/schema.sql so the next person does not rebuild it from the same
+    premise.
     """
+    assert "ADD COLUMN IF NOT EXISTS embedding_bits" not in SCHEMA
+    assert "DROP COLUMN IF EXISTS embedding_bits" in SCHEMA
+
     from pipeline.embed import UPSERT_SQL
 
-    assert "embedding_bits" in UPSERT_SQL
-    assert "binary_quantize(%s::vector)" in UPSERT_SQL
-    assert "embedding_bits = EXCLUDED.embedding_bits" in UPSERT_SQL
+    assert "embedding_bits" not in UPSERT_SQL
+    assert "binary_quantize" not in UPSERT_SQL
 
 
-def test_the_quantized_column_is_not_generated():
-    """GENERATED ALWAYS AS ... STORED rewrites the table under an
-    exclusive lock, and ensure_schema() runs at API startup - a boot
-    would stall past its healthcheck rewriting 165,000 rows and their
-    TOAST. A plain ADD COLUMN is instant."""
-    assert "ADD COLUMN IF NOT EXISTS embedding_bits VARBIT" in SCHEMA
-    assert "GENERATED ALWAYS AS (binary_quantize" not in SCHEMA
-
-
-def test_the_quantized_column_is_dimension_untyped_like_the_vector():
-    """Two embedding versions coexist during a re-embed, so a bit(768)
-    column could not hold both - the same reason the vector column has
-    no declared dimension."""
-    assert "embedding_bits VARBIT" in SCHEMA
-    assert "embedding_bits bit(768)" not in SCHEMA.lower().replace("BIT(768)", "bit(768)")
-
-
-def test_no_ann_index_on_the_quantized_column():
-    """The column exists to make an EXACT scan affordable. An index on it
-    would reintroduce the approximation it is there to remove."""
-    assert "hnsw ((embedding_bits" not in SCHEMA
-    assert "bit_hamming_ops" not in SCHEMA
-
-
-def test_every_binary_quantize_call_has_an_unambiguous_argument():
-    """binary_quantize is overloaded on vector and halfvec, so an untyped
-    parameter fails with "function binary_quantize(unknown) is not
-    unique" - at runtime, on the query, not at import.
-
-    A column argument is already typed. A bound parameter is only typed
-    if register_vector ran on that connection, which is a property of
-    the caller rather than of the SQL, so the SQL casts for itself.
-    """
-    from pathlib import Path
-
-    def arguments(source: str) -> list[str]:
-        """Balanced-paren extraction. A regex stopping at the first ')'
-        reads binary_quantize(%(q)s::vector(768)) as "%(q)s" and passes a
-        call it should have judged - the nesting is the whole point."""
-        found = []
-        marker = "binary_quantize("
-        start = source.find(marker)
-        while start != -1:
-            depth, i = 1, start + len(marker)
-            while i < len(source) and depth:
-                depth += (source[i] == "(") - (source[i] == ")")
-                i += 1
-            found.append(source[start + len(marker) : i - 1])
-            start = source.find(marker, i)
-        return found
-
-    root = Path(__file__).resolve().parent.parent
-    checked = 0
-    for name in ("pipeline/embed.py", "pipeline/bench_describe.py", "pipeline/quantize.py"):
-        source = (root / name).read_text()
-        for call in arguments(source):
-            if "%" not in call:
-                continue  # a column reference carries its own type
-            checked += 1
-            assert "::vector" in call, f"{name}: untyped parameter in binary_quantize({call})"
-    assert checked, "expected at least one parameterised call to check"
+def test_the_schema_records_why_rather_than_only_that():
+    """A bare DROP invites the next person to re-add it."""
+    assert "1,880,352" in SCHEMA, "the measurement that motivated it"
+    assert "recall" in SCHEMA, "and the measurement that killed it"

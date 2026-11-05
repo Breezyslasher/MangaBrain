@@ -197,40 +197,29 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw_768
     ON embeddings USING hnsw ((embedding::vector(768)) vector_cosine_ops)
     WHERE vector_dims(embedding) = 768;
 
--- A binary-quantized copy of the embedding, for a coarse pass that can
--- read the whole catalog.
+-- There was a binary-quantized copy of the embedding here, for a coarse
+-- pass that could read the whole catalog exactly. Measured and removed;
+-- the numbers are kept so nobody rebuilds it on the same reasoning.
 --
--- Measured, not assumed. An exact sequential scan over the 768-dimension
--- embeddings took 4.0 s, and EXPLAIN (ANALYZE, BUFFERS) named the reason:
--- 1,880,352 shared buffer hits, about 15 GB of traffic for a few hundred
--- MB of data, roughly 11 buffer accesses per row. A 768-dim float32
--- vector is 3,072 bytes, over the ~2 KB TOAST threshold, so every vector
--- lives out of line in chunks and every row costs an index descent, chunk
--- fetches and decompression. The arithmetic was never the problem -
--- reaching the vectors was. HNSW avoids it by storing vectors in the
--- index; a sequential scan cannot.
+-- The premise was sound. A 768-dim float32 vector is 3,072 bytes, over
+-- the ~2 KB TOAST threshold, so an exact sequential scan pays an
+-- out-of-line fetch and a decompression per row - EXPLAIN showed
+-- 1,880,352 shared buffer hits, about 15 GB of traffic, for one query.
+-- 768 bits is 96 bytes and stores inline, which should have made an
+-- exact scan affordable.
 --
--- 768 bits is 96 bytes, which stores INLINE. The whole catalog becomes
--- ~16 MB, resident in shared buffers, with no out-of-line fetch and no
--- decompression - the condition that makes an exact scan affordable.
+-- It did not pay. Two-stage (exact Hamming scan, rerank 2,000 on the
+-- real vectors) measured 232 ms at 77-85% recall of the exact top 60,
+-- against the HNSW index at 5.8 ms and 96% on the path a caller
+-- actually uses. binary_quantize thresholds at zero and this model's
+-- dimensions are not centred there, which is the likely cause; centring
+-- first might fix it, and would be a research task, not a tuning one.
 --
--- varbit rather than bit(768), for the same reason the vector column is
--- dimension-untyped: two embedding versions coexist during a re-embed,
--- and a fixed width cannot hold both. Queries cast to bit(dim) and
--- predicate on length(), mirroring the vector side.
---
--- Deliberately NOT a generated column. GENERATED ALWAYS AS ... STORED
--- rewrites the table, TOAST included, under an exclusive lock - minutes
--- of it here - and ensure_schema() runs at API startup, so a boot would
--- stall past its healthcheck. A plain ADD COLUMN is instant;
--- pipeline.embed writes it alongside the vector, pipeline.quantize fills
--- what came before, and a test pins the two together so they cannot
--- drift apart.
-ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS embedding_bits VARBIT;
-
--- No index on it, by design: the point is an exact scan of a small
--- column. An ANN index here would reintroduce the approximation this
--- exists to remove.
+-- The 4.0 s exact scan that motivated it was also partly my own error:
+-- that query read all 165,000 embeddings because media_type was
+-- filtered in a join above it. Restricted to anime it is ~713 ms. Still
+-- too slow to serve, but not the emergency it looked like.
+ALTER TABLE embeddings DROP COLUMN IF EXISTS embedding_bits;
 
 -- Cached MAL user lists pulled via Jikan. Everything on either list is
 -- excluded from recommendation results when mal_user is passed.
