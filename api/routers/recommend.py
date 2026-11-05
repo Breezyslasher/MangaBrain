@@ -19,7 +19,13 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 
 from api.config import embed_model_id, settings
-from api.db import MEDIA_COLS, get_pool, hnsw_supports_iterative_scan, media_from_row
+from api.db import (
+    MEDIA_COLS,
+    MEDIA_ROWS_SQL,
+    get_pool,
+    hnsw_supports_iterative_scan,
+    media_from_row,
+)
 from api.filters import build_filters
 from api.media_groups import ALL_MEDIUMS, group_for_medium
 from api.models import (
@@ -382,8 +388,14 @@ def _recommend_for_seeds(
         # predicate must textually match the index definition for the
         # planner to use it.
         dim = int(seed_vec.shape[0])
+        # Only the columns the re-rank reads: the id, and the genres and
+        # tags that tag_similarity and genre_similarity work from. This
+        # used to select MEDIA_COLS, which carries every candidate's
+        # synopsis - 500 of them read, deserialized and thrown away on
+        # every request to serve 60. Full rows are fetched below, once the
+        # ranking has decided which handful of them matter.
         candidate_sql = f"""
-            SELECT {MEDIA_COLS},
+            SELECT m.id, m.genres, m.tags,
                    1 - (e.embedding <=> %(seed_vec)s) AS semantic
                    {taste_select}
             FROM media m
@@ -434,9 +446,21 @@ def _recommend_for_seeds(
         keep = set(collapse_franchises([item[5]["id"] for item in scored], franchise_edges))
         scored = [item for item in scored if item[5]["id"] in keep]
 
+    # Widen to full rows only now, for the page being served. A second
+    # round trip, against reading every candidate's synopsis to discard
+    # almost all of them.
+    top = scored[:limit]
+    rows_by_id: dict[int, dict] = {}
+    if top:
+        with get_pool().connection() as conn:
+            for row in conn.execute(
+                MEDIA_ROWS_SQL, {"ids": [item[5]["id"] for item in top]}
+            ).fetchall():
+                rows_by_id[row["id"]] = row
+
     results = [
         RecommendationItem(
-            media=media_from_row(cand),
+            media=media_from_row(rows_by_id[cand["id"]]),
             similarity=display_similarity(total),
             components=ScoreComponents(
                 semantic=round(semantic, 4),
@@ -445,7 +469,10 @@ def _recommend_for_seeds(
                 taste=round(taste_sim, 4) if taste_vec is not None else None,
             ),
         )
-        for total, semantic, tag_sim, genre_sim, taste_sim, cand in scored[:limit]
+        for total, semantic, tag_sim, genre_sim, taste_sim, cand in top
+        # A title deleted between the two queries is dropped rather than
+        # served half-populated.
+        if cand["id"] in rows_by_id
     ]
     seen_related: set[int] = set()
     related = []
