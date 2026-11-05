@@ -28,6 +28,7 @@ these hosts.
 """
 
 import argparse
+import json
 import statistics
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -73,6 +74,22 @@ class Finding:
         )
 
 
+def fetch(raw: httpx.Client, url: str, params: dict | None = None) -> tuple[int, str]:
+    """Status and body, never raising.
+
+    The first run reported "HTTPStatusError" and "retries exhausted" and
+    nothing else, which is unreachable-shaped noise rather than a
+    finding: it cost a second run from a different network to learn that
+    both vantage points failed the same way, and still did not say why.
+    A probe that cannot say WHAT a source answered has not measured it.
+    """
+    try:
+        resp = raw.get(url, params=params)
+    except httpx.HTTPError as exc:
+        return 0, f"{type(exc).__name__}: {exc}"
+    return resp.status_code, resp.text[:300].replace("\n", " ")
+
+
 def text_of(value) -> str:
     """Open Library stores a description as a string or as {value: ...}."""
     if isinstance(value, dict):
@@ -106,19 +123,34 @@ def probe_open_library(client: RateLimitedClient) -> Finding:
     return found
 
 
-def probe_google_books(client: RateLimitedClient) -> Finding:
+def probe_google_books(raw: httpx.Client) -> Finding:
+    """Through the raw client: the first run reported only "retries
+    exhausted", which says nothing about why Google refused."""
     found = Finding("Google Books", note="keyless quota is small and per-IP")
-    try:
-        data = client.request(
-            "GET",
-            "https://www.googleapis.com/books/v1/volumes",
-            params={"q": "subject:fiction", "maxResults": 40},
-        )
-    except (httpx.HTTPError, ValueError) as exc:
-        found.note = type(exc).__name__
+    status, body = fetch(
+        raw,
+        "https://www.googleapis.com/books/v1/volumes",
+        {"q": "subject:fiction", "maxResults": 40},
+    )
+    if status != 200:
+        found.note = f"HTTP {status}: {body[:200]}"
+        found.needs_key = status in (401, 403)
         return found
     found.reachable = True
-    for item in (data.get("items") or [])[:SAMPLE]:
+    try:
+        items = (
+            json.loads(
+                raw.get(
+                    "https://www.googleapis.com/books/v1/volumes",
+                    params={"q": "subject:fiction", "maxResults": 40},
+                ).text
+            ).get("items")
+            or []
+        )
+    except (ValueError, httpx.HTTPError) as exc:
+        found.note = f"unparseable: {type(exc).__name__}"
+        return found
+    for item in items[:SAMPLE]:
         info = item.get("volumeInfo") or {}
         found.sampled += 1
         found.synopsis_lengths.append(len(str(info.get("description") or "")))
@@ -127,55 +159,72 @@ def probe_google_books(client: RateLimitedClient) -> Finding:
 
 
 def probe_bgg(raw: httpx.Client) -> Finding:
-    """BoardGameGeek's XMLAPI2. XML, so it bypasses the JSON client."""
+    """BoardGameGeek's XMLAPI2. XML, so it bypasses the JSON client.
+
+    Two hostnames, because they need not behave alike: boardgamegeek.com
+    is the site, behind its bot protection, and api.geekdo.com is where
+    the API is served from.
+    """
     found = Finding("BoardGameGeek", note="free, no key, XML, ids are stable")
-    ids = ",".join(str(i) for i in range(1, SAMPLE + 1))
-    try:
-        resp = raw.get("https://boardgamegeek.com/xmlapi2/thing", params={"id": ids, "stats": 1})
-    except httpx.HTTPError as exc:
-        found.note = type(exc).__name__
+    params = {"id": ",".join(str(i) for i in range(1, SAMPLE + 1)), "stats": 1}
+    attempts = []
+    for host in ("https://api.geekdo.com", "https://boardgamegeek.com"):
+        url = f"{host}/xmlapi2/thing"
+        status, body = fetch(raw, url, params)
+        if status != 200:
+            attempts.append(f"{host} HTTP {status}: {body[:120]}")
+            continue
+        found.reachable = True
+        found.note = f"{host}; {found.note}"
+        # fetch() truncates for diagnosis, so take the body in full now
+        # that this host is known to answer.
+        try:
+            root = ET.fromstring(raw.get(url, params=params).text)
+        except (ET.ParseError, httpx.HTTPError) as exc:
+            found.note = f"{host} answered but {type(exc).__name__}: {exc}"
+            return found
+        for item in root.findall("item"):
+            found.sampled += 1
+            found.synopsis_lengths.append(len(item.findtext("description") or ""))
+            found.tag_counts.append(
+                sum(
+                    1
+                    for link in item.findall("link")
+                    if link.get("type") in {"boardgamecategory", "boardgamemechanic"}
+                )
+            )
         return found
-    if resp.status_code == 202:
-        found.note = "queued (HTTP 202); retry in a few seconds"
-        return found
-    if resp.status_code != 200:
-        found.note = f"HTTP {resp.status_code}"
-        return found
-    found.reachable = True
-    try:
-        root = ET.fromstring(resp.text)
-    except ET.ParseError as exc:
-        found.note = f"unparseable XML: {exc}"
-        return found
-    for item in root.findall("item"):
-        found.sampled += 1
-        description = item.findtext("description") or ""
-        found.synopsis_lengths.append(len(description))
-        tags = [
-            link
-            for link in item.findall("link")
-            if link.get("type") in {"boardgamecategory", "boardgamemechanic"}
-        ]
-        found.tag_counts.append(len(tags))
+    found.note = "; ".join(attempts)
     return found
 
 
-def probe_steam(client: RateLimitedClient) -> Finding:
+def probe_steam(client: RateLimitedClient, raw: httpx.Client) -> Finding:
+    """The Steam store's undocumented appdetails endpoint.
+
+    The app list comes through the raw client so a refusal reports its
+    status code: the first run said only "HTTPStatusError", which is not
+    a finding.
+    """
     found = Finding("Steam store", note="undocumented, ~200 requests per 5 min")
-    try:
-        listing = client.request("GET", "https://api.steampowered.com/ISteamApps/GetAppList/v2/")
-    except (httpx.HTTPError, ValueError) as exc:
-        found.note = type(exc).__name__
+    status, body = fetch(raw, "https://api.steampowered.com/ISteamApps/GetAppList/v2/")
+    if status != 200:
+        found.note = f"app list HTTP {status}: {body[:160]}"
         return found
     found.reachable = True
+    # fetch() truncates its body for diagnosis, so take the list in full
+    # now that the endpoint is known to answer.
+    try:
+        listing = raw.get("https://api.steampowered.com/ISteamApps/GetAppList/v2/").json()
+    except (ValueError, httpx.HTTPError) as exc:
+        found.note = f"app list unparseable: {type(exc).__name__}"
+        return found
     apps = (listing.get("applist") or {}).get("apps") or []
     found.note = f"{len(apps)} app ids listed; {found.note}"
     # Evenly spaced rather than the first N: the head of the list is old
     # test entries with no store page at all.
     step = max(len(apps) // (SAMPLE * 4), 1)
-    checked = 0
     for app in apps[::step]:
-        if checked >= SAMPLE:
+        if found.sampled >= SAMPLE:
             break
         try:
             detail = client.request(
@@ -183,13 +232,13 @@ def probe_steam(client: RateLimitedClient) -> Finding:
                 "https://store.steampowered.com/api/appdetails",
                 params={"appids": app["appid"], "l": "english"},
             )
-        except (httpx.HTTPError, ValueError):
-            continue
+        except (httpx.HTTPError, ValueError, RuntimeError) as exc:
+            found.note = f"appdetails failed after {found.sampled}: {type(exc).__name__}"
+            break
         entry = (detail or {}).get(str(app["appid"])) or {}
         if not entry.get("success"):
-            continue  # delisted or not a store item
+            continue  # delisted, or not a store item
         data = entry.get("data") or {}
-        checked += 1
         found.sampled += 1
         found.synopsis_lengths.append(len(str(data.get("short_description") or "")))
         found.tag_counts.append(len(data.get("genres") or []) + len(data.get("categories") or []))
@@ -218,9 +267,10 @@ def probe_wikidata(client: RateLimitedClient) -> Finding:
     found = Finding("Wikidata (film)", note="free, joins by IMDb/TMDB id")
     query = """
         SELECT ?film ?filmDescription (COUNT(?genre) AS ?genres) WHERE {
-          ?film wdt:P31 wd:Q11424 ; wdt:P136 ?genre .
+          { SELECT ?film WHERE { ?film wdt:P31 wd:Q11424 } LIMIT 25 }
+          ?film wdt:P136 ?genre .
           SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
-        } GROUP BY ?film ?filmDescription LIMIT 25
+        } GROUP BY ?film ?filmDescription
     """
     try:
         data = client.request(
@@ -287,11 +337,11 @@ def gated(source: str, url: str, note: str):
 PROBES: dict[str, list[tuple]] = {
     "books": [
         ("Open Library", lambda c, r: probe_open_library(c)),
-        ("Google Books", lambda c, r: probe_google_books(c)),
+        ("Google Books", lambda c, r: probe_google_books(r)),
     ],
     "boardgames": [("BoardGameGeek", lambda c, r: probe_bgg(r))],
     "videogames": [
-        ("Steam store", lambda c, r: probe_steam(c)),
+        ("Steam store", lambda c, r: probe_steam(c, r)),
         gated("IGDB", "https://api.igdb.com/v4/games", "Twitch client id + secret, free"),
         gated("RAWG", "https://api.rawg.io/api/games", "free key, 20k/month"),
     ],

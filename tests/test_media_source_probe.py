@@ -111,3 +111,38 @@ def test_reconnaissance_does_not_retry_five_times():
     attempts has already answered the question being asked."""
     source = PROBE.read_text()
     assert "max_retries=1" in source
+
+
+def test_a_failure_reports_what_the_source_actually_said():
+    """ "unreachable: HTTPStatusError" is not a measurement.
+
+    The first run reported that for Steam and "retries exhausted" for
+    Google Books, which cost a second run from a different network to
+    discover that both vantage points failed identically - and still did
+    not say why. Every probe now goes through fetch(), which returns a
+    status code and a slice of the body and never raises.
+    """
+    source = PROBE.read_text()
+    assert "def fetch(" in source
+    for probe in ("probe_google_books", "probe_steam", "probe_bgg"):
+        body = source[source.index(f"def {probe}(") :]
+        body = body[: body.index("\ndef ", 1)]
+        assert "fetch(" in body, f"{probe} must report a status code"
+        assert "HTTP {status}" in body, f"{probe} must put the status in its note"
+
+
+def test_boardgamegeek_is_tried_on_both_of_its_hostnames():
+    """boardgamegeek.com is the site, behind its bot protection;
+    api.geekdo.com is where the API is served from. A 401 from one is
+    not a verdict on the source."""
+    source = PROBE.read_text()
+    assert "api.geekdo.com" in source
+    assert "boardgamegeek.com" in source
+
+
+def test_the_wikidata_query_limits_before_it_aggregates():
+    """The first version counted genres across every film in existence
+    and then took 25, which timed out. The subquery bounds it first."""
+    source = PROBE.read_text()
+    query = source[source.index("SELECT ?film") : source.index("GROUP BY")]
+    assert "{ SELECT ?film WHERE" in query and "LIMIT 25 }" in query
