@@ -60,3 +60,25 @@ def test_a_row_renders_with_missing_fields():
     assert "Shoujo Shuumatsu Ryokou" in line
     assert "0.512" in line
     assert "----" in line
+
+
+def test_why_prints_the_synopsis_and_says_when_there_is_none():
+    """A list of unfamiliar titles cannot be judged, which is the only
+    question this tool exists to answer. An empty synopsis is itself the
+    explanation for a weak match: such rows are embedded from their titles."""
+    base = {
+        "id": 7,
+        "title_english": "Example",
+        "title_romaji": None,
+        "medium": "manga",
+        "format": "MANGA",
+        "start_year": 2020,
+        "similarity": 0.8,
+    }
+    with_text = format_row(1, {**base, "description_clean": "A long way\nfrom home."}, why=True)
+    assert "A long way from home." in with_text, "newlines should collapse to one line"
+
+    without = format_row(1, {**base, "description_clean": ""}, why=True)
+    assert "no synopsis" in without
+
+    assert "\n" not in format_row(1, {**base, "description_clean": "x"}, why=False)
