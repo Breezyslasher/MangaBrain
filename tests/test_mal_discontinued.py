@@ -1,80 +1,104 @@
-"""MAL list sync is dead at the source, and the error has to say so.
+"""MAL list sync, after moving off the endpoints MAL discontinued.
 
-A refresh returned {"detail": "Jikan unreachable"}. That was true and it
-cost an investigation: it pointed at the transport, so the next steps were
-container DNS, egress rules and the proxy - none of which could have helped,
-because Jikan's own OpenAPI spec marks exactly two endpoints deprecated out
-of its whole v4 surface and they are the two this module calls, with the
-description "User Anime lists have been discontinued since May 1st, 2022".
+A refresh used to return {"detail": "Jikan unreachable"}. That was true and
+it cost an investigation: it pointed at the transport, so the next steps
+were container DNS, egress rules and the proxy - none of which could have
+helped, because Jikan's own OpenAPI spec marks exactly two endpoints
+deprecated out of its whole v4 surface and they were the two this module
+called, described as "User Anime lists have been discontinued since May
+1st, 2022".
 
-These pin the honesty of the failure rather than the failure itself. A
-message naming only the nearest cause is worse than a vague one, because it
-is confidently wrong about where to look.
+The route that works is the official API, found because the user asked how
+Yamtrack reads the same lists from the same host. These tests pin the move
+and the two details of it that would fail silently: the credential and the
+status vocabulary.
 """
 
 import re
 from pathlib import Path
 
-import pytest
-
-from api.routers.mal import DISCONTINUED, JIKAN_BASE, LIST_TYPES
+from api.routers.mal import LIST_TYPES, NO_CLIENT_ID, UNREACHABLE
 
 ROOT = Path(__file__).resolve().parent.parent
 MAL = ROOT / "api" / "routers" / "mal.py"
 
 
-def test_the_message_names_the_real_cause_not_just_the_transport():
-    text = DISCONTINUED.lower()
-    assert "discontinued" in text
-    assert "2022" in text
+def test_the_credential_error_says_where_to_get_one():
+    """A missing client id is a setup step, not a fault, so the message
+    has to name the page and the setting rather than report a refusal."""
+    text = NO_CLIENT_ID.lower()
+    assert "myanimelist.net/apiconfig" in text
+    assert "mal_client_id" in text
 
 
-def test_the_message_points_at_something_that_works():
-    """A dead end is only actionable if it names the live path.
-
-    AniList and Kitsu read lists from reachable, non-deprecated APIs and
-    feed the same exclusion machinery, so the user is one checkbox from a
-    working equivalent - which is worth saying in the error itself.
-    """
-    text = DISCONTINUED.lower()
-    assert "anilist" in text
-    assert "kitsu" in text
+def test_the_failure_message_still_points_at_something_that_works():
+    """A dead end is only actionable if it names the live path: AniList
+    and Kitsu need no credential and feed the same exclusion."""
+    for text in (NO_CLIENT_ID.lower(), UNREACHABLE.lower()):
+        assert "anilist" in text and "kitsu" in text
 
 
-@pytest.mark.parametrize("status", [404, 502])
-def test_both_failure_paths_carry_it(status):
-    """404 and the generic Jikan error must not revert to a bare message."""
+def test_every_failure_path_explains_itself():
+    """404, 401/403 and the transport error are different problems with
+    different fixes, and each has to say which it is."""
     source = MAL.read_text()
     raises = re.findall(r"raise HTTPException\((.*?)\) from exc", source, re.S)
-    assert len(raises) >= 3, "expected the 404, status and transport paths"
-    transport = [r for r in raises if "DISCONTINUED" in r]
-    assert len(transport) >= 2, raises
+    assert len(raises) >= 4, "expected not-found, rejected-credential, error and transport"
+    assert any("not found" in r for r in raises)
+    assert any("NO_CLIENT_ID" in r for r in raises)
+    assert any("UNREACHABLE" in r for r in raises)
 
 
-def test_the_dead_endpoints_are_recorded_where_they_are_called():
-    """So the next reader does not re-derive it from a transport error."""
+def test_why_jikan_is_not_used_is_recorded_where_someone_would_re_add_it():
+    """So the next reader does not "fix" this by pointing it back at the
+    simpler API that needs no credential."""
     source = MAL.read_text()
     assert "animelist" in source and "mangalist" in source
-    assert "deprecated" in source.lower()
+    assert "discontinued" in source.lower()
     assert "May 1st, 2022" in source
 
 
-def test_the_working_sources_are_not_on_the_same_host():
-    """Pins why AniList and Kitsu are a real recommendation, not a hope."""
-    for router, host in (("anilist.py", "graphql.anilist.co"), ("kitsu.py", "kitsu.app")):
-        text = (ROOT / "api" / "routers" / router).read_text()
-        assert host in text, router
-        assert JIKAN_BASE not in text, router
+def test_both_list_types_are_still_fetched():
+    assert LIST_TYPES == ("anime", "manga")
 
 
-def test_the_exclusion_itself_is_untouched_by_this():
-    """Only the fetch is dead. The id_mal join still has to work.
+def test_the_list_comes_from_the_official_api_now():
+    """Jikan's user-list endpoints are discontinued; the official API is
+    the only working route, and it is how Yamtrack reads the same lists
+    from the same host."""
+    from pathlib import Path
 
-    MAL anime and manga are separate id spaces, so the filter joins on
-    list_type as well as id_mal - that logic is independent of how entries
-    got stored, and a dead fetch must not be read as a dead feature.
+    source = (Path(__file__).resolve().parent.parent / "api/routers/mal.py").read_text()
+    assert "https://api.myanimelist.net/v2" in source
+    assert "X-MAL-CLIENT-ID" in source
+    assert "api.jikan.moe" not in source, "the list must not go back through Jikan"
+    # Paging is an absolute next URL, not a page number: ?page=N was not in
+    # Jikan's spec for these endpoints and paged nothing.
+    assert '"next"' in source or "paging" in source
+
+
+def test_a_missing_client_id_is_refused_before_the_request():
+    """So the error names the missing credential rather than whatever the
+    API says to an unauthenticated caller."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "api/routers/mal.py").read_text()
+    refresh = source[source.index("def refresh_mal_lists(") :]
+    refresh = refresh[: refresh.index("\n@router")]
+    assert "if not settings.mal_client_id:" in refresh
+    assert refresh.index("if not settings.mal_client_id:") < refresh.index("RateLimitedClient(")
+
+
+def test_keep_planned_understands_both_status_vocabularies():
+    """The official API sends "plan_to_watch"; Jikan sent "6".
+
+    A list cached before the switch must still honour the toggle, or
+    keep_planned silently stops working for rows nobody re-synced.
     """
-    filters = (ROOT / "api" / "filters.py").read_text()
-    assert "mal_list_entries" in filters
-    assert "lower(m.media_type)" in filters
-    assert set(LIST_TYPES) == {"anime", "manga"}
+    from api.filters import build_filters
+
+    sql, _ = build_filters(mal_user="someone", keep_planned=True)
+    assert "l.status NOT IN ('6', 'plan_to_watch', 'plan_to_read')" in sql
+
+    without, _ = build_filters(mal_user="someone", keep_planned=False)
+    assert "plan_to_watch" not in without, "every status excludes when the toggle is off"

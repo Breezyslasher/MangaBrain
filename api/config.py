@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     http_cache_dir: str = ""
     anilist_min_interval: float = 2.0
     jikan_min_interval: float = 0.5
+    # The official MAL API (api.myanimelist.net/v2) serves a PUBLIC list with
+    # a registered client id and no OAuth user flow, which is how Yamtrack
+    # reads the same lists. Jikan's user-list endpoints were discontinued in
+    # 2022, so this is the only working route to a MAL list. Empty means the
+    # feature is off and says so, rather than failing at the request.
+    mal_client_id: str = ""
+    mal_min_interval: float = 1.0
     # A list refresh is somebody waiting on a button, so it must fail fast.
     # RateLimitedClient defaults to 5 retries with 2s doubling backoff and a
     # 30s timeout, which is right for an unattended batch and badly wrong

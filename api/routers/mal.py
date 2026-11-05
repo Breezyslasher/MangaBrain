@@ -1,47 +1,38 @@
-"""MAL integration via Jikan: cache a user's anime + manga lists locally.
+"""MAL integration: cache a user's anime + manga lists locally.
 
 Everything on either list (any status) can then be excluded from
 recommendation and random results by passing mal_user=<username>.
 
-KNOWN BROKEN, and not for the reason it looks like. A refresh returns
-{"detail": "Jikan unreachable"}, which is true - api.jikan.moe refuses both
-GitHub's runners (ConnectError Errno 101, re-measured 2026-11-04) and the
-deployment host - but it masks something that reachability would not fix.
-Jikan's own OpenAPI spec marks exactly two endpoints deprecated out of its
-entire v4 surface, and they are the two below:
+This reads the OFFICIAL MyAnimeList API, not Jikan. Jikan marks exactly
+two endpoints deprecated in its whole v4 surface - /users/{u}/animelist
+and /users/{u}/mangalist - with the description "User Anime lists have
+been discontinued since May 1st, 2022", and their documented response
+schema is empty. No amount of reachability fixes that, which is why the
+transport error this module used to return sent an investigation after
+container DNS and egress rules for nothing.
 
-    GET /users/{username}/animelist   deprecated
-    GET /users/{username}/mangalist   deprecated
+    GET https://api.myanimelist.net/v2/users/{username}/{type}list
+        ?fields=list_status&limit=1000&nsfw=true
+        X-MAL-CLIENT-ID: <client id>
 
-with the description "User Anime lists have been discontinued since May 1st,
-2022". Their documented response schema is empty. So this cannot work even
-from a host Jikan answers, and chasing the transport error - container DNS,
-egress rules, the proxy - would have found nothing.
+A public list needs only a registered client id - no OAuth, no user
+login. Yamtrack reads the same lists the same way, from the same host
+that Jikan refuses, which is how this route was found: the user asked why
+their tracker could do what this could not.
 
-Two consequences worth stating plainly rather than leaving to be rediscovered:
+Two differences from the Jikan shape that are easy to miss:
 
-  - The `page` parameter this module sends is not in the spec for these
-    endpoints either (only `status` is), so the pagination loop below was
-    never going to page anything.
-  - CLAUDE.md still specifies Jikan user endpoints for list retrieval
-    "without OAuth". That was true when it was written and is not now.
+  - Status is a string ("plan_to_watch", "completed"), where Jikan sent
+    numeric codes ("6" for plan-to-watch). api/filters.py's keep_planned
+    guard matches both, so a list cached under either shape still honours
+    the toggle.
+  - Paging follows paging.next, an absolute URL, rather than a page
+    number. The old loop sent ?page=N, which was not in Jikan's spec for
+    these endpoints either and never paged anything.
 
-What still works, and what the UI should prefer: AniList
-(api/routers/anilist.py) and Kitsu (api/routers/kitsu.py) both read lists
-from reachable, non-deprecated APIs and feed the same exclusion machinery.
-The exclusion itself is sound and tested - only this one source's fetch is
-dead.
-
-The real alternative for MAL specifically is the official MAL API v2
-(api.myanimelist.net/v2/users/{user}/animelist), which serves public lists
-with a registered X-MAL-CLIENT-ID header and no OAuth user flow. That is a
-new integration, not a URL swap, so it is left unbuilt rather than guessed
-at - and it is untestable from here while api.jikan.moe and friends are
-unreachable.
-
-Everything else MAL-shaped in this project is unaffected: id_mal joins,
-/search/by-mal, and the dub probe's /anime/{id}/characters (not deprecated)
-all stand.
+Dub data is NOT here. The official API has no characters or voice-actor
+resource at all; that lives on Jikan's /anime/{id}/characters, which is a
+different service and is not deprecated.
 """
 
 import httpx
@@ -54,17 +45,23 @@ from pipeline.client import RateLimitedClient
 
 router = APIRouter()
 
-JIKAN_BASE = "https://api.jikan.moe/v4"
+MAL_BASE = "https://api.myanimelist.net/v2"
 LIST_TYPES = ("anime", "manga")
 
-# Shown to the user instead of a bare transport error. See the module
-# docstring: Jikan's spec marks these two endpoints, and only these two,
-# deprecated - "discontinued since May 1st, 2022" - so reachability is not
-# the fix and the message must not imply it is.
-DISCONTINUED = (
-    "MAL list sync is unavailable: Jikan discontinued its user list endpoints"
-    " in 2022 and api.jikan.moe does not answer this host. Use the AniList or"
-    " Kitsu list instead - both feed the same exclusion."
+# nsfw=true because this list is used to EXCLUDE what the user has already
+# seen: omitting adult entries would quietly recommend them back.
+LIST_PARAMS = {"fields": "list_status", "limit": 1000, "nsfw": "true"}
+
+NO_CLIENT_ID = (
+    "MAL list sync needs a client id. Create one at"
+    " https://myanimelist.net/apiconfig (free, no review) and set"
+    " MAL_CLIENT_ID on the api service. AniList and Kitsu need no credential"
+    " and feed the same exclusion."
+)
+
+UNREACHABLE = (
+    "api.myanimelist.net did not answer. The list is unchanged; try again, or"
+    " use the AniList or Kitsu list, which feed the same exclusion."
 )
 
 INSERT_ENTRY_SQL = """
@@ -85,48 +82,47 @@ UPSERT_STATE_SQL = """
 def _fetch_list(
     client: RateLimitedClient, username: str, list_type: str
 ) -> dict[int, tuple[str, int | None]]:
-    """Page through a Jikan user list and return {mal_id: (status, score)}.
+    """Page through a MAL user list and return {mal_id: (status, score)}.
 
     MAL user scores are 1-10 (0 = unrated), stored normalized to 0-100 with
     unrated as NULL so those entries keep a neutral For-you sampling weight.
     """
     entries: dict[int, tuple[str, int | None]] = {}
-    page = 1
-    while True:
+    url: str | None = f"{MAL_BASE}/users/{username}/{list_type}list"
+    params: dict | None = dict(LIST_PARAMS)
+    while url:
         try:
-            data = client.request(
-                "GET",
-                f"{JIKAN_BASE}/users/{username}/{list_type}list",
-                params={"page": page},
-            )
+            data = client.request("GET", url, params=params)
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
+            code = exc.response.status_code
+            if code == 404:
                 raise HTTPException(
-                    status_code=404, detail=f"MAL user '{username}' not found"
+                    status_code=404,
+                    detail=f"MAL user '{username}' not found, or their list is private",
                 ) from exc
-            raise HTTPException(
-                status_code=502,
-                detail=f"Jikan error {exc.response.status_code}. {DISCONTINUED}",
-            ) from exc
+            if code in (401, 403):
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"MAL rejected the client id (HTTP {code}). {NO_CLIENT_ID}",
+                ) from exc
+            raise HTTPException(status_code=502, detail=f"MAL error {code}. {UNREACHABLE}") from exc
         except httpx.TransportError as exc:
-            # "Jikan unreachable" alone was true and actively misleading: it
-            # sent an investigation after container DNS and egress rules when
-            # the endpoint is discontinued and would fail from a reachable
-            # host too. An error message that names only the nearest cause
-            # costs more than it saves.
-            raise HTTPException(status_code=502, detail=DISCONTINUED) from exc
+            raise HTTPException(status_code=502, detail=UNREACHABLE) from exc
 
         for item in data.get("data", []):
-            node = item.get("anime") or item.get("manga") or {}
-            mal_id = node.get("mal_id")
-            if mal_id:
-                status = item.get("watching_status") or item.get("reading_status") or ""
-                raw_score = item.get("score")
-                score = int(raw_score) * 10 if isinstance(raw_score, (int, float)) else 0
-                entries[int(mal_id)] = (str(status), score if score else None)
-        if not data.get("pagination", {}).get("has_next_page"):
-            break
-        page += 1
+            node = item.get("node") or {}
+            mal_id = node.get("id")
+            if not mal_id:
+                continue
+            status = (item.get("list_status") or {}).get("status") or ""
+            raw_score = (item.get("list_status") or {}).get("score")
+            score = int(raw_score) * 10 if isinstance(raw_score, (int, float)) else 0
+            entries[int(mal_id)] = (str(status), score if score else None)
+
+        # paging.next is an absolute URL with the offset already in it, so
+        # re-sending params would fight with it.
+        url = (data.get("paging") or {}).get("next")
+        params = None
     return entries
 
 
@@ -135,10 +131,16 @@ def refresh_mal_lists(username: str) -> UserListsStatus:
     username = username.strip().lower()
     if not username:
         raise HTTPException(status_code=422, detail="empty username")
+    if not settings.mal_client_id:
+        # Refused before the request, so the error names the missing
+        # credential instead of whatever the API says to an unauthenticated
+        # caller.
+        raise HTTPException(status_code=422, detail=NO_CLIENT_ID)
     client = RateLimitedClient(
-        min_interval=settings.jikan_min_interval,
+        min_interval=settings.mal_min_interval,
         max_retries=settings.interactive_max_retries,
         timeout=settings.interactive_timeout,
+        extra_headers={"X-MAL-CLIENT-ID": settings.mal_client_id},
     )
     try:
         lists = {lt: _fetch_list(client, username, lt) for lt in LIST_TYPES}

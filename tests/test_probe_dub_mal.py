@@ -163,3 +163,31 @@ def test_the_id_query_does_not_re_apply_the_gap_filter():
     assert "AS english_known" in by_id
     assert "WHERE m.id = ANY(%(ids)s)" in by_id
     assert "AND NOT (" not in by_id, "the gap predicate must not be re-applied"
+
+
+def test_an_ids_run_checks_reachability_before_spending_requests():
+    """A blocked host should produce one line, not one per title.
+
+    Four probes in this investigation have already reported their own
+    transport failure as a finding, and 37 "request failed" lines bury the
+    only fact in them.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline/probe_dub_mal.py").read_text()
+    body = source[source.index("def run_for_ids(") :]
+    body = body[: body.index("\ndef ")]
+    probe_call = body.index("mal_languages(client, 1)")
+    assert probe_call < body.index("BY_ID_SQL"), "check before querying the catalog"
+    assert 'status != "ok"' in body
+
+
+def test_ids_can_come_from_a_file():
+    """A 37-id list pasted into a shell wraps mid-number: 5936 became 59
+    and 36, which are other titles' ids and would have been probed
+    silently."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline/probe_dub_mal.py").read_text()
+    assert "--ids-file" in source
+    assert "args.ids_file" in source

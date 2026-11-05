@@ -32,6 +32,11 @@ services:
       # through a Cloudflare Tunnel); empty keeps the LAN-only open behavior.
       AUTH_TOKEN: ${MANGABRAIN_AUTH_TOKEN:-}
       RATE_LIMIT_PER_MINUTE: ${MANGABRAIN_RATE_LIMIT:-0}
+      # Official MyAnimeList API client id, for MAL list exclusion. Free
+      # from https://myanimelist.net/apiconfig; empty disables the feature
+      # with a message saying so. Jikan's user-list endpoints were
+      # discontinued in 2022, so there is no credential-free route.
+      MAL_CLIENT_ID: ${MANGABRAIN_MAL_CLIENT_ID:-}
     ports:
       - "8009:8000"
     restart: unless-stopped
