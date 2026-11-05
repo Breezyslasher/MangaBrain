@@ -267,7 +267,7 @@ jobs:
           && inputs.kitsu != 'true' && inputs.anidb != 'true'
           && inputs.one_call != 'true' && inputs.signals != 'true' && inputs.studios != 'true' && inputs.wikidata != 'true'
           && (inputs.fandom == '' || inputs.fandom == 'false')
-          && inputs.jikan != 'true'
+          && (inputs.jikan == '' || inputs.jikan == 'false')
         run: |
           python -m pipeline.probe_dub_coverage \
             --per-stratum "${{ inputs.per_stratum || '15' }}" \
