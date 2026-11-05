@@ -48,10 +48,14 @@ SELECT_MISSING_SQL = """
 # project has already paid for that twice - a dub column the filter read
 # and the picker did not, and a measurement selected but never served.
 # binary_quantize runs in the database, so the vector crosses the wire
-# once.
+# once. The ::vector cast is not decoration: binary_quantize is
+# overloaded on vector and halfvec, so an untyped parameter raises
+# "function binary_quantize(unknown) is not unique". register_vector
+# happens to type it here, and a cast means this does not depend on
+# that staying true.
 UPSERT_SQL = """
     INSERT INTO embeddings (media_id, embed_model, embedding, embedding_bits, updated_at)
-    VALUES (%s, %s, %s, binary_quantize(%s), now())
+    VALUES (%s, %s, %s, binary_quantize(%s::vector), now())
     ON CONFLICT (media_id, embed_model) DO UPDATE SET
         embedding = EXCLUDED.embedding,
         embedding_bits = EXCLUDED.embedding_bits,

@@ -117,7 +117,7 @@ def test_the_quantized_copy_is_written_by_the_same_statement_as_the_vector():
     from pipeline.embed import UPSERT_SQL
 
     assert "embedding_bits" in UPSERT_SQL
-    assert "binary_quantize(%s)" in UPSERT_SQL
+    assert "binary_quantize(%s::vector)" in UPSERT_SQL
     assert "embedding_bits = EXCLUDED.embedding_bits" in UPSERT_SQL
 
 
@@ -143,3 +143,42 @@ def test_no_ann_index_on_the_quantized_column():
     would reintroduce the approximation it is there to remove."""
     assert "hnsw ((embedding_bits" not in SCHEMA
     assert "bit_hamming_ops" not in SCHEMA
+
+
+def test_every_binary_quantize_call_has_an_unambiguous_argument():
+    """binary_quantize is overloaded on vector and halfvec, so an untyped
+    parameter fails with "function binary_quantize(unknown) is not
+    unique" - at runtime, on the query, not at import.
+
+    A column argument is already typed. A bound parameter is only typed
+    if register_vector ran on that connection, which is a property of
+    the caller rather than of the SQL, so the SQL casts for itself.
+    """
+    from pathlib import Path
+
+    def arguments(source: str) -> list[str]:
+        """Balanced-paren extraction. A regex stopping at the first ')'
+        reads binary_quantize(%(q)s::vector(768)) as "%(q)s" and passes a
+        call it should have judged - the nesting is the whole point."""
+        found = []
+        marker = "binary_quantize("
+        start = source.find(marker)
+        while start != -1:
+            depth, i = 1, start + len(marker)
+            while i < len(source) and depth:
+                depth += (source[i] == "(") - (source[i] == ")")
+                i += 1
+            found.append(source[start + len(marker) : i - 1])
+            start = source.find(marker, i)
+        return found
+
+    root = Path(__file__).resolve().parent.parent
+    checked = 0
+    for name in ("pipeline/embed.py", "pipeline/bench_describe.py", "pipeline/quantize.py"):
+        source = (root / name).read_text()
+        for call in arguments(source):
+            if "%" not in call:
+                continue  # a column reference carries its own type
+            checked += 1
+            assert "::vector" in call, f"{name}: untyped parameter in binary_quantize({call})"
+    assert checked, "expected at least one parameterised call to check"

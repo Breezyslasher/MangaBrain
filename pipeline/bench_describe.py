@@ -39,6 +39,7 @@ import statistics
 import time
 
 import psycopg
+from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 
 from api.config import settings
@@ -104,7 +105,7 @@ def binary_sql(dim: int, rerank: int) -> str:
             WHERE m.medium = ANY(%(mediums)s)
               AND length(e.embedding_bits) = {dim}
               AND coalesce(m.description_clean, '') <> ''
-            ORDER BY e.embedding_bits <~> binary_quantize(%(query_vec)s)
+            ORDER BY e.embedding_bits <~> binary_quantize(%(query_vec)s::vector({dim}))
             LIMIT {rerank}
         )
         SELECT c.media_id AS id
@@ -144,6 +145,11 @@ def main() -> None:
     args = parser.parse_args()
 
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        # Without this a sampled embedding comes back as text and goes
+        # back in untyped, which binary_quantize cannot resolve: it is
+        # overloaded on vector and halfvec. The casts below make the
+        # queries correct either way; this makes the values numpy again.
+        register_vector(conn)
         version = (conn.execute(VERSION_SQL).fetchone() or {}).get("extversion", "unknown")
         total = (conn.execute(COUNT_SQL, {"dim": args.dim}).fetchone() or {})["n"]
         print(f"pgvector {version}; {total} embedded anime at {args.dim} dimensions")
