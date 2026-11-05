@@ -152,3 +152,40 @@ def test_a_fused_row_reports_facet_coverage_rather_than_a_cosine():
     }
     assert "2/3 facets" in format_row(1, row)
     assert "0.77" not in format_row(1, row)
+
+
+def test_coverage_outranks_a_single_strong_facet():
+    """What "three things at once" has to mean.
+
+    Pure RRF gives a facet's first place 1/61 and a title found twice deep
+    in two pools 1/210 + 1/240, so the single-facet hit wins - which is how
+    a real three-facet run came back almost entirely "1/3 facets". Sorting
+    by coverage first is what makes fusion conjunctive.
+    """
+    from pipeline.describe import fuse
+
+    rankings = [[1] + list(range(100, 200)), list(range(300, 500)) + [250], [250, 999]]
+    scores = fuse(rankings)
+    hits = {i: sum(i in r for r in rankings) for i in scores}
+    ordered = sorted(scores, key=lambda i: (-hits[i], -scores[i], i))
+    assert hits[250] == 2
+    assert ordered[0] == 250, "a title two facets found must beat one facet's first place"
+
+
+def test_the_pool_is_deep_enough_for_facets_to_intersect():
+    """Overlap is the whole mechanism, and overlap needs depth: three
+    200-row pools over a 165k catalog essentially never intersect."""
+    from pipeline.describe import FACET_POOL
+
+    assert FACET_POOL >= 1000, "shallow pools make fusion an interleave, not an intersection"
+
+
+def test_the_pool_query_does_not_carry_synopses():
+    """Thousands of rows per facet, of which a handful are displayed."""
+    from pipeline.describe import build_rows_sql
+
+    pool_sql = build_sql(768, "")
+    assert "description_clean" not in pool_sql.split("FROM")[0], (
+        "the pool query should select ids and distance, not synopses"
+    )
+    assert "description_clean" in build_rows_sql()

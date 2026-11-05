@@ -55,9 +55,15 @@ EF_SEARCH = 500
 # of them, which is the entire point of fusing.
 RRF_K = 60
 
-# How deep each facet's ranking goes before fusion. Deeper costs one ANN
-# scan per facet either way; this bounds the rows carried in memory.
-FACET_POOL = 200
+# How deep each facet's ranking goes before fusion.
+#
+# 200 was far too shallow and the first real run showed it: over a 165k
+# catalog, three 200-row pools almost never intersect, so every result
+# came back "1/3 facets" and fusion was just interleaving three unrelated
+# lists. Overlap is the entire mechanism, and overlap needs depth. The
+# pool query carries ids only, so this costs a deeper index scan rather
+# than 6000 synopses in memory.
+FACET_POOL = 2000
 
 
 def split_facets(text: str) -> list[str]:
@@ -81,6 +87,22 @@ def fuse(rankings: list[list[int]]) -> dict[int, float]:
     return scores
 
 
+def build_rows_sql() -> str:
+    """Full rows for a handful of ids, once the ranking is decided.
+
+    Separate from the pool query because the pool is now thousands of rows
+    per facet and all it needs is their ids: pulling every synopsis through
+    only to discard 99% of them is the same waste the recommender makes
+    with its 500-row candidate fetch.
+    """
+    return """
+        SELECT m.id, m.title_romaji, m.title_english, m.medium, m.format,
+               m.start_year, m.average_score, m.description_clean
+        FROM media m
+        WHERE m.id = ANY(%(ids)s)
+    """
+
+
 def build_sql(dim: int, filter_sql: str, require_synopsis: bool = True) -> str:
     """The ranking query.
 
@@ -100,8 +122,7 @@ def build_sql(dim: int, filter_sql: str, require_synopsis: bool = True) -> str:
         " AND coalesce(m.description_clean, '') <> ''"
     )
     return f"""
-        SELECT m.id, m.title_romaji, m.title_english, m.medium, m.format,
-               m.start_year, m.average_score, m.description_clean,
+        SELECT m.id,
                1 - (e.embedding <=> %(query_vec)s) AS similarity
         FROM media m
         JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
@@ -152,17 +173,25 @@ def describe(
     rank - more expensive, and the only way a facet the catalog barely
     covers survives next to one it covers thousands of times over.
     """
+    from api.db import hnsw_supports_iterative_scan
+
     facets = split_facets(text)
     vectors = encode(facets)
     filter_sql, filter_params = build_filters(adult=adult)
     sql = build_sql(int(vectors[0].shape[0]), filter_sql, require_synopsis)
     mediums = MEDIUM_GROUPS[medium] if medium else ALL_MEDIUMS
+    pool = limit if len(facets) == 1 else FACET_POOL
 
     rankings: list[list[int]] = []
-    rows_by_id: dict[int, dict] = {}
+    best_similarity: dict[int, float] = {}
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
         register_vector(conn)
-        conn.execute("SELECT set_config(%s, %s, true)", ("hnsw.ef_search", str(EF_SEARCH)))
+        ef_search = min(max(pool, 40), 1000)
+        conn.execute("SELECT set_config(%s, %s, true)", ("hnsw.ef_search", str(ef_search)))
+        if hnsw_supports_iterative_scan(conn):
+            # Without this the scan stops at ef_search rows, which is fewer
+            # than a deep facet pool asks for.
+            conn.execute("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)")
         for vector in vectors:
             rows = conn.execute(
                 sql,
@@ -170,27 +199,42 @@ def describe(
                     "query_vec": vector,
                     "model": embed_model_id(),
                     "mediums": mediums,
-                    "limit": limit if len(facets) == 1 else FACET_POOL,
+                    "limit": pool,
                     **filter_params,
                 },
             ).fetchall()
             rankings.append([row["id"] for row in rows])
             for row in rows:
-                # Keep the best cosine any facet gave a title, for display
-                # only: the ordering below is by fused rank, not by this.
-                previous = rows_by_id.get(row["id"])
-                if previous is None or row["similarity"] > previous["similarity"]:
-                    rows_by_id[row["id"]] = row
+                previous = best_similarity.get(row["id"])
+                if previous is None or row["similarity"] > previous:
+                    best_similarity[row["id"]] = row["similarity"]
 
-    if len(facets) == 1:
-        return [{**rows_by_id[i], "facets_hit": 1, "facet_count": 1} for i in rankings[0]]
+        if len(facets) == 1:
+            ordered = rankings[0][:limit]
+            scores: dict[int, float] = {}
+            hits = dict.fromkeys(ordered, 1)
+        else:
+            scores = fuse(rankings)
+            hits = {media_id: sum(media_id in r for r in rankings) for media_id in scores}
+            # Coverage first, fused rank second. Pure RRF lets one facet's
+            # first place (1/61) outscore a title found by two facets deep
+            # in their pools (1/210 + 1/240), which is the opposite of what
+            # someone asking for three things at once means.
+            ordered = sorted(scores, key=lambda i: (-hits[i], -scores[i], i))[:limit]
 
-    scores = fuse(rankings)
-    hits = {media_id: sum(media_id in r for r in rankings) for media_id in scores}
-    ordered = sorted(scores, key=lambda i: (-scores[i], -hits[i], i))[:limit]
+        display = conn.execute(build_rows_sql(), {"ids": ordered}).fetchall()
+
+    by_id = {row["id"]: row for row in display}
     return [
-        {**rows_by_id[i], "rrf": scores[i], "facets_hit": hits[i], "facet_count": len(facets)}
+        {
+            **by_id[i],
+            "similarity": best_similarity.get(i),
+            "rrf": scores.get(i),
+            "facets_hit": hits[i],
+            "facet_count": len(facets),
+        }
         for i in ordered
+        if i in by_id
     ]
 
 
