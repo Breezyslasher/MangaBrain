@@ -161,6 +161,14 @@ def build_filters(
         # and a list cached before the switch is not re-fetched just because
         # the integration changed underneath it.
         #
+        # The official vocabulary in full, so the next reader does not have
+        # to guess at the spelling of a value this clause matches exactly:
+        # completed, watching, reading, plan_to_watch, plan_to_read,
+        # on_hold, dropped. Only the two plan_ values mean not-started.
+        # Confirmed against a working client (Yamtrack's importer) rather
+        # than recalled - a wrong spelling here fails silently, since MAL
+        # answers 200 to anything it does not recognise.
+        #
         # Unknown status stays excluded: both syncs coerce a missing status
         # to "", which matches neither planned value.
         planned_guard = (

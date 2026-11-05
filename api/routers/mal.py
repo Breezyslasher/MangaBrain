@@ -30,9 +30,20 @@ Two differences from the Jikan shape that are easy to miss:
     number. The old loop sent ?page=N, which was not in Jikan's spec for
     these endpoints either and never paged anything.
 
-Dub data is NOT here. The official API has no characters or voice-actor
-resource at all; that lives on Jikan's /anime/{id}/characters, which is a
-different service and is not deprecated.
+Dub data is NOT here. Measured, not assumed: fields=characters,
+characters{voice_actors}, voice_actors and cast all return HTTP 200 with
+the default payload and no such key, for an anime that certainly has a
+cast. Dub data lives on Jikan's /anime/{id}/characters, a different
+service, and that one is not deprecated.
+
+That measurement also exposed the trap this module has to guard against.
+MAL does not reject an unknown field name - it ignores it and returns 200,
+exactly as FastAPI ignores an unknown query parameter. So a typo in
+LIST_PARAMS would not fail: it would return every list entry with no
+list_status, and the sync would cheerfully store a complete list in which
+every title has an empty status and no score. keep_planned would stop
+working and For-you's rating weights would go flat, with nothing in the
+logs. _fetch_list therefore checks that the field actually came back.
 """
 
 import httpx
@@ -88,6 +99,7 @@ def _fetch_list(
     unrated as NULL so those entries keep a neutral For-you sampling weight.
     """
     entries: dict[int, tuple[str, int | None]] = {}
+    with_status = 0
     url: str | None = f"{MAL_BASE}/users/{username}/{list_type}list"
     params: dict | None = dict(LIST_PARAMS)
     while url:
@@ -118,11 +130,27 @@ def _fetch_list(
             raw_score = (item.get("list_status") or {}).get("score")
             score = int(raw_score) * 10 if isinstance(raw_score, (int, float)) else 0
             entries[int(mal_id)] = (str(status), score if score else None)
+            if status:
+                with_status += 1
 
         # paging.next is an absolute URL with the offset already in it, so
         # re-sending params would fight with it.
         url = (data.get("paging") or {}).get("next")
         params = None
+
+    if entries and not with_status:
+        # Every entry on a MAL list has a status, so a list that is full of
+        # titles and empty of statuses means list_status did not come back -
+        # and MAL answers 200 to an unknown field rather than rejecting it.
+        # Storing this would look like a successful sync and silently break
+        # keep_planned and the For-you rating weights.
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"MAL returned {len(entries)} {list_type} entries with no list_status."
+                " The requested fields were ignored; the cached list is unchanged."
+            ),
+        )
     return entries
 
 
