@@ -21,6 +21,7 @@ import com.mangabrain.app.data.ServiceLocator
 import com.mangabrain.app.data.api.MangaBrainApi
 import com.mangabrain.app.data.api.MediaOut
 import com.mangabrain.app.data.api.RecommendResponse
+import com.mangabrain.app.data.api.httpMessage
 import com.mangabrain.app.ui.GridAdapter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -52,6 +53,17 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
     private lateinit var grid: GridAdapter
     private lateinit var header: DiscoverHeaderAdapter
     private var searchJob: Job? = null
+
+    /**
+     * The seeds currently on screen, so a re-rank does not move the list.
+     *
+     * Same rule as the web client: tapping a title, a Surprise me or a
+     * fresh For-you draw is a new page and starts at the top, while moving
+     * a slider re-ranks the same seeds and must leave the reader where
+     * they were. Without the first half, opening a title from halfway down
+     * the grid left the new seed card scrolled off the top of the screen.
+     */
+    private var shownSeedIds: String? = null
 
     /** What is on screen, so a filter change knows what to re-run. */
     private sealed interface Mode {
@@ -181,6 +193,9 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
             grid.submit(response.results.map { GridAdapter.Row(it) })
             // No seed in browse mode: the header carries only the count.
             header.show(null, emptyList(), response.results.size)
+            // A new result set is a new page, whatever produced it.
+            shownSeedIds = null
+            scrollToTop()
             status(if (response.results.isEmpty()) getString(R.string.no_matches) else null)
         }
     }
@@ -229,6 +244,9 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
                 val params = FilterState.recommendParams().toMutableMap()
                 params["medium"] = FilterState.medium
                 params["seeds"] = ForYouPrefs.seeds.toString()
+                // The Mix tab's switch used to set a field nobody sent, so
+                // turning rating weighting off changed nothing.
+                params["use_ratings"] = ForYouPrefs.useRatings.toString()
                 if (FilterState.excludeAnilist && FilterState.anilistUser.isNotBlank()) {
                     params["anilist_user"] = FilterState.anilistUser
                 }
@@ -279,6 +297,22 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         header.show(data.seed, data.related, data.results.size)
         grid.submit(data.results.map { GridAdapter.Row(it.media, it.similarity) })
         status(if (data.results.isEmpty()) getString(R.string.no_recommendations) else null)
+
+        val seeds = data.seeds.ifEmpty { listOf(data.seed) }
+        val ids = seeds.joinToString(",") { it.id.toString() }
+        if (ids != shownSeedIds) {
+            shownSeedIds = ids
+            scrollToTop()
+        }
+    }
+
+    /**
+     * Jump, not smooth-scroll: the distance can be the whole grid, and an
+     * animated trip past sixty posters is slower than the request that
+     * produced them.
+     */
+    private fun scrollToTop() {
+        view?.findViewById<RecyclerView>(R.id.resultsGrid)?.scrollToPosition(0)
     }
 
     private fun status(message: String?) {
@@ -295,7 +329,7 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
             clear()
             status(
                 if (e.code() == 401) getString(R.string.error_token)
-                else getString(R.string.error_http, e.code())
+                else httpMessage(requireContext(), e)
             )
         } catch (e: Exception) {
             clear()
@@ -306,6 +340,7 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
     private fun clear() {
         grid.submit(emptyList())
         header.show(null, emptyList(), 0)
+        shownSeedIds = null
     }
 }
 

@@ -108,9 +108,13 @@ FILTER_STATE = ROOT / "android/app/src/main/java/com/mangabrain/app/data/FilterS
 
 
 def server_params(path: str) -> set[str]:
+    return {p["name"] for p in schema_parameters(path)}
+
+
+def schema_parameters(path: str) -> list[dict]:
     from api.main import app
 
-    return {p["name"] for p in app.openapi()["paths"][path]["get"].get("parameters", [])}
+    return app.openapi()["paths"][path]["get"].get("parameters", [])
 
 
 @pytest.mark.parametrize("method,path", sorted(ENDPOINTS.items()))
@@ -293,3 +297,193 @@ def test_tapping_a_facet_requires_it_the_way_the_web_chip_does():
     assert "FilterState.genreState" in source and "FilterState.tagState" in source
     assert 'state[name] = "inc"' in source, "a chip tap must require, not exclude"
     assert "rerun()" in source, "requiring a facet must re-rank"
+
+
+def test_the_app_shows_the_servers_own_explanation():
+    """A status code alone is not actionable; this API's detail text is.
+
+    409 is the clearest case: it means either "this seed has no embedding
+    yet, run pipeline.embed" or "seeds span two embedding versions, a
+    re-embed is in progress". Same code, different fix, and the phone used
+    to show only "Server returned HTTP 409."
+    """
+    errors = ROOT / "android/app/src/main/java/com/mangabrain/app/data/api/ApiErrors.kt"
+    assert errors.exists(), "ApiErrors.kt is missing"
+    kotlin = errors.read_text()
+    assert "JSONObject" in kotlin, "the detail must be parsed, not regexed"
+    assert "error_http_detail" in kotlin
+
+    strings = (ROOT / "android/app/src/main/res/values/strings.xml").read_text()
+    assert 'name="error_http_detail"' in strings
+
+    # Every screen that reports an HTTP failure has to use it, or one of
+    # them silently drops the explanation - which is how this was missed.
+    screens = [
+        "ui/discover/DiscoverFragment.kt",
+        "ui/lists/ListsFragment.kt",
+        "ui/SettingsActivity.kt",
+    ]
+    for screen in screens:
+        source = (ROOT / "android/app/src/main/java/com/mangabrain/app" / screen).read_text()
+        assert "httpMessage(" in source, f"{screen} does not show the server's detail"
+
+
+def test_every_api_error_carries_a_detail():
+    """The client's fallback is the bare code, so a detail-less raise is a
+    dead end on the phone. FastAPI allows HTTPException without one."""
+    offenders = []
+    for path in sorted((ROOT / "api").rglob("*.py")):
+        source = path.read_text()
+        for match in re.finditer(r"HTTPException\((.*?)\)", source, re.DOTALL):
+            if "detail" not in match.group(1):
+                offenders.append(f"{path.relative_to(ROOT)}: {match.group(1).strip()[:60]}")
+    assert offenders == [], f"HTTPException raised without a detail: {offenders}"
+
+
+def test_the_weight_defaults_agree_across_both_clients_and_the_server():
+    """50 / 30 / 20 / 0 in three places, or the same request means two things.
+
+    A slider default is not cosmetic: it is the weighting a reader gets
+    before touching anything, so a client that starts at different numbers
+    ranks the same catalog differently and neither screen says why.
+    """
+    kotlin = FILTER_STATE.read_text()
+    markup = (ROOT / "web/index.html").read_text()
+
+    for name, slider in (
+        ("SEMANTIC", "wSemantic"),
+        ("TAGS", "wTags"),
+        ("GENRES", "wGenres"),
+        ("TASTE", "wTaste"),
+    ):
+        android = re.search(rf"DEFAULT_W_{name} = (\d+)", kotlin)
+        web = re.search(rf'id="{slider}"[^>]*value="(\d+)"', markup)
+        assert android, f"FilterState has no DEFAULT_W_{name}"
+        assert web, f"web/index.html has no default for {slider}"
+        assert android.group(1) == web.group(1), (
+            f"{slider} default differs: Android {android.group(1)}, web {web.group(1)}"
+        )
+
+    # The server's own defaults are the same numbers as fractions, so an
+    # unweighted request from curl ranks like an untouched slider.
+    params = {p["name"]: p for p in schema_parameters("/recommend/{media_id}")}
+    for key, expected in (
+        ("w_semantic", 0.5),
+        ("w_tags", 0.3),
+        ("w_genres", 0.2),
+        ("w_taste", 0.0),
+    ):
+        assert params[key]["schema"].get("default") == expected, (
+            f"server default for {key} is not {expected}"
+        )
+
+
+def test_reset_restores_the_weights():
+    """Reset that leaves the weights is a button you cannot undo with.
+
+    The sliders persist across restarts on Android - the web client reloads
+    them from the markup every page load, which it gets for free - so
+    without this there is no way back to 50/30/20 but dragging by eye.
+    """
+    source = FILTER_STATE.read_text()
+    reset = source[source.index("fun reset()") :]
+    reset = reset[: reset.index("\n    }")]
+    for name in ("DEFAULT_W_SEMANTIC", "DEFAULT_W_TAGS", "DEFAULT_W_GENRES", "DEFAULT_W_TASTE"):
+        assert name in reset, f"reset() does not restore {name}"
+
+
+# The endpoints that receive FilterState.recommendParams(). The union check
+# above cannot catch a parameter that one of them is missing, which is how
+# /foryou came to ignore w_taste and cross_media from both clients.
+RECOMMEND_PARAM_ENDPOINTS = ["/recommend/{media_id}", "/recommend", "/foryou"]
+
+
+def kotlin_function_body(source: str, signature: str) -> str:
+    """Source from a declaration to the next one.
+
+    Not "up to the next closing brace": recommendParams is an expression
+    body with no brace of its own, so that rule reads on into the function
+    after it. The first version of this helper did, and reported `medium`
+    (from searchParams) as a parameter /recommend ignores.
+    """
+    start = source.index(signature)
+    rest = source[start + len(signature) :]
+    end = rest.index("\n    fun ") if "\n    fun " in rest else len(rest)
+    return rest[:end]
+
+
+def recommend_param_keys() -> set[str]:
+    """Every key the map sent to those endpoints can carry."""
+    source = FILTER_STATE.read_text()
+    keys: set[str] = set()
+    for signature in ("fun filterParams()", "fun weightParams()", "fun recommendParams("):
+        block = kotlin_function_body(source, signature)
+        keys |= set(re.findall(r'"([a-z_]+)" to ', block))
+        keys |= set(re.findall(r'params\["([a-z_]+)"\]', block))
+    return keys
+
+
+@pytest.mark.parametrize("path", RECOMMEND_PARAM_ENDPOINTS)
+def test_every_endpoint_that_takes_the_weights_accepts_all_of_them(path):
+    """One map goes to three endpoints, so all three must read all of it.
+
+    FastAPI ignores an unknown query parameter in silence, so an endpoint
+    missing one does not fail: the control just stops working on that
+    screen with nothing to see. /foryou declared no w_taste and no
+    cross_media while both clients sent them, which is exactly that.
+    """
+    missing = sorted(recommend_param_keys() - server_params(path))
+    assert missing == [], f"{path} ignores parameters the client sends: {missing}"
+
+
+def test_the_for_you_feed_sends_the_ratings_switch():
+    """A switch that sets a field nobody transmits is a decoration.
+
+    The Mix tab toggles ForYouPrefs.useRatings and /foryou reads
+    use_ratings, but the request never carried it, so turning rating
+    weighting off left the feed rating-weighted.
+    """
+    source = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
+    ).read_text()
+    assert 'params["use_ratings"]' in source, "the for-you request omits use_ratings"
+    assert "use_ratings" in server_params("/foryou")
+
+
+def test_rebuilding_the_filter_panel_does_not_stack_text_watchers():
+    """Reset rebuilds the panel by calling onViewCreated on the same views.
+
+    addTextChangedListener adds rather than replaces, so without removing
+    the previous one first, every Reset left another watcher on all five
+    fields - each firing on every keystroke for the life of the fragment.
+    """
+    source = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/filters/FiltersFragment.kt"
+    ).read_text()
+    assert "removeTextChangedListener" in source, (
+        "bindTextFields adds a watcher without removing the previous one"
+    )
+
+
+def test_opening_a_title_starts_at_the_top_but_a_re_rank_does_not():
+    """Both clients make the same distinction, for the same reason.
+
+    Tapping a result replaces the whole page, so leaving the list where it
+    was hid the new seed card above the fold. Moving a weight slider
+    re-ranks the same seeds, and scrolling then would throw the reader out
+    of the list they were reading. The web client compares the seed ids
+    before scrolling; the Android one has to as well.
+    """
+    source = (
+        ROOT / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
+    ).read_text()
+    javascript = (ROOT / "web/app.js").read_text()
+
+    assert "scrollToPosition(0)" in source, "the grid never returns to the top"
+    assert "shownSeedIds" in source and "shownSeedIds" in javascript, (
+        "both clients track the seeds on screen to decide whether to scroll"
+    )
+    # The scroll must be guarded by that comparison, not unconditional.
+    render = source[source.index("private fun render("):]
+    render = render[: render.index("\n    /**")]
+    assert "if (ids != shownSeedIds)" in render, "a re-rank must not move the list"

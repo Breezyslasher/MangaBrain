@@ -26,11 +26,20 @@ object FilterState {
 
     var medium: String = "anime"
 
-    // Weights, 0..100 as the sliders show them.
-    var wSemantic: Int = 50
-    var wTags: Int = 30
-    var wGenres: Int = 20
-    var wTaste: Int = 0
+    const val DEFAULT_W_SEMANTIC = 50
+    const val DEFAULT_W_TAGS = 30
+    const val DEFAULT_W_GENRES = 20
+    const val DEFAULT_W_TASTE = 0
+
+    // Weights, 0..100 as the sliders show them. The defaults are the web
+    // client's slider values, which are in turn the API's own defaults
+    // (0.5 / 0.3 / 0.2), so all three agree on what an unweighted request
+    // means. Declared once because load() and reset() both need them, and
+    // the point of a default is that there is only one.
+    var wSemantic: Int = DEFAULT_W_SEMANTIC
+    var wTags: Int = DEFAULT_W_TAGS
+    var wGenres: Int = DEFAULT_W_GENRES
+    var wTaste: Int = DEFAULT_W_TASTE
 
     var yearMin: String = ""
     var yearMax: String = ""
@@ -167,10 +176,10 @@ object FilterState {
     fun load(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         medium = prefs.getString("medium", "anime") ?: "anime"
-        wSemantic = prefs.getInt("w_semantic", 50)
-        wTags = prefs.getInt("w_tags", 30)
-        wGenres = prefs.getInt("w_genres", 20)
-        wTaste = prefs.getInt("w_taste", 0)
+        wSemantic = prefs.getInt("w_semantic", DEFAULT_W_SEMANTIC)
+        wTags = prefs.getInt("w_tags", DEFAULT_W_TAGS)
+        wGenres = prefs.getInt("w_genres", DEFAULT_W_GENRES)
+        wTaste = prefs.getInt("w_taste", DEFAULT_W_TASTE)
         adult = prefs.getBoolean("adult", false)
         crossMedia = prefs.getBoolean("cross_media", false)
         excludeFranchise = prefs.getBoolean("exclude_franchise", true)
@@ -199,7 +208,18 @@ object FilterState {
             .apply()
     }
 
+    /**
+     * Reset restores the weights too.
+     *
+     * It used to clear only the filters, which left a reader who had dragged
+     * Synopsis to 0 with no way back to 50/30/20 except by eye - the one
+     * state the button exists to escape.
+     */
     fun reset() {
+        wSemantic = DEFAULT_W_SEMANTIC
+        wTags = DEFAULT_W_TAGS
+        wGenres = DEFAULT_W_GENRES
+        wTaste = DEFAULT_W_TASTE
         yearMin = ""; yearMax = ""; minScore = ""; minLen = ""; maxLen = ""
         format = ""; country = ""; status = ""; maxPopularity = ""; dubLang = ""
         adult = false; crossMedia = false; excludeFranchise = true
