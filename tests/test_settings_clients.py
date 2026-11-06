@@ -19,7 +19,7 @@ DISCOVER = (ANDROID / "ui/discover/DiscoverFragment.kt").read_text()
 
 
 def web_tabs() -> dict[str, str]:
-    return dict(re.findall(r'<button data-medium="(\w+)"[^>]*>([^<]+)</button>', WEB_HTML))
+    return dict(re.findall(r'<option data-medium="(\w+)"[^>]*>([^<]+)</option>', WEB_HTML))
 
 
 def android_tabs() -> dict[str, str]:
@@ -50,7 +50,8 @@ def test_both_clients_ask_before_a_download():
 
 
 def test_both_clients_hide_tabs_the_selection_leaves_out():
-    assert "button.hidden = !media.includes(button.dataset.medium)" in WEB_JS
+    assert "const off = !media.includes(option.dataset.medium);" in WEB_JS
+    assert "option.hidden = off;" in WEB_JS
     assert "FilterState.visibleMedia()" in DISCOVER
     assert "enabledMedia = settings.enabled_media.orEmpty()" in FILTER_STATE
 

@@ -13,15 +13,17 @@
 <body>
   <header>
     <div class="brand">MangaBrain</div>
-    <nav id="tabs">
-      <button data-medium="anime" class="active">Anime</button>
-      <button data-medium="manga">Manga</button>
-      <button data-medium="light_novel">Light Novels</button>
-      <button data-medium="one_shot">One-Shots</button>
-      <button data-medium="book">Books</button>
-      <button data-medium="movie">Movies</button>
-      <button data-medium="tv">TV Shows</button>
-    </nav>
+    <!-- A dropdown, not a row of tabs: seven media no longer fit a row on a
+         phone, and the last ones scrolled off where nobody saw them. -->
+    <select id="tabs" aria-label="Medium">
+      <option data-medium="anime" value="anime" selected>Anime</option>
+      <option data-medium="manga" value="manga">Manga</option>
+      <option data-medium="light_novel" value="light_novel">Light Novels</option>
+      <option data-medium="one_shot" value="one_shot">One-Shots</option>
+      <option data-medium="book" value="book">Books</option>
+      <option data-medium="movie" value="movie">Movies</option>
+      <option data-medium="tv" value="tv">TV Shows</option>
+    </select>
     <button id="settingsBtn" class="secondary header-settings" type="button">Settings</button>
   </header>
 

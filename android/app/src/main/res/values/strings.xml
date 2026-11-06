@@ -212,4 +212,5 @@
     <string name="section_lists">Lists</string>
     <string name="section_planned">Planned titles</string>
     <string name="cd_filters">Filters</string>
+    <string name="cd_medium">Medium</string>
 </resources>

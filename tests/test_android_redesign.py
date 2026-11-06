@@ -218,3 +218,16 @@ def test_every_android_resource_is_well_formed_xml():
 
     for path in sorted((ROOT / "res").rglob("*.xml")):
         xml.dom.minidom.parse(str(path))
+
+
+def test_the_medium_is_a_dropdown_on_both_clients():
+    """Seven media no longer fit a row of chips on a phone; the last ones
+    scrolled off where nobody saw them."""
+    discover = (JAVA / "ui/discover/DiscoverFragment.kt").read_text()
+    layout = (ROOT / "res/layout/fragment_discover.xml").read_text()
+    assert 'android:id="@+id/mediumSpinner"' in layout and "mediumChips" not in layout
+    assert "fun buildMediumSpinner(spinner: Spinner)" in discover
+    assert "if (key == FilterState.medium) return" in discover, "a rebuild must not rerun"
+    web = ROOT.parents[3] / "web"
+    assert '<select id="tabs"' in (web / "index.html").read_text()
+    assert '$("tabs").addEventListener("change"' in (web / "app.js").read_text()

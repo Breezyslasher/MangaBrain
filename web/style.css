@@ -32,19 +32,16 @@ header {
 
 .brand { font-size: 1.25rem; font-weight: 700; color: var(--accent); }
 
-#tabs { display: flex; gap: 0.25rem; }
-
-#tabs button {
-  background: none;
-  border: none;
-  color: var(--muted);
-  padding: 0.5rem 0.9rem;
-  font-size: 0.95rem;
+#tabs {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 2rem 0.5rem 0.9rem;
+  font-size: 1rem;
+  min-height: 2.75rem;
   cursor: pointer;
-  border-radius: 6px;
 }
-
-#tabs button.active { color: var(--text); background: var(--card); }
 
 main {
   display: grid;
@@ -365,5 +362,5 @@ button:hover { filter: brightness(1.1); }
 
 @media (max-width: 600px) {
   header { flex-wrap: wrap; gap: 0.5rem; }
-  #tabs { overflow-x: auto; max-width: 100%; }
+  #tabs { flex: 1; font-size: 16px; }
 }
