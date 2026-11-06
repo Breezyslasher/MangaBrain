@@ -902,6 +902,12 @@ function installText(dataset) {
   if (install && install.state === "running") {
     if (install.phase === "downloading" && install.total)
       return `Downloading ${formatGB(install.bytes)} of ${formatGB(install.total)}`;
+    // TV and films: titles read so far (as "bytes"), against "total" when
+    // the source knows it - TMDB does, TVmaze's index does not.
+    if (install.phase === "fetching")
+      return install.total
+        ? `Fetching ${(install.bytes || 0).toLocaleString()} of ${install.total.toLocaleString()} titles`
+        : `Fetching: ${(install.bytes || 0).toLocaleString()} titles read`;
     if (install.phase === "merging") return "Merging into the catalogue";
     if (install.phase === "indexing") return "Building the search index";
     return "Starting";
@@ -957,7 +963,7 @@ async function renderMediaSettings() {
     if (
       install &&
       install.state === "running" &&
-      install.phase === "downloading" &&
+      (install.phase === "downloading" || install.phase === "fetching") &&
       install.total
     ) {
       const bar = document.createElement("progress");

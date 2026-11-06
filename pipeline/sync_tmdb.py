@@ -436,6 +436,10 @@ def full(
         plans.append((kind, version, [i for i in ids if i > after]))
     total = sum(len(todo) for _, _, todo in plans)
     done = 0
+    # Said at once, so the settings page shows the size of the job rather
+    # than "Starting" until the first 400 titles are in.
+    if progress is not None:
+        progress({"phase": "fetching", "bytes": 0, "total": total})
     started = time.monotonic()
     for kind, version, todo in plans:
         key = STATE_FULL.format(kind=kind)

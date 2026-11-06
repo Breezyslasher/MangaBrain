@@ -97,6 +97,8 @@
     <string name="media_starting">Starting</string>
     <string name="media_downloading">Downloading %1$s of %2$s</string>
     <string name="media_merging">Merging into the catalogue</string>
+    <string name="media_fetching">Fetching: %1$s titles read</string>
+    <string name="media_fetching_of">Fetching %1$s of %2$s titles</string>
     <string name="media_indexing">Building the search index</string>
     <string name="media_titles">%1$s titles</string>
     <string name="media_installed">%1$s installed, %2$s with embeddings</string>
@@ -157,6 +159,7 @@
     <string name="unweighted">unweighted</string>
     <string name="summary_tabs">%1$d tabs</string>
     <string name="summary_downloading">%1$s downloading %2$d%%</string>
+    <string name="summary_fetching">%1$s fetching %2$d%%</string>
     <string name="summary_queued">%1$s queued</string>
     <string name="summary_waiting">%1$s waiting</string>
     <string name="summary_installing">%1$s installing</string>

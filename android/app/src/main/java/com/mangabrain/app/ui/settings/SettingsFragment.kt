@@ -318,6 +318,8 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         val detail = when {
             install.state == "running" && install.phase == "downloading" && total > 0 ->
                 getString(R.string.summary_downloading, busy.label, ((install.bytes ?: 0L) * 100 / total).toInt())
+            install.state == "running" && install.phase == "fetching" && total > 0 ->
+                getString(R.string.summary_fetching, busy.label, ((install.bytes ?: 0L) * 100 / total).toInt())
             install.state == "running" -> getString(R.string.summary_installing, busy.label)
             install.state == "queued" -> getString(R.string.summary_queued, busy.label)
             else -> getString(R.string.summary_waiting, busy.label)
@@ -976,7 +978,11 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 setPadding(0, dp(3), 0, 0)
             })
             val total = install?.total ?: 0L
-            if (install != null && install.state == "running" && install.phase == "downloading" && total > 0) {
+            // Downloads (books) and fetches (TV, films) both report a
+            // count against a total; a fetch with no total (TVmaze, whose
+            // index length is unknown until the end) gets text, no bar.
+            if (install != null && install.state == "running" &&
+                install.phase in setOf("downloading", "fetching") && total > 0) {
                 val done = install.bytes ?: 0L
                 head.addView(ProgressBar(requireContext(), null, android.R.attr.progressBarStyleHorizontal).apply {
                     progressDrawable = ContextCompat.getDrawable(context, R.drawable.progress_install)
@@ -1027,6 +1033,13 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                     "downloading" -> if (total > 0) {
                         getString(R.string.media_downloading, gb(install.bytes ?: 0L), gb(total))
                     } else getString(R.string.media_starting)
+                    // TV and films: titles read from the source so far, as
+                    // "bytes", against "total" when the source knows it.
+                    "fetching" -> if (total > 0) {
+                        getString(R.string.media_fetching_of, count.format(install.bytes ?: 0L), count.format(total))
+                    } else {
+                        getString(R.string.media_fetching, count.format(install.bytes ?: 0L))
+                    }
                     "merging" -> getString(R.string.media_merging)
                     "indexing" -> getString(R.string.media_indexing)
                     else -> getString(R.string.media_starting)
