@@ -33,6 +33,13 @@ class Dataset:
     # False for a dataset the worker maintains on its own and that cannot
     # be absent - AniList is synced every night whatever is selected.
     installable: bool
+    # Counted as present even with no rows: the worker fills it by itself,
+    # every night, whether or not anyone asked. AniList is; its tabs must
+    # show from a fresh install's first page, before the first sync lands.
+    # Kept apart from installable, which only says a reader may ask for it -
+    # the two were one flag until the anime dataset became reloadable, and
+    # a fresh install then showed no tabs at all.
+    always_present: bool = False
     # What asking for the install again does, as the settings page labels
     # it. Books load a published release; TV and films have none and are
     # fetched from their source, so "the newest release" would be wrong.
@@ -55,6 +62,7 @@ DATASETS: tuple[Dataset, ...] = (
         # over a live install without touching books, TV or films. The
         # worker still syncs AniList nightly whatever is selected.
         installable=True,
+        always_present=True,
         update_label="Reload from the newest release",
     ),
     Dataset(

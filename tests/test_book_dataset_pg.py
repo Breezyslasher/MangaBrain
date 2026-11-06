@@ -444,7 +444,11 @@ def test_the_datasets_listing_reports_what_is_present(settings_db, monkeypatch):
     seed_books(url, [{"key": "/works/OL1W", "title": "Dune"}], {"/works/OL1W": vec(0.1)}, "x")
     ds_router.forget_counts()
     out = {d.key: d for d in (ds_router.to_out(conn, d) for d in ds_router.DATASETS)}
-    assert out["anilist"].installed and not out["anilist"].installable
+    # Present with no rows at all (the worker fills it by itself, and a
+    # fresh install must show its tabs), and installable since the anime
+    # dataset became reloadable from its merge-format release.
+    assert out["anilist"].installed and out["anilist"].items == 0
+    assert out["anilist"].installable
     assert out["books"].installed and out["books"].items == 1
     assert out["books"].release_available is True
 
