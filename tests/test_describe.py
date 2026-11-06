@@ -133,9 +133,18 @@ def test_a_lone_first_place_cannot_beat_being_in_every_facet():
 def test_title_only_rows_are_excluded_by_default():
     """They are embedded from their own name, so they match a description
     by coincidence of wording: 'Liar' and 'Ghost Writer' both surfaced for
-    'unreliable narrator' knowing nothing about their content."""
-    assert "coalesce(m.description_clean, '') <> ''" in build_sql(768, "")
-    assert "description_clean, '') <> ''" not in build_sql(768, "", require_synopsis=False)
+    'unreliable narrator' knowing nothing about their content.
+
+    The test is now a length rather than a presence. A row with no
+    description is still excluded - that is the original case - and so
+    is one whose whole description is a tagline, which says as little
+    and competes with titles that say a great deal.
+    """
+    from pipeline.describe import MIN_SEARCHABLE_SYNOPSIS
+
+    guarded = build_sql(768, "")
+    assert f"length(coalesce(m.description_clean, '')) >= {MIN_SEARCHABLE_SYNOPSIS}" in guarded
+    assert "description_clean" not in build_sql(768, "", require_synopsis=False)
 
 
 def test_a_fused_row_reports_facet_coverage_rather_than_a_cosine():
@@ -298,3 +307,31 @@ def test_the_benchmark_calls_rank_rather_than_reimplementing_it():
     source = (Path(__file__).resolve().parent.parent / "pipeline/bench_describe.py").read_text()
     assert "describe_module.rank(" in source
     assert "RRF_K" not in source, "fusion belongs to pipeline.describe, not to its benchmark"
+
+
+def test_description_search_requires_text_not_merely_a_field():
+    """Presence was the wrong test in both directions.
+
+    pipeline.embed composes a row as genres, then ranked tags, then the
+    description, and falls back to the title ONLY when there is no
+    description at all. So a title with eight tags and ninety
+    characters of blurb has a real vector - excluding it from the
+    catalogue on length would drop good books for a failure they do not
+    have. But a forty-character blurb says almost nothing, and in a
+    free-text search it competes with titles that say a great deal.
+    """
+    from pipeline.describe import MIN_SEARCHABLE_SYNOPSIS, build_sql
+
+    sql = build_sql(768, "", True)
+    assert f"length(coalesce(m.description_clean, '')) >= {MIN_SEARCHABLE_SYNOPSIS}" in sql
+    assert "coalesce(m.description_clean, '') <> ''" not in sql
+    assert MIN_SEARCHABLE_SYNOPSIS > 0
+
+
+def test_a_thin_row_is_still_in_the_catalogue():
+    """The gate is on description search alone. Title search,
+    recommendations, tag and genre filters all still reach it - which
+    is the whole point of gating the search rather than the import."""
+    from pipeline.describe import build_sql
+
+    assert "description_clean" not in build_sql(768, "", False)
