@@ -130,3 +130,23 @@ def test_a_source_option_limits_the_pass():
     conn = EmbedConn({"tvmaze": [7], "openlibrary": [1]})
     assert embed.next_batch(conn, "m", 256, ("openlibrary",)) == [(1,)]
     assert "tvmaze" not in conn.asked
+
+
+def test_both_clients_show_fetch_progress():
+    """TV and films report phase "fetching"; a client that only knew the
+    books' phases showed "Starting" for the whole install."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    web = (root / "web/app.js").read_text()
+    android = (
+        root / "android/app/src/main/java/com/mangabrain/app/ui/settings/SettingsFragment.kt"
+    ).read_text()
+    assert 'install.phase === "fetching"' in web
+    assert '"fetching" -> if (total > 0)' in android
+    assert '"fetching")' in android and 'setOf("downloading", "fetching")' in android
+    assert '"phase": "fetching"' in (root / "pipeline/sync_tvmaze.py").read_text()
+    assert (
+        '"phase": "fetching", "bytes": 0, "total": total'
+        in (root / "pipeline/sync_tmdb.py").read_text()
+    )
