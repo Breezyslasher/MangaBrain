@@ -68,8 +68,22 @@ def build_filters(
     # is worse than no score at all: a floor over it would rank nothing
     # and exclude almost everything, passing for a quality filter while
     # acting as a popularity one. That is the exact failure this project
-    # exists to avoid, so the bar for adding it is a measured coverage
-    # figure, not availability.
+    # exists to avoid, so the bar was a measured coverage figure rather
+    # than availability.
+    #
+    # Measured, 6 Nov 2026, against 636,000 imported books and confirmed
+    # on an independent 70,121-work sample of the dump
+    # (pipeline.survey_openlibrary_ratings): 18.19% carry any rating,
+    # 2.39% carry three, 1.33% carry five. Of the 115,683 rated books,
+    # 87% rest on one or two votes - 1,069,316 ratings spread over
+    # 711,505 works is 1.5 votes each. The 1.33% with five votes are the
+    # well-known ones: a book that clears the description gate is 10.5x
+    # likelier to be rated than a work drawn at random, so a floor over
+    # this column would select for fame, not quality. And where ratings
+    # do exist they mean 3.98 out of 5, compressed at the top because
+    # people rate what they finished and liked, so a floor over them
+    # separates almost nothing anyway. Four reasons pointing one way:
+    # there is no score column to build here.
     if min_score is not None:
         clauses.append("(m.average_score IS NULL OR m.average_score >= %(f_min_score)s)")
         params["f_min_score"] = min_score

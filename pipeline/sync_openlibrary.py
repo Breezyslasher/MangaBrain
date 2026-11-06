@@ -16,17 +16,29 @@ curation.
     python -m pipeline.sync_openlibrary --limit 50000    # a slice, to look at
     python -m pipeline.sync_openlibrary                  # the whole dump
 
-Resumable in the sense that matters: rows are upserted on
-(source, source_id), so a re-run corrects and continues rather than
-duplicating. It is not resumable in position - the dump is read from
-the start each time, which at ~388 KB/s is the real cost.
+Rows are upserted on (source, source_id), so a re-run corrects and
+continues rather than duplicating.
+
+It is still not resumable in position, and cannot be: the dump is a
+single gzip stream, so there is no seeking into it, and a recorded row
+number would still have to pull every byte before it. What is cached
+instead is the dump itself, under /root/.cache/mangabrain. The first run
+downloads it once - resuming that download across restarts, which it
+could not do before - and every later run decompresses from local disk
+at over 100 MB/s, so re-reaching row 25,000,000 costs a minute instead
+of an hour and three quarters.
+
+This matters because the import is run with `docker exec`, so anything
+that recreates the worker container kills it. That happened twice on
+6 Nov 2026, each time costing the whole re-download.
 """
 
 import argparse
 import re
 import time
+from pathlib import Path
 
-from pipeline.openlibrary import MIN_DESCRIPTION, description_of, iter_works
+from pipeline.openlibrary import DUMP_CACHE, MIN_DESCRIPTION, description_of, iter_works
 
 SOURCE = "openlibrary"
 
@@ -414,7 +426,12 @@ def row_for(work: dict, min_description: int) -> dict | None:
     }
 
 
-def sync(limit_rows: int | None, min_description: int, batch: int = 1000) -> int:
+def sync(
+    limit_rows: int | None,
+    min_description: int,
+    batch: int = 1000,
+    cache: Path | None = DUMP_CACHE,
+) -> int:
     import json
 
     import psycopg
@@ -427,7 +444,7 @@ def sync(limit_rows: int | None, min_description: int, batch: int = 1000) -> int
     pending: list[dict] = []
 
     with psycopg.connect(settings.database_url) as conn:
-        for rows, work in iter_works(limit_rows, status=status):
+        for rows, work in iter_works(limit_rows, status=status, cache=cache):
             row = row_for(work, min_description)
             if row is None:
                 skipped += 1
@@ -463,8 +480,23 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="dump rows to read (0 = all)")
     parser.add_argument("--min-description", type=int, default=MIN_DESCRIPTION)
     parser.add_argument("--batch", type=int, default=1000)
+    parser.add_argument(
+        "--cache-dump",
+        default=str(DUMP_CACHE),
+        help=f"keep the dump here between runs (default {DUMP_CACHE})",
+    )
+    parser.add_argument(
+        "--no-cache-dump",
+        action="store_true",
+        help="stream the dump instead of keeping it, as this did before the cache existed",
+    )
     args = parser.parse_args()
-    sync(args.limit or None, args.min_description, args.batch)
+    sync(
+        args.limit or None,
+        args.min_description,
+        args.batch,
+        cache=None if args.no_cache_dump else Path(args.cache_dump),
+    )
 
 
 if __name__ == "__main__":
