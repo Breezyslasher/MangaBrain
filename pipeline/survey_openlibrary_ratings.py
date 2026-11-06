@@ -35,6 +35,29 @@ decided about the score column.
 
     python -m pipeline.survey_openlibrary_ratings --limit 2000000
 
+It has been run, and the answer was no. Both modes, 6 Nov 2026, within
+0.3 points of each other on every floor - 636,000 imported books, and a
+70,121-work sample read independently of them:
+
+    1+ rating    18.19% exact / 17.89% sampled
+    3+ ratings    2.39%       /  2.36%
+    5+ ratings    1.33%       /  1.29%
+    10+ ratings   0.57%       /  0.55%
+
+    mean score where rated   3.98 out of 5
+    rated share              17.89% of importable vs 1.70% of all works
+
+Read together those say: four books in five have no rating; of the one
+in five that do, 87% rest on one or two votes; the 1.33% with five
+votes are 10.5x over-represented against the dump at large, so they are
+the famous ones; and where a rating exists it is compressed at the top
+of the scale and so separates little. A score column would have passed
+for a quality filter while acting as a popularity one.
+
+Kept rather than deleted because the dumps are regenerated monthly and
+the conclusion is a measurement, not an axiom. Re-run it if Open
+Library's rating coverage changes character.
+
 On the deployment host there is a catalogue to join against, so nothing
 needs estimating. --against-db checks every imported book against the
 ratings dump and reads nothing else:
