@@ -23,11 +23,59 @@ import psycopg
 from api.config import settings
 from api.db import ensure_schema
 
+# The tables the snapshot carries. Anything else in the database is
+# local - user lists, backfill state - and must survive a restore.
+SNAPSHOT_TABLES = ["media", "media_relations", "embeddings", "sync_state"]
+
+DEPENDENT_FKS_SQL = """
+    SELECT conrelid::regclass::text AS child, conname
+    FROM pg_constraint
+    WHERE contype = 'f'
+      AND confrelid::regclass::text = ANY(%(tables)s)
+      AND conrelid::regclass::text <> ALL(%(tables)s)
+"""
+
 
 def catalog_is_empty() -> bool:
+    """True for an empty catalogue, and for a database with no schema yet.
+
+    A missing media table is the emptiest a catalogue can be. Treating
+    it as an error forced ensure_schema() to run first, which is what
+    made the restore fail.
+    """
     with psycopg.connect(settings.database_url) as conn:
-        row = conn.execute("SELECT 1 FROM media LIMIT 1").fetchone()
+        try:
+            row = conn.execute("SELECT 1 FROM media LIMIT 1").fetchone()
+        except psycopg.errors.UndefinedTable:
+            return True
     return row is None
+
+
+def drop_dependent_constraints() -> int:
+    """Let pg_restore --clean drop the snapshot's tables.
+
+    Measured: the model-bench job failed with "cannot drop constraint
+    media_pkey ... dub_backfill_state_media_id_fkey depends on index
+    public.media_pkey". pg_restore has no CASCADE, so one local table
+    holding a foreign key into media stopped the whole restore - the
+    drop failed, CREATE TABLE then failed as "already exists", and the
+    primary key as "multiple primary keys".
+
+    The constraints come back when ensure_schema() runs afterwards.
+    """
+    dropped = 0
+    with psycopg.connect(settings.database_url) as conn:
+        try:
+            rows = conn.execute(DEPENDENT_FKS_SQL, {"tables": SNAPSHOT_TABLES}).fetchall()
+        except psycopg.errors.UndefinedTable:
+            return 0
+        for child, conname in rows:
+            conn.execute(f'ALTER TABLE {child} DROP CONSTRAINT IF EXISTS "{conname}"')
+            dropped += 1
+        conn.commit()
+    if dropped:
+        print(f"[restore] dropped {dropped} foreign key(s) into the snapshot's tables")
+    return dropped
 
 
 def download(url: str, dest: Path) -> None:
@@ -65,14 +113,19 @@ def restore_file(path: Path) -> None:
 
 def seed_if_empty(url: str) -> bool:
     """Restore from url when the catalog is empty. Returns True if seeded."""
-    ensure_schema()
     if not catalog_is_empty():
+        ensure_schema()
         print("[restore] catalog already populated; skipping snapshot seed")
         return False
     with tempfile.TemporaryDirectory() as tmp:
         dest = Path(tmp) / "snapshot.dump"
         download(url, dest)
+        drop_dependent_constraints()
         restore_file(dest)
+    # After, not before: the schema's own tables would otherwise hold
+    # foreign keys into the tables pg_restore needs to drop, and its
+    # migrations belong on top of the restored snapshot anyway.
+    ensure_schema()
     return True
 
 
@@ -86,11 +139,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    ensure_schema()
     if not args.force and not catalog_is_empty():
+        ensure_schema()
         parser.exit(
             message="catalog already populated; pass --force to replace it from the snapshot\n"
         )
+    drop_dependent_constraints()
     if args.file:
         restore_file(Path(args.file))
     else:
@@ -98,6 +152,10 @@ def main() -> None:
             dest = Path(tmp) / "snapshot.dump"
             download(args.url, dest)
             restore_file(dest)
+    # After the restore: ensure_schema's tables hold foreign keys into
+    # the snapshot's, which is exactly what stopped pg_restore --clean
+    # from dropping them.
+    ensure_schema()
 
 
 if __name__ == "__main__":
