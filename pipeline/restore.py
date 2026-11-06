@@ -51,6 +51,25 @@ def catalog_is_empty() -> bool:
     return row is None
 
 
+# The snapshot's own indexes need these before pg_restore runs: its
+# trigram indexes reference gin_trgm_ops and its embedding column is a
+# vector. Moving ensure_schema() after the restore took the extensions
+# with it, and the restore failed on "operator class public.gin_trgm_ops
+# does not exist" - a fix that traded one failure for another.
+#
+# Extensions only. Creating the TABLES before a restore is what the
+# reordering exists to avoid.
+EXTENSIONS = ("vector", "pg_trgm")
+
+
+def ensure_extensions() -> None:
+    with psycopg.connect(settings.database_url) as conn:
+        for extension in EXTENSIONS:
+            conn.execute(f"CREATE EXTENSION IF NOT EXISTS {extension}")
+        conn.commit()
+    print(f"[restore] extensions ready: {', '.join(EXTENSIONS)}")
+
+
 def drop_dependent_constraints() -> int:
     """Let pg_restore --clean drop the snapshot's tables.
 
@@ -120,6 +139,7 @@ def seed_if_empty(url: str) -> bool:
     with tempfile.TemporaryDirectory() as tmp:
         dest = Path(tmp) / "snapshot.dump"
         download(url, dest)
+        ensure_extensions()
         drop_dependent_constraints()
         restore_file(dest)
     # After, not before: the schema's own tables would otherwise hold
@@ -144,6 +164,7 @@ def main() -> None:
         parser.exit(
             message="catalog already populated; pass --force to replace it from the snapshot\n"
         )
+    ensure_extensions()
     drop_dependent_constraints()
     if args.file:
         restore_file(Path(args.file))

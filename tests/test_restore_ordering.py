@@ -58,3 +58,45 @@ def test_every_table_referencing_the_snapshot_is_accounted_for():
     from pipeline.snapshot import DATA_TABLES
 
     assert set(SNAPSHOT_TABLES) == set(DATA_TABLES)
+
+
+def test_extensions_exist_before_the_restore():
+    """The snapshot's own indexes need them.
+
+    Moving ensure_schema() after the restore took the extension
+    creation with it, and the next run failed on "operator class
+    public.gin_trgm_ops does not exist for access method gin" - the
+    dump's trigram indexes, with pg_trgm not yet installed. One fix
+    traded for another.
+
+    Extensions before, tables after: creating the tables early is what
+    the reordering exists to avoid.
+    """
+    extensions_at = RESTORE.index("ensure_extensions()\n    drop_dependent_constraints()")
+    restore_at = RESTORE.index("restore_file(Path(args.file))")
+    schema_at = RESTORE.index("ensure_schema()", restore_at)
+    assert extensions_at < restore_at < schema_at
+
+
+def test_only_extensions_are_created_early():
+    """Not the schema: a CREATE TABLE before the restore is the bug."""
+    from pipeline.restore import EXTENSIONS
+
+    body = RESTORE[RESTORE.index("def ensure_extensions(") :]
+    body = body[: body.index("\ndef ", 1)]
+    assert "CREATE EXTENSION IF NOT EXISTS" in body
+    assert "CREATE TABLE" not in body
+    assert set(EXTENSIONS) == {"vector", "pg_trgm"}
+
+
+def test_the_extensions_match_what_the_schema_declares():
+    """If the schema gains an extension, a restore that predates it
+    would fail on the dump's indexes."""
+    declared = {
+        line.split("IF NOT EXISTS")[1].strip().rstrip(";")
+        for line in SCHEMA.splitlines()
+        if line.startswith("CREATE EXTENSION")
+    }
+    from pipeline.restore import EXTENSIONS
+
+    assert declared == set(EXTENSIONS)
