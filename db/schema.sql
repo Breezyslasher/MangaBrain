@@ -11,10 +11,10 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE TABLE IF NOT EXISTS media (
     id                  INTEGER PRIMARY KEY,        -- AniList id
     id_mal              INTEGER,                    -- MAL id, used for MAL list exclusion
-    media_type          TEXT NOT NULL CHECK (media_type IN ('ANIME', 'MANGA', 'BOOK')),
+    media_type          TEXT NOT NULL CHECK (media_type IN ('ANIME', 'MANGA', 'BOOK', 'MOVIE', 'TV')),
     medium              TEXT NOT NULL CHECK (medium IN
                             ('anime', 'manga', 'manhwa', 'manhua', 'light_novel',
-                             'one_shot', 'book')),
+                             'one_shot', 'book', 'movie', 'tv')),
     title_romaji        TEXT,
     title_english       TEXT,
     title_native        TEXT,
@@ -271,11 +271,11 @@ DO $$
 BEGIN
     ALTER TABLE media DROP CONSTRAINT IF EXISTS media_media_type_check;
     ALTER TABLE media ADD CONSTRAINT media_media_type_check
-        CHECK (media_type IN ('ANIME', 'MANGA', 'BOOK'));
+        CHECK (media_type IN ('ANIME', 'MANGA', 'BOOK', 'MOVIE', 'TV'));
     ALTER TABLE media DROP CONSTRAINT IF EXISTS media_medium_check;
     ALTER TABLE media ADD CONSTRAINT media_medium_check
         CHECK (medium IN ('anime', 'manga', 'manhwa', 'manhua', 'light_novel',
-                          'one_shot', 'book'));
+                          'one_shot', 'book', 'movie', 'tv'));
 END $$;
 
 -- Cached MAL user lists pulled via Jikan. Everything on either list is

@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     # Hardcover (api/routers/hardcover.py): a personal access token from
     # hardcover.app > Settings > API. Settings page value wins over this.
     hardcover_token: str = ""
+    # TMDB (pipeline/sync_tmdb.py): films and TV, fetched by this install.
+    # A v3 key or a v4 read access token from themoviedb.org > Settings >
+    # API. Settings page value wins over this.
+    tmdb_api_key: str = ""
     # Public-exposure hardening (e.g. behind a Cloudflare Tunnel). AUTH_TOKEN
     # set = every API request must carry Authorization: Bearer <token> (the
     # SPA prompts once and remembers it); unset = open, for LAN-only use.

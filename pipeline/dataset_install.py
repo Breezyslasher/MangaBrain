@@ -72,8 +72,36 @@ def install_books(request: dict, report: Callable[[dict], None]) -> str:
     return f"Installed {result['staged']:,} books ({result['embeddings']:,} with embeddings)."
 
 
+def install_tmdb(request: dict, report: Callable[[dict], None]) -> str:
+    """Films and TV: fetched from TMDB by this install, never downloaded
+    as a release (TMDB's terms rule out publishing one). Resumable, so a
+    worker restart mid-fetch continues where it stopped."""
+    from pipeline import sync_tmdb
+
+    with psycopg.connect(settings.database_url) as conn:
+        key = sync_tmdb.stored_key(conn)
+        if not key:
+            raise NotYet("Add a TMDB API key in Settings > Server; checking again hourly.")
+        client = sync_tmdb.TmdbClient(key)
+        try:
+            tally = sync_tmdb.full(conn, client, progress=report)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
+                raise RuntimeError(
+                    "TMDB rejected the API key; check it in Settings > Server"
+                ) from exc
+            raise
+        finally:
+            client.close()
+        count = conn.execute(
+            "SELECT count(*) FROM media WHERE source = %s", (sync_tmdb.SOURCE,)
+        ).fetchone()[0]
+    return f"Fetched {count:,} films and shows from TMDB ({tally.get('kept', 0):,} this pass)."
+
+
 INSTALLERS: dict[str, Callable[[dict, Callable[[dict], None]], str]] = {
     "books": install_books,
+    "tmdb": install_tmdb,
 }
 
 

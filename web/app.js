@@ -32,6 +32,11 @@ const MAX_MIX = 5;
 // than a filter, and a no-op slider is worse than an absent one.
 const UNSUPPORTED = {
   book: ["minScore", "country", "status", "maxPop", "minLen", "maxLen"],
+  // Films and TV come from TMDB, whose popularity and vote fields are never
+  // stored (nothing may rank or filter by fame), so there is no score or
+  // popularity behind either control; length has no column for them.
+  movie: ["minScore", "maxPop", "minLen", "maxLen"],
+  tv: ["minScore", "maxPop", "minLen", "maxLen"],
 };
 
 function supports(id) {
@@ -53,6 +58,10 @@ const FORMATS = {
   // format filter has nothing to offer for books. An empty list leaves
   // the control out rather than showing an empty dropdown.
   book: [],
+  // Every film is a film, so there is nothing to choose between.
+  movie: [],
+  // TMDB's show types, as pipeline/sync_tmdb.py stores them.
+  tv: ["SCRIPTED", "MINISERIES", "DOCUMENTARY", "REALITY", "TALK_SHOW", "NEWS"],
 };
 
 const GENRES = [
@@ -1401,6 +1410,8 @@ const PATH_TO_MEDIUM = {
   "/light-novel": "light_novel",
   "/one-shot": "one_shot",
   "/books": "book",
+  "/movies": "movie",
+  "/tv": "tv",
 };
 const MEDIUM_TO_PATH = Object.fromEntries(
   Object.entries(PATH_TO_MEDIUM).map(([path, medium]) => [medium, path]),
@@ -1417,7 +1428,7 @@ function setMedium(medium) {
 
 function applyHash() {
   const match = location.hash.match(
-    /^#\/rec\/(anime|manga|light_novel|one_shot|book)\/(\d+)$/,
+    /^#\/rec\/(anime|manga|light_novel|one_shot|book|movie|tv)\/(\d+)$/,
   );
   if (!match) return false;
   setMedium(match[1]);

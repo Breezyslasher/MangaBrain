@@ -13,7 +13,7 @@ more than an anime search wants manga.
 
 from typing import Literal
 
-MediumGroup = Literal["anime", "manga", "light_novel", "one_shot", "book"]
+MediumGroup = Literal["anime", "manga", "light_novel", "one_shot", "book", "movie", "tv"]
 
 MEDIUM_GROUPS: dict[str, list[str]] = {
     "anime": ["anime"],
@@ -21,6 +21,8 @@ MEDIUM_GROUPS: dict[str, list[str]] = {
     "light_novel": ["light_novel"],
     "one_shot": ["one_shot"],
     "book": ["book"],
+    "movie": ["movie"],
+    "tv": ["tv"],
 }
 
 ALL_MEDIUMS: list[str] = [m for group in MEDIUM_GROUPS.values() for m in group]

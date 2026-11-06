@@ -35,7 +35,9 @@ object FilterState {
         "manga" to "Manga",
         "light_novel" to "Light Novels",
         "one_shot" to "One-Shots",
-        "book" to "Books"
+        "book" to "Books",
+        "movie" to "Movies",
+        "tv" to "TV Shows"
     )
 
     /**
@@ -70,7 +72,11 @@ object FilterState {
      * "length" covers both bounds, which share a row and a source column.
      */
     private val UNSUPPORTED: Map<String, Set<String>> = mapOf(
-        "book" to setOf("min_score", "country", "status", "max_popularity", "length")
+        "book" to setOf("min_score", "country", "status", "max_popularity", "length"),
+        // TMDB's popularity and votes are never stored, so neither control
+        // has anything behind it; there is no length column either.
+        "movie" to setOf("min_score", "max_popularity", "length"),
+        "tv" to setOf("min_score", "max_popularity", "length")
     )
 
     fun supports(control: String): Boolean {
@@ -234,6 +240,7 @@ object FilterState {
         "manga" -> listOf("MANGA")
         "light_novel" -> listOf("NOVEL")
         "one_shot" -> listOf("ONE_SHOT")
+        "tv" -> listOf("SCRIPTED", "MINISERIES", "DOCUMENTARY", "REALITY", "TALK_SHOW", "NEWS")
         else -> emptyList()
     }
 

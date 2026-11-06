@@ -80,6 +80,13 @@ def run_once(client: RateLimitedClient) -> None:
                 " contents and the embedding pass runs anyway",
                 flush=True,
             )
+    # Films and TV, when this install holds them: TMDB's changes feed, and
+    # the rolling refresh that keeps every row inside TMDB's six-month
+    # cache limit. Never raises, and before the embedding pass so what it
+    # adds is embedded tonight.
+    from pipeline.sync_tmdb import nightly as tmdb_nightly
+
+    tmdb_nightly()
     # embed_missing returning means every media row has a current-version
     # embedding, so retiring older versions cannot leave a coverage gap.
     embed_missing()
