@@ -80,8 +80,7 @@ def book_ids_by_work(work_keys: list[str]) -> dict[str, int]:
         return {}
     with get_pool().connection() as conn:
         rows = conn.execute(
-            "SELECT source_id, id FROM media"
-            " WHERE source = 'openlibrary' AND source_id = ANY(%s)",
+            "SELECT source_id, id FROM media WHERE source = 'openlibrary' AND source_id = ANY(%s)",
             (work_keys,),
         ).fetchall()
     return {source_id: media_id for source_id, media_id in rows}

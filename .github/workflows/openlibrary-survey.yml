@@ -19,13 +19,14 @@ on:
   workflow_dispatch:
     inputs:
       survey:
-        description: "content = how much is rankable; ratings = would a score column mean anything"
+        description: "content = how much is rankable; ratings = would a score column mean anything; hardcover = what Hardcover would add (needs the HARDCOVER_TOKEN secret)"
         required: false
         type: choice
         default: content
         options:
           - content
           - ratings
+          - hardcover
       limit:
         description: "rows to read; 0 reads the whole dump (tens of minutes)"
         required: false
@@ -80,3 +81,28 @@ jobs:
           python -m pipeline.survey_openlibrary_ratings \
             --limit "${{ inputs.limit || '2000000' }}" \
             --min-description "${{ inputs.min_description || '200' }}"
+
+      # Samples importable and description-rejected works from the first
+      # rows of the dump, finds their ISBNs on Open Library and looks
+      # them up on Hardcover. Needs a Hardcover API token in the
+      # HARDCOVER_TOKEN repository secret; limit 0 is not meaningful
+      # here, so it falls back to 400,000 rows.
+      - name: Survey Hardcover
+        if: ${{ inputs.survey == 'hardcover' }}
+        env:
+          HARDCOVER_TOKEN: ${{ secrets.HARDCOVER_TOKEN }}
+          ROWS: ${{ inputs.limit }}
+        run: |
+          if [ -z "$ROWS" ] || [ "$ROWS" = "0" ] || [ "$ROWS" = "2000000" ]; then ROWS=400000; fi
+          python -m pipeline.survey_hardcover \
+            --rows "$ROWS" \
+            --min-description "${{ inputs.min_description || '200' }}" \
+            --json hardcover-survey.json
+
+      - name: Upload Hardcover result
+        if: ${{ inputs.survey == 'hardcover' && always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardcover-survey
+          path: hardcover-survey.json
+          if-no-files-found: ignore
