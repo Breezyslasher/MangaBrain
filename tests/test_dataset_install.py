@@ -96,15 +96,27 @@ def test_an_interrupted_install_is_picked_back_up_at_startup(startup):
     assert calls.index("recover") < calls.index("run-queued")
 
 
-def test_the_sleep_between_passes_watches_for_installs(monkeypatch):
-    """A request from the settings page starts within a minute, not at
-    the next pass up to a day away."""
+def test_installs_are_watched_every_minute(monkeypatch):
+    """A request from the settings page starts within a minute."""
     clock = {"t": 0.0}
-    monkeypatch.setattr(nightly.time, "monotonic", lambda: clock["t"])
     monkeypatch.setattr(nightly.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
     polls: list[float] = []
-    nightly.sleep_watching_installs(300, lambda: polls.append(clock["t"]), poll=60)
-    assert polls == [60, 120, 180, 240, 300]
+    nightly.watch_installs(lambda: polls.append(clock["t"]), poll=60, rounds=5)
+    assert polls == [0, 60, 120, 180, 240]
+
+
+def test_installs_run_beside_the_passes_not_between_them():
+    """Polled only between passes, an install requested while a pass was
+    embedding the books sat at Queued for days."""
+    import inspect
+
+    main = inspect.getsource(nightly.main)
+    assert "start_install_watcher(dataset_install.run_queued)" in main
+    loop = main[main.index("while True:") :]
+    assert "time.sleep(delay)" in loop
+    assert "sleep_watching_installs" not in inspect.getsource(nightly)
+    watcher = nightly.start_install_watcher(lambda: 0)
+    assert watcher.daemon and watcher.name == "install-watcher"
 
 
 # ---------------------------------------------------------------------

@@ -12,13 +12,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "survey = measure the sources; terms = print TMDB's and TVmaze's current terms to the log"
+        description: "survey = measure the sources; terms = print TMDB's and TVmaze's terms; tmdb-check = run every request pipeline.sync_tmdb makes, live"
         required: false
         type: choice
         default: survey
         options:
           - survey
           - terms
+          - tmdb-check
       sample:
         description: titles per source and type
         required: false
@@ -90,8 +91,18 @@ jobs:
           '
           done
 
+      # Every TMDB request the films and TV sync makes, against the live
+      # API with the repository's key, and what each returned.
+      - name: Check TMDB requests
+        if: ${{ inputs.mode == 'tmdb-check' }}
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          pip install "psycopg[binary]>=3.1" "pydantic-settings>=2.3"
+          python -m pipeline.check_tmdb
+
       - name: Survey TV and film sources
-        if: ${{ inputs.mode != 'terms' }}
+        if: ${{ inputs.mode == 'survey' || inputs.mode == '' }}
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
@@ -101,7 +112,7 @@ jobs:
             --json screen-survey.json
 
       - name: Upload result
-        if: ${{ always() && inputs.mode != 'terms' }}
+        if: ${{ always() && (inputs.mode == 'survey' || inputs.mode == '') }}
         uses: actions/upload-artifact@v4
         with:
           name: screen-survey

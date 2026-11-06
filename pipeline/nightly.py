@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import threading
 import time
 import traceback
 from datetime import UTC, datetime, timedelta
@@ -173,18 +174,35 @@ def _dub_pass(client: RateLimitedClient, conn: psycopg.Connection) -> None:
 INSTALL_POLL_SECONDS = 60.0
 
 
-def sleep_watching_installs(delay: float, run_queued, poll: float = INSTALL_POLL_SECONDS) -> None:
-    """Sleep `delay` seconds, running any install requested meanwhile.
+def watch_installs(
+    run_queued, poll: float = INSTALL_POLL_SECONDS, rounds: int | None = None
+) -> None:
+    """Run every queued install, then look again every `poll` seconds.
 
-    An install that runs for an hour pushes the next pass back by the
-    hour. That is the right trade: the pass is incremental and loses
-    nothing by waiting, and the alternative is two long jobs competing
-    for the same CPU on a NAS.
+    On its own thread, beside the passes rather than between them. Polling
+    only between passes meant an install requested while a pass was
+    embedding the books - days of work on a NAS - sat at "Queued" for all
+    of it, while the settings page promised a minute (6 Nov 2026: TV and
+    Films). An install and a pass do overlap now; both are mostly I/O
+    (downloads, database writes) against an embedding pass that is CPU,
+    and the worker's low CPU weight already yields to the rest of the box.
+
+    rounds bounds the loop for tests; None runs for the life of the worker.
     """
-    deadline = time.monotonic() + delay
-    while (left := deadline - time.monotonic()) > 0:
-        time.sleep(min(poll, left))
-        run_queued()
+    done = 0
+    while rounds is None or done < rounds:
+        run_queued()  # never raises
+        done += 1
+        if rounds is None or done < rounds:
+            time.sleep(poll)
+
+
+def start_install_watcher(run_queued) -> threading.Thread:
+    thread = threading.Thread(
+        target=watch_installs, args=(run_queued,), name="install-watcher", daemon=True
+    )
+    thread.start()
+    return thread
 
 
 def main() -> None:
@@ -220,13 +238,19 @@ def main() -> None:
         dataset_install.request("books", fresh=True)
     client = RateLimitedClient(min_interval=settings.anilist_min_interval)
     interval = settings.sync_interval_hours * 3600
+    if not args.once:
+        # Installs run beside the passes, so one requested mid-pass starts
+        # within a minute instead of after the pass.
+        start_install_watcher(dataset_install.run_queued)
     while True:
         succeeded = True
         # Books' counterpart of the AniList sync below: a newer monthly
-        # release, if one is out, is queued here and loaded on the next
-        # line. Neither raises, so an install cannot cost the pass its sync.
+        # release, if one is out, is queued here for the install watcher
+        # (or run on the next line in --once mode). Neither raises, so an
+        # install cannot cost the pass its sync.
         dataset_install.check_for_updates()
-        dataset_install.run_queued()
+        if args.once:
+            dataset_install.run_queued()
         try:
             run_once(client)
         except Exception:
@@ -236,7 +260,7 @@ def main() -> None:
             break
         delay = interval if succeeded else min(FAILURE_RETRY_SECONDS, interval)
         print(f"[nightly] sleeping {delay / 3600:.1f}h until next pass")
-        sleep_watching_installs(delay, dataset_install.run_queued)
+        time.sleep(delay)
 
 
 if __name__ == "__main__":
