@@ -34,6 +34,13 @@ fame rather than for content, and that is worth knowing whatever is
 decided about the score column.
 
     python -m pipeline.survey_openlibrary_ratings --limit 2000000
+
+On the deployment host there is a catalogue to join against, so nothing
+needs estimating. --against-db checks every imported book against the
+ratings dump and reads nothing else:
+
+    docker exec mangabrain-worker-1 \
+        python -m pipeline.survey_openlibrary_ratings --against-db
 """
 
 import argparse
@@ -108,6 +115,64 @@ def read_ratings() -> tuple[dict[str, list[int]], dict[str, int]]:
         tally["truncated"] = f"{type(exc).__name__}: {exc}"
         print(f"  ratings stream ended early ({type(exc).__name__}) at row {tally['rows']:,}")
     return ratings, tally
+
+
+BOOK_KEYS_SQL = """
+    SELECT source_id FROM media WHERE medium = 'book' AND source = 'openlibrary'
+"""
+
+
+def against_db() -> dict:
+    """Exact coverage, against the books actually imported.
+
+    The sampling pass exists because a runner has no catalogue. On the
+    deployment host there is one, so there is no reason to estimate:
+    every imported book is checked against the ratings dump. Reads
+    nothing, writes nothing, needs no embedding - just the work keys.
+    """
+    import psycopg
+
+    from api.config import settings
+
+    ratings, tally = read_ratings()
+    print(
+        f"ratings dump: {tally['rows']:,} rows over {len(ratings):,} works",
+        flush=True,
+    )
+    out = {"rated_works": len(ratings), "truncated_ratings": tally.get("truncated")}
+    floors = dict.fromkeys(VOTE_FLOORS, 0)
+    books = 0
+    with psycopg.connect(settings.database_url) as conn, conn.cursor(name="books") as cur:
+        # Named cursor: the catalogue is hundreds of thousands of rows and
+        # there is no reason to hold them all at once.
+        cur.itersize = 10_000
+        cur.execute(BOOK_KEYS_SQL)
+        for (source_id,) in cur:
+            books += 1
+            scores = ratings.get(work_id(str(source_id or "")))
+            if not scores:
+                continue
+            for floor in VOTE_FLOORS:
+                if len(scores) >= floor:
+                    floors[floor] += 1
+    out["books"] = books
+    out["floors"] = floors
+    return out
+
+
+def report_db(out: dict) -> None:
+    books = out["books"] or 1
+    print(f"\nbooks imported: {out['books']:,}")
+    print(f"works rated anywhere in Open Library: {out['rated_works']:,}")
+    print("\nexact coverage of our books:")
+    for floor in VOTE_FLOORS:
+        hit = out["floors"][floor]
+        label = "rating" if floor == 1 else "ratings"
+        print(f"  {floor:>3}+ {label:<8} {hit:>8,}  {100 * hit / books:>6.2f}% of books")
+    unrated = books - out["floors"][1]
+    print(f"\nno rating at all: {unrated:,} books ({100 * unrated / books:.2f}%)")
+    if out["truncated_ratings"]:
+        print(f"\nWARNING ratings dump truncated ({out['truncated_ratings']}); coverage is a floor")
 
 
 def survey(limit: int | None, min_description: int) -> dict:
@@ -202,7 +267,16 @@ def main() -> None:
         help="works rows to read; 0 reads the whole dump (hours)",
     )
     parser.add_argument("--min-description", type=int, default=MIN_DESCRIPTION)
+    parser.add_argument(
+        "--against-db",
+        action="store_true",
+        help="join the ratings dump against the imported catalogue instead of sampling"
+        " the works dump; exact, and needs a database",
+    )
     args = parser.parse_args()
+    if args.against_db:
+        report_db(against_db())
+        return
     out = survey(args.limit or None, args.min_description)
     report(out, args.min_description)
 

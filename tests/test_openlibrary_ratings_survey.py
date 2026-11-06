@@ -78,3 +78,29 @@ def test_a_truncated_ratings_dump_is_reported_not_swallowed():
     ).read_text()
     assert "truncated_ratings" in source
     assert "coverage is a floor" in source
+
+
+def test_the_exact_mode_only_reads_work_keys():
+    """It runs against the live catalogue, so what it touches matters. No
+    embeddings, no descriptions, no writes - the join needs the key and
+    nothing else, and a survey has no business holding anything more."""
+    from pipeline.survey_openlibrary_ratings import BOOK_KEYS_SQL
+
+    sql = " ".join(BOOK_KEYS_SQL.split()).lower()
+    assert sql.startswith("select source_id from media")
+    assert "medium = 'book'" in sql
+    assert "embedding" not in sql and "description" not in sql
+    for forbidden in ("update", "insert", "delete", "drop"):
+        assert forbidden not in sql, forbidden
+
+
+def test_the_exact_mode_streams_the_catalogue():
+    """Hundreds of thousands of rows, and only one column of each is
+    wanted, so they are not all held at once."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "pipeline/survey_openlibrary_ratings.py"
+    ).read_text()
+    assert 'cursor(name="books")' in source, "a named cursor, so the rows stream"
+    assert "itersize" in source
