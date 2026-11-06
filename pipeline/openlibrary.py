@@ -141,7 +141,22 @@ def download_chunks(url: str, max_attempts: int = 8, start: int = 0, totals: dic
             )
 
 
-def ensure_dump(path: Path, url: str = DUMP_URL) -> tuple[Path, bool]:
+def dump_version(url: str = DUMP_URL) -> str:
+    """Which dump `url` currently means.
+
+    The "latest" URL redirects to a dated file on archive.org, so the
+    final URL names the dump exactly. Last-Modified is the fallback for a
+    host that answers without redirecting.
+    """
+    resp = httpx.head(url, timeout=60.0, follow_redirects=True)
+    resp.raise_for_status()
+    final = str(resp.url)
+    if final != url:
+        return final
+    return resp.headers.get("last-modified") or final
+
+
+def ensure_dump(path: Path, url: str = DUMP_URL, version: str | None = None) -> tuple[Path, bool]:
     """The dump on local disk, downloading or resuming it as needed.
 
     Returns (path, complete). An incomplete file is still returned and
@@ -155,12 +170,39 @@ def ensure_dump(path: Path, url: str = DUMP_URL) -> tuple[Path, bool]:
     partial download therefore lives under .part, where the next run
     resumes it rather than starting the 4 GB fetch again.
     """
+    # Which dump the cached file is. Without this the cache never
+    # refreshed: Open Library publishes monthly, and a file cached once
+    # would have been re-read for every import after it, an old catalogue
+    # passing as the current one.
+    stamp = path.with_name(path.name + ".version")
+    part = path.with_name(path.name + ".part")
+    part_stamp = path.with_name(path.name + ".part.version")
+    if version is None:
+        try:
+            version = dump_version(url)
+        except httpx.HTTPError as exc:
+            # Offline, or the host is down: the cached file is the best
+            # available, and an import from it beats no import.
+            print(f"  could not ask which dump is current ({exc}); using what is cached")
+            version = stamp.read_text() if stamp.exists() else None
+
     if path.exists():
-        print(f"  using the cached dump at {path} ({path.stat().st_size:,} bytes)")
-        return path, True
+        cached = stamp.read_text() if stamp.exists() else None
+        if version is None or cached == version:
+            print(f"  using the cached dump at {path} ({path.stat().st_size:,} bytes)")
+            return path, True
+        print(f"  cached dump is {cached}; {version} is current - replacing it", flush=True)
+        path.unlink()
+        stamp.unlink(missing_ok=True)
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    part = path.with_name(path.name + ".part")
+    # A partial download of a different dump cannot be resumed into this
+    # one: the bytes before the offset belong to another file.
+    if part.exists() and (part_stamp.read_text() if part_stamp.exists() else None) != version:
+        print("  discarding a partial download of a different dump", flush=True)
+        part.unlink()
+    if version is not None:
+        part_stamp.write_text(version)
     offset = part.stat().st_size if part.exists() else 0
     if offset:
         print(f"  resuming the cached dump at {offset:,} bytes", flush=True)
@@ -183,6 +225,9 @@ def ensure_dump(path: Path, url: str = DUMP_URL) -> tuple[Path, bool]:
         print(f"  dump size unconfirmed at {size:,} bytes; not caching it as complete")
         return part, False
     part.rename(path)
+    if version is not None:
+        stamp.write_text(version)
+    part_stamp.unlink(missing_ok=True)
     print(f"  cached the dump ({size:,} bytes)")
     return path, True
 
