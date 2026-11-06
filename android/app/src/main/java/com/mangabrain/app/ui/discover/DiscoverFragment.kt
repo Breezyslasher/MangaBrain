@@ -2,8 +2,11 @@ package com.mangabrain.app.ui.discover
 
 import android.os.Bundle
 import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.widget.doAfterTextChanged
@@ -12,8 +15,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.chip.Chip
-import com.google.android.material.chip.ChipGroup
 import com.mangabrain.app.R
 import com.mangabrain.app.data.FilterState
 import com.mangabrain.app.data.MixStore
@@ -97,7 +98,7 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
             adapter = ConcatAdapter(header, grid)
         }
 
-        buildMediumChips(view.findViewById(R.id.mediumChips))
+        buildMediumSpinner(view.findViewById(R.id.mediumSpinner))
 
         val input: EditText = view.findViewById(R.id.searchInput)
         input.doAfterTextChanged { text ->
@@ -185,12 +186,15 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
             } catch (e: Exception) {
                 return@launch
             }
-            view?.let { buildMediumChips(it.findViewById(R.id.mediumChips)) }
+            view?.let { buildMediumSpinner(it.findViewById(R.id.mediumSpinner)) }
         }
     }
 
-    private fun buildMediumChips(group: ChipGroup) {
-        group.removeAllViews()
+    /**
+     * The medium dropdown. Rebuilt whenever the selection of media changes
+     * (Settings > Media), so it lists exactly the visible ones.
+     */
+    private fun buildMediumSpinner(spinner: Spinner) {
         val visible = FilterState.visibleMedia()
         // A hidden medium is left only when nothing is on screen, as on the
         // web: an open recommendation is not yanked away mid-read.
@@ -198,21 +202,29 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
             FilterState.medium = visible.first()
             FilterState.format = ""
         }
-        for (key in visible) {
-            val label = FilterState.MEDIUM_LABELS.getValue(key)
-            val chip = Chip(requireContext()).apply {
-                text = label
-                isCheckable = true
-                isChecked = key == FilterState.medium
-                setOnClickListener {
-                    FilterState.medium = key
-                    // The format vocabulary is per medium, so a format chosen
-                    // for anime cannot survive a switch to manga.
-                    FilterState.format = ""
-                    rerun()
-                }
+        // The current medium stays listed even when hidden, so the field
+        // never shows something other than what is on screen.
+        val keys = if (FilterState.medium in visible) visible else visible + FilterState.medium
+        val labels = keys.map { FilterState.MEDIUM_LABELS[it] ?: it }
+        spinner.adapter = ArrayAdapter(requireContext(), R.layout.item_medium_spinner, labels).apply {
+            setDropDownViewResource(R.layout.item_medium_dropdown)
+        }
+        // Listener off while selecting: setSelection reports the item, and
+        // that would rerun the search on every rebuild.
+        spinner.onItemSelectedListener = null
+        spinner.setSelection(keys.indexOf(FilterState.medium).coerceAtLeast(0), false)
+        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val key = keys.getOrNull(position) ?: return
+                if (key == FilterState.medium) return
+                FilterState.medium = key
+                // The format vocabulary is per medium, so a format chosen
+                // for anime cannot survive a switch to manga.
+                FilterState.format = ""
+                rerun()
             }
-            group.addView(chip)
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
     }
 

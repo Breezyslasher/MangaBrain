@@ -875,8 +875,8 @@ const INSTALL_ACTIVE = ["queued", "running", "waiting"];
 let settingsPoll = null;
 
 function tabLabel(group) {
-  const button = document.querySelector(`#tabs button[data-medium="${group}"]`);
-  return button ? button.textContent : group;
+  const option = document.querySelector(`#tabs option[data-medium="${group}"]`);
+  return option ? option.textContent : group;
 }
 
 // Tabs follow the selection. A deep link into a hidden medium is honoured
@@ -884,8 +884,11 @@ function tabLabel(group) {
 function applyEnabledMedia(media) {
   if (!Array.isArray(media) || !media.length) return;
   state.enabledMedia = media;
-  for (const button of document.querySelectorAll("#tabs button")) {
-    button.hidden = !media.includes(button.dataset.medium);
+  for (const option of document.querySelectorAll("#tabs option")) {
+    // Disabled as well as hidden: Safari ignores hidden on an option.
+    const off = !media.includes(option.dataset.medium);
+    option.hidden = off;
+    option.disabled = off;
   }
   if (!media.includes(state.medium) && !state.mode) {
     setMedium(media[0]);
@@ -1441,9 +1444,7 @@ const MEDIUM_TO_PATH = Object.fromEntries(
 function setMedium(medium) {
   if (state.medium === medium) return;
   state.medium = medium;
-  for (const button of document.querySelectorAll("#tabs button")) {
-    button.classList.toggle("active", button.dataset.medium === medium);
-  }
+  $("tabs").value = medium;
   populateFormats();
 }
 
@@ -1458,19 +1459,14 @@ function applyHash() {
 }
 
 function bindEvents() {
-  for (const button of document.querySelectorAll("#tabs button")) {
-    button.addEventListener("click", () => {
-      setMedium(button.dataset.medium);
-      state.mode = null;
-      // Keep the URL shareable: the medium lives in the path, hash cleared.
-      history.replaceState(
-        null,
-        "",
-        MEDIUM_TO_PATH[button.dataset.medium] || "/",
-      );
-      runSearch($("search").value);
-    });
-  }
+  $("tabs").addEventListener("change", (event) => {
+    const medium = event.target.value;
+    setMedium(medium);
+    state.mode = null;
+    // Keep the URL shareable: the medium lives in the path, hash cleared.
+    history.replaceState(null, "", MEDIUM_TO_PATH[medium] || "/");
+    runSearch($("search").value);
+  });
 
   on(
     "search",
