@@ -1,12 +1,20 @@
 """Films from TMDB (https://www.themoviedb.org).
 
 TV shows come from TVmaze instead (pipeline.sync_tvmaze), whose CC BY-SA
-licence allows what this engine does with the data. TMDB's API terms
-(1.C, last updated 20 Oct 2023) forbid using TMDB content "in connection
-with, including for training, a machine learning (ML) or artificial
-intelligence (AI) based Application" and making "derivatives" of it,
-which an embedding-based recommender plausibly is. Do not switch this on
-for an install without TMDB's written permission for the use.
+licence plainly allows what this engine does with the data.
+
+On TMDB's terms, read 6 Nov 2026 (API terms last updated 20 Oct 2023):
+1.C forbids using TMDB content "in connection with, including for
+training, a machine learning (ML) or artificial intelligence (AI) based
+Application" and making "derivatives" of it. TMDB staff have answered
+on its forum that a non-commercial similarity feature is not what that
+clause is meant to carve out, and that semantic search is not training
+AI. This module is built to stay inside that reading: each install
+fetches with its own key, nothing is published or shared, nothing is
+trained, embeddings are only compared for similarity, data is refreshed
+inside the six-month cache limit, and TMDB is credited. The staff
+answers are guidance, not a written agreement; an operator who wants
+certainty should ask TMDB about their own install.
 
 Fetched by each install with its own API key and kept in its own
 database - never published as a dataset. That is the shape TMDB's terms
