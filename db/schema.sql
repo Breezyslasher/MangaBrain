@@ -11,9 +11,10 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE TABLE IF NOT EXISTS media (
     id                  INTEGER PRIMARY KEY,        -- AniList id
     id_mal              INTEGER,                    -- MAL id, used for MAL list exclusion
-    media_type          TEXT NOT NULL CHECK (media_type IN ('ANIME', 'MANGA')),
+    media_type          TEXT NOT NULL CHECK (media_type IN ('ANIME', 'MANGA', 'BOOK')),
     medium              TEXT NOT NULL CHECK (medium IN
-                            ('anime', 'manga', 'manhwa', 'manhua', 'light_novel', 'one_shot')),
+                            ('anime', 'manga', 'manhwa', 'manhua', 'light_novel',
+                             'one_shot', 'book')),
     title_romaji        TEXT,
     title_english       TEXT,
     title_native        TEXT,
@@ -220,6 +221,43 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw_768
 -- filtered in a join above it. Restricted to anime it is ~713 ms. Still
 -- too slow to serve, but not the emergency it looked like.
 ALTER TABLE embeddings DROP COLUMN IF EXISTS embedding_bits;
+
+-- Provenance, so the catalogue can hold entries AniList does not have.
+--
+-- media.id has always been the AniList id, and it is in URLs, in
+-- embeddings.media_id and in media_relations, so it cannot be
+-- renumbered without breaking links people already hold. Instead the
+-- id stays what it is for AniList rows, and every row now also records
+-- WHERE it came from and WHAT it is called there.
+--
+-- Entries from other sources take ids from a sequence that starts above
+-- anything AniList will issue. INTEGER, deliberately, not BIGINT: the
+-- ceiling is 2,147,483,647, so starting at 1,000,000,000 leaves room
+-- for 1.1 billion non-AniList entries against Open Library's ~40
+-- million works - and widening the column would rewrite the table and
+-- its TOAST under an exclusive lock, in ensure_schema(), at API
+-- startup. That mistake was already made once here with a generated
+-- column and reverted; adding a column is instant, retyping one is not.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'anilist';
+ALTER TABLE media ADD COLUMN IF NOT EXISTS source_id TEXT;
+UPDATE media SET source_id = id::text WHERE source_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_source ON media (source, source_id);
+CREATE SEQUENCE IF NOT EXISTS media_external_id_seq START WITH 1000000000;
+
+-- The CHECK constraints are inline in CREATE TABLE, which only helps a
+-- fresh database; an existing one keeps the constraint it was built
+-- with. Re-stating them validates against existing rows without
+-- rewriting the table.
+DO $$
+BEGIN
+    ALTER TABLE media DROP CONSTRAINT IF EXISTS media_media_type_check;
+    ALTER TABLE media ADD CONSTRAINT media_media_type_check
+        CHECK (media_type IN ('ANIME', 'MANGA', 'BOOK'));
+    ALTER TABLE media DROP CONSTRAINT IF EXISTS media_medium_check;
+    ALTER TABLE media ADD CONSTRAINT media_medium_check
+        CHECK (medium IN ('anime', 'manga', 'manhwa', 'manhua', 'light_novel',
+                          'one_shot', 'book'));
+END $$;
 
 -- Cached MAL user lists pulled via Jikan. Everything on either list is
 -- excluded from recommendation results when mal_user is passed.
