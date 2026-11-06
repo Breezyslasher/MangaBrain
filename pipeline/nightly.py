@@ -1,7 +1,8 @@
-"""Worker loop: incremental AniList sync for both media types, then an
-embedding pass for anything new, then bounded dub checks for titles
-that have never had one. Runs forever, sleeping SYNC_INTERVAL_HOURS between
-passes; intended as the `worker` container's entry point.
+"""Worker loop: a check for a newer books release, incremental AniList
+sync for both media types, then an embedding pass for anything new,
+then bounded dub checks for titles that have never had one. Runs
+forever, sleeping SYNC_INTERVAL_HOURS between passes; intended as the
+`worker` container's entry point.
 
 Usage:
     python -m pipeline.nightly            # loop forever
@@ -211,7 +212,10 @@ def main() -> None:
     interval = settings.sync_interval_hours * 3600
     while True:
         succeeded = True
-        # Never raises, so an install cannot cost the pass its AniList sync.
+        # Books' counterpart of the AniList sync below: a newer monthly
+        # release, if one is out, is queued here and loaded on the next
+        # line. Neither raises, so an install cannot cost the pass its sync.
+        dataset_install.check_for_updates()
         dataset_install.run_queued()
         try:
             run_once(client)
