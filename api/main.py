@@ -23,6 +23,7 @@ from api.routers import (
     dub,
     exclusions,
     foryou,
+    hardcover,
     kitsu,
     mal,
     random_pick,
@@ -92,6 +93,7 @@ API_PREFIXES = (
     "/exclusions",
     "/yamtrack",
     "/kitsu",
+    "/hardcover",
     "/settings",
     # Installing a dataset starts a multi-gigabyte download on the server;
     # it is the last endpoint that should be reachable without the token.
@@ -177,6 +179,7 @@ app.include_router(anilist.router)
 app.include_router(foryou.router)
 app.include_router(exclusions.router)
 app.include_router(yamtrack.router)
+app.include_router(hardcover.router)
 app.include_router(kitsu.router)
 app.include_router(app_settings.router)
 app.include_router(datasets.router)

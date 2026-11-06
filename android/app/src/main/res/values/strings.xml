@@ -68,6 +68,10 @@
     <string name="account_mal">MyAnimeList</string>
     <string name="account_kitsu">Kitsu</string>
     <string name="account_yamtrack">Yamtrack</string>
+    <string name="account_hardcover">Hardcover</string>
+    <string name="hint_hardcover_token">Token from hardcover.app, Settings, API</string>
+    <string name="needs_token">Paste your API token first</string>
+    <string name="hardcover_token_saved">Token saved</string>
     <string name="sync">Sync</string>
     <string name="exclude_this_list">Exclude this list</string>
     <string name="hint_username">Username</string>

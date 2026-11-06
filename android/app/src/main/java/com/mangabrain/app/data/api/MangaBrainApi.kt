@@ -148,4 +148,10 @@ interface MangaBrainApi {
 
     @POST("yamtrack/refresh")
     suspend fun refreshYamtrack(): ExclusionStatus
+
+    @GET("hardcover")
+    suspend fun hardcoverStatus(): ExclusionStatus
+
+    @POST("hardcover/refresh")
+    suspend fun refreshHardcover(): ExclusionStatus
 }

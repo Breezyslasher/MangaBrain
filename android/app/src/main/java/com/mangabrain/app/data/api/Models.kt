@@ -133,6 +133,7 @@ data class AppSettingsOut(
     val kitsu_username: String? = null,
     val yamtrack_url: String? = null,
     val yamtrack_token_set: Boolean? = null,
+    val hardcover_token_set: Boolean? = null,
     val enabled_media: List<String>? = null
 )
 
@@ -142,6 +143,7 @@ data class AppSettingsIn(
     val kitsu_username: String? = null,
     val yamtrack_url: String? = null,
     val yamtrack_token: String? = null,
+    val hardcover_token: String? = null,
     // Null is omitted from the body, so saving accounts leaves the media
     // selection alone. Switching a medium on can start a download.
     val enabled_media: List<String>? = null

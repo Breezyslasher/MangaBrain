@@ -1,10 +1,10 @@
 """Single-user application settings, editable from the web UI.
 
 Stores tracker account details (AniList/MAL/Kitsu usernames, Yamtrack
-endpoint and token) in the database so they survive browser changes;
-environment variables
-remain as fallback for anything not set here. The Yamtrack token is write-only
-through the API: responses only say whether one is configured.
+endpoint and token, Hardcover token) in the database so they survive
+browser changes; environment variables remain as fallback for anything not
+set here. The Yamtrack and Hardcover tokens are write-only through the
+API: responses only say whether one is configured.
 """
 
 import json
@@ -25,6 +25,7 @@ SETTING_KEYS = (
     "kitsu_username",
     "yamtrack_url",
     "yamtrack_token",
+    "hardcover_token",
 )
 
 UPSERT_SQL = """
@@ -48,6 +49,11 @@ def effective_yamtrack_config() -> tuple[str, str]:
     url = stored.get("yamtrack_url") or settings.yamtrack_url
     token = stored.get("yamtrack_token") or settings.yamtrack_token
     return url, token
+
+
+def effective_hardcover_token() -> str:
+    """Hardcover API token: database setting first, env fallback."""
+    return read_settings().get("hardcover_token") or settings.hardcover_token
 
 
 # Stored apart from SETTING_KEYS: a list, not a string, and a value the
@@ -115,6 +121,7 @@ def _to_out(stored: dict[str, str], media: list[str]) -> AppSettingsOut:
         kitsu_username=stored.get("kitsu_username", ""),
         yamtrack_url=stored.get("yamtrack_url") or settings.yamtrack_url,
         yamtrack_token_set=bool(stored.get("yamtrack_token") or settings.yamtrack_token),
+        hardcover_token_set=bool(stored.get("hardcover_token") or settings.hardcover_token),
         enabled_media=media,
     )
 

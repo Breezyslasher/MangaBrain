@@ -120,6 +120,7 @@ object FilterState {
     var excludeMal: Boolean = false
     var excludeKitsu: Boolean = false
     var excludeYamtrack: Boolean = false
+    var excludeHardcover: Boolean = false
 
     // Filled from GET /settings so the exclusion parameters can carry them.
     var anilistUser: String = ""
@@ -136,6 +137,7 @@ object FilterState {
         get() = buildList {
             if (excludeKitsu) add("kitsu")
             if (excludeYamtrack) add("yamtrack")
+            if (excludeHardcover) add("hardcover")
         }.ifEmpty { null }
 
     /** How many filters differ from their defaults, for the tab badge. */
@@ -261,6 +263,7 @@ object FilterState {
         excludeMal = prefs.getBoolean("ex_mal", false)
         excludeKitsu = prefs.getBoolean("ex_kitsu", false)
         excludeYamtrack = prefs.getBoolean("ex_yamtrack", false)
+        excludeHardcover = prefs.getBoolean("ex_hardcover", false)
         romajiTitles = prefs.getBoolean("romaji_titles", false)
     }
 
@@ -279,6 +282,7 @@ object FilterState {
             .putBoolean("ex_mal", excludeMal)
             .putBoolean("ex_kitsu", excludeKitsu)
             .putBoolean("ex_yamtrack", excludeYamtrack)
+            .putBoolean("ex_hardcover", excludeHardcover)
             .putBoolean("romaji_titles", romajiTitles)
             .apply()
     }
