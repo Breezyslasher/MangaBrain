@@ -64,7 +64,11 @@ class MediaOut(BaseModel):
 class ScoreComponents(BaseModel):
     semantic: float
     tags: float
-    genres: float
+    # None when neither side had genres to compare. Zero would read as
+    # "nothing in common", which is a different claim: 34% of imported
+    # books have no genre because Open Library has no genre vocabulary,
+    # not because they share nothing with the seed.
+    genres: float | None
     # Similarity to the user's own rating-weighted taste profile; present
     # only when the optional taste weight is active.
     taste: float | None = None

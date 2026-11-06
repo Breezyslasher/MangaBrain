@@ -69,8 +69,46 @@ def test_default_weights():
 def test_genre_similarity_jaccard():
     assert genre_similarity(["Action", "Drama"], ["Action", "Drama"]) == 1.0
     assert genre_similarity(["Action", "Drama"], ["Action", "Comedy"]) == 1 / 3
-    assert genre_similarity([], ["Action"]) == 0.0
-    assert genre_similarity(["Action"], []) == 0.0
+
+
+def test_no_genres_is_undefined_not_zero():
+    """Jaccard over an empty set is undefined rather than minimal, and
+    the difference decides how a title ranks.
+
+    Zero says "these share no genres", which is evidence of
+    dissimilarity. An absent genre list says nothing at all. AniList
+    gives almost everything genres so it never mattered; Open Library
+    has no genre vocabulary, and 34% of imported books have none.
+    """
+    assert genre_similarity([], ["Action"]) is None
+    assert genre_similarity(["Action"], []) is None
+    assert genre_similarity([], []) is None
+
+
+def test_an_uncomparable_genre_term_redistributes_its_weight():
+    """The same fallback the taste weight already uses when no list
+    source is available. Scoring it zero would cap a book with no
+    genres at 0.8 of the available score - a fifth of its ranking lost
+    to a gap in someone's cataloguing, which this codebase already
+    refuses to do for lengths and for years."""
+    from api.scoring import Weights, final_score
+
+    weights = Weights(semantic=0.5, tags=0.3, genres=0.2)
+    # A perfect match on everything comparable scores 1.0, not 0.8.
+    assert final_score(1.0, 1.0, None, weights) == 1.0
+    # And the surviving terms keep their ratio: 0.5 to 0.3 becomes
+    # 0.625 to 0.375.
+    assert abs(final_score(1.0, 0.0, None, weights) - 0.625) < 1e-9
+    assert abs(final_score(0.0, 1.0, None, weights) - 0.375) < 1e-9
+
+
+def test_a_genuine_genre_mismatch_still_scores_zero():
+    """Undefined and disjoint are different facts and must stay so."""
+    from api.scoring import Weights, final_score
+
+    weights = Weights(semantic=0.5, tags=0.3, genres=0.2)
+    assert genre_similarity(["Action"], ["Romance"]) == 0.0
+    assert abs(final_score(1.0, 1.0, 0.0, weights) - 0.8) < 1e-9
 
 
 def test_tag_similarity_cosine():
@@ -132,3 +170,24 @@ def test_taste_defaults_to_off():
 def test_normalization_includes_taste():
     w = Weights(1.0, 1.0, 1.0, 1.0).normalized()
     assert w.semantic == w.tags == w.genres == w.taste == 0.25
+
+
+def test_both_clients_accept_an_absent_genre_component():
+    """A nullable field is only safe if its consumers know.
+
+    Android declared `val genres: Double`, which throws on null, and
+    that would have hit a third of book recommendations. The web client
+    did Math.round(null * 100), which is 0 - no crash, but it displays
+    "nothing in common" for a comparison that was never made.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    models = (root / "android/app/src/main/java/com/mangabrain/app/data/api/Models.kt").read_text()
+    components = models[models.index("data class ScoreComponents(") :]
+    components = components[: components.index(")")]
+    assert "val genres: Double? = null" in components
+
+    app = (root / "web/app.js").read_text()
+    assert "components.genres === null" in app
+    assert "not compared" in app

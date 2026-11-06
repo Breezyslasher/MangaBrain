@@ -91,7 +91,11 @@ data class DescribeResponse(
 data class ScoreComponents(
     val semantic: Double,
     val tags: Double,
-    val genres: Double,
+    // Nullable: the API sends null when neither side had genres to
+    // compare, which is not the same as zero. Declared non-null this
+    // would throw on a third of book recommendations, because Open
+    // Library has no genre vocabulary.
+    val genres: Double? = null,
     val taste: Double? = null
 )
 
