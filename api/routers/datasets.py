@@ -7,6 +7,7 @@ switching a medium on in the settings page, but here for a Retry button
 too. The work itself happens in the worker (pipeline.dataset_install).
 """
 
+import threading
 import time
 
 from fastapi import APIRouter, HTTPException
@@ -18,20 +19,42 @@ from api.models import DatasetInstallOut, DatasetOut, DatasetsOut
 
 router = APIRouter()
 
-# Counting is a join over the whole catalogue - about a second at a million
-# books - and the settings page polls while an install runs.
-COUNTS_TTL = 30.0
+# Counting walks the whole catalogue - seconds on a NAS at 1.2 million
+# rows - and the settings page polls while an install runs, while
+# GET /settings needs the counts to know which media are present. So a
+# count older than COUNTS_TTL is served as it is and refreshed on a
+# background thread: no request waits for a count except the very first.
+COUNTS_TTL = 60.0
 # A GitHub API call, shared by IP when unauthenticated.
 RELEASE_TTL = 900.0
 _counts_cache: tuple[float, dict] | None = None
 _release_cache: dict[str, tuple[float, bool | None]] = {}
 
 
+_refreshing = threading.Lock()
+
+
+def _refresh_counts() -> None:
+    global _counts_cache
+    try:
+        with get_pool().connection() as conn:
+            _counts_cache = (
+                time.monotonic(),
+                counts(conn, embed_model_id(settings.embed_model)),
+            )
+    except Exception:  # noqa: BLE001 - the stale counts stay; next call retries
+        pass
+    finally:
+        _refreshing.release()
+
+
 def catalogue_counts(conn) -> dict[str, tuple[int, int]]:
     global _counts_cache
-    now = time.monotonic()
-    if _counts_cache is None or now - _counts_cache[0] > COUNTS_TTL:
-        _counts_cache = (now, counts(conn, embed_model_id(settings.embed_model)))
+    if _counts_cache is None:
+        # Nothing to serve yet: the one request that waits.
+        _counts_cache = (time.monotonic(), counts(conn, embed_model_id(settings.embed_model)))
+    elif time.monotonic() - _counts_cache[0] > COUNTS_TTL and _refreshing.acquire(blocking=False):
+        threading.Thread(target=_refresh_counts, name="dataset-counts", daemon=True).start()
     return _counts_cache[1]
 
 

@@ -1096,6 +1096,9 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 FilterState.applySettings(api.saveSettings(AppSettingsIn(enabled_media = next)))
+                // Straight to Discover's dropdown, from the reply already in
+                // hand, rather than waiting for it to re-ask the server.
+                (activity as? MainActivity)?.discoverFragment()?.mediaChanged()
             } catch (e: Exception) {
                 switch.isChecked = !on
                 toast(message(e))

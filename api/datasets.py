@@ -190,20 +190,31 @@ def request_install(conn, key: str, fresh: bool = False) -> dict:
     )
 
 
-COUNTS_SQL = """
-    SELECT m.source, count(*) AS items, count(e.media_id) AS embedded
-    FROM media m
-    LEFT JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %s
+# Two narrow counts, not one join. The join read every media row - wide,
+# with descriptions up to 4,000 characters - against the embeddings, and on
+# a NAS holding books, TV and films (1.2 million rows) the Media page
+# waited seconds for it. Titles per source can be counted from the
+# (source, source_id) index alone, and embeddings per source by joining
+# only the embedded rows to media by primary key.
+ITEMS_SQL = "SELECT source, count(*) AS n FROM media GROUP BY source"
+EMBEDDED_SQL = """
+    SELECT m.source, count(*) AS n
+    FROM embeddings e JOIN media m ON m.id = e.media_id
+    WHERE e.embed_model = %s
     GROUP BY m.source
 """
 
 
+def _by_source(rows) -> dict[str, int]:
+    return {
+        (row["source"] if isinstance(row, dict) else row[0]): (
+            row["n"] if isinstance(row, dict) else row[1]
+        )
+        for row in rows
+    }
+
+
 def counts(conn, model_id: str) -> dict[str, tuple[int, int]]:
-    rows = conn.execute(COUNTS_SQL, (model_id,)).fetchall()
-    out = {}
-    for row in rows:
-        if isinstance(row, dict):
-            out[row["source"]] = (row["items"], row["embedded"])
-        else:
-            out[row[0]] = (row[1], row[2])
-    return out
+    items = _by_source(conn.execute(ITEMS_SQL).fetchall())
+    embedded = _by_source(conn.execute(EMBEDDED_SQL, (model_id,)).fetchall())
+    return {source: (n, embedded.get(source, 0)) for source, n in items.items()}
