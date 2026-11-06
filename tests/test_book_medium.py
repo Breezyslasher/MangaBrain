@@ -106,3 +106,77 @@ def test_every_api_medium_group_has_a_tab():
     html = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text()
     for group in MEDIUM_GROUPS:
         assert f'data-medium="{group}"' in html, group
+
+
+# Which query parameters the Books tab must not send, and how each client
+# spells the control behind it. The spellings differ - the web hides DOM
+# ids, the Android client suppresses parameter keys - so the mapping is
+# written out rather than inferred, because the mapping is what drifts.
+BOOK_SUPPRESSED = {
+    "min_score": "minScore",
+    "country": "country",
+    "status": "status",
+    "max_popularity": "maxPop",
+}
+BOOK_SUPPRESSED_LENGTH = ("minLen", "maxLen")
+
+
+def _unsupported_block(text: str) -> str:
+    start = text.index("UNSUPPORTED")
+    return text[start : text.index("}", start)]
+
+
+def test_both_clients_suppress_the_same_filters_for_books():
+    """Origin, Status and the length bounds do not merely get ignored for a
+    book - they match no book at all, because a NULL column never equals
+    'JP'. A client that still sends one empties its own grid with nothing
+    on screen to explain why, so neither client may drift from the other.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    web = _unsupported_block((root / "web" / "app.js").read_text())
+    android = _unsupported_block(
+        (root / "android/app/src/main/java/com/mangabrain/app/data/FilterState.kt").read_text()
+    )
+
+    for param, element_id in BOOK_SUPPRESSED.items():
+        assert f'"{element_id}"' in web, f"web still sends {param} for books"
+        assert f'"{param}"' in android, f"android still sends {param} for books"
+    for element_id in BOOK_SUPPRESSED_LENGTH:
+        assert f'"{element_id}"' in web, f"web still sends {element_id} for books"
+    assert '"length"' in android, "android still sends a length bound for books"
+
+
+def test_a_suppressed_control_is_also_hidden():
+    """A control that cannot change the result is not left on screen. The
+    web hides each row through the same table that suppresses the value,
+    and the Android fragment asks FilterState the same question, so the two
+    cannot disagree about whether a control is live."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    app = (root / "web" / "app.js").read_text()
+    assert 'supports(id) ? "" : "none"' in app, "web rows hidden from the support table"
+    assert "function controlValue(" in app, "and the same table gates the value"
+
+    fragment = (
+        root / "android/app/src/main/java/com/mangabrain/app/ui/filters/FiltersFragment.kt"
+    ).read_text()
+    assert "FilterState.supports(control)" in fragment
+    for control in ("min_score", "country", "status", "max_popularity", "length"):
+        assert f'rows("{control}"' in fragment, control
+
+
+def test_the_filter_badge_counts_only_what_is_sent():
+    """The badge reads the same singleton the query does, and a value typed
+    on the Anime tab survives the switch to Books. Counting it there made
+    the badge claim filters the request never carried."""
+    from pathlib import Path
+
+    state = (
+        Path(__file__).resolve().parent.parent
+        / "android/app/src/main/java/com/mangabrain/app/data/FilterState.kt"
+    ).read_text()
+    badge = state[state.index("val activeCount") : state.index("fun filterParams")]
+    assert "supports(control)" in badge

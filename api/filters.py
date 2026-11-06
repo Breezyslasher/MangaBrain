@@ -52,11 +52,24 @@ def build_filters(
     if year_max is not None:
         clauses.append("(m.start_year IS NULL OR m.start_year <= %(f_year_max)s)")
         params["f_year_max"] = year_max
-    # Unscored passes, for the third time and the same reason. An Open
-    # Library work carries no rating this project will store - its
-    # ratings are an audience signal and the scoring function may not
-    # read one - so every book has a NULL average_score, and a bare >=
-    # emptied the Books tab the moment the score slider moved.
+    # Unscored passes, for the third time and the same reason. Every book
+    # has a NULL average_score, so a bare >= emptied the Books tab the
+    # moment the score slider moved.
+    #
+    # Books have no score because the works dump this project imports
+    # carries none: a work record holds title, subjects, description and
+    # a first-publish date, and nothing resembling a rating (see
+    # pipeline.sync_openlibrary for every field read). A score would mean
+    # a second source joined on the work key, and the reason not to reach
+    # for one is coverage rather than principle - an average rating is a
+    # quality signal, not a popularity signal, which is why AniList's
+    # averageScore is stored and filterable here. But a score present on
+    # a small, well-known slice of the catalog and absent everywhere else
+    # is worse than no score at all: a floor over it would rank nothing
+    # and exclude almost everything, passing for a quality filter while
+    # acting as a popularity one. That is the exact failure this project
+    # exists to avoid, so the bar for adding it is a measured coverage
+    # figure, not availability.
     if min_score is not None:
         clauses.append("(m.average_score IS NULL OR m.average_score >= %(f_min_score)s)")
         params["f_min_score"] = min_score

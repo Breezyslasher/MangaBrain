@@ -80,6 +80,7 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/lengthRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
@@ -99,16 +100,16 @@
                     android:inputType="number" />
             </LinearLayout>
 
-            <TextView style="@style/FieldLabel" android:text="@string/format" />
+            <TextView android:id="@+id/formatLabel" style="@style/FieldLabel" android:text="@string/format" />
             <Spinner android:id="@+id/formatSpinner" style="@style/FilterSpinner" />
 
-            <TextView style="@style/FieldLabel" android:text="@string/origin" />
+            <TextView android:id="@+id/originLabel" style="@style/FieldLabel" android:text="@string/origin" />
             <Spinner android:id="@+id/countrySpinner" style="@style/FilterSpinner" />
 
-            <TextView style="@style/FieldLabel" android:text="@string/status" />
+            <TextView android:id="@+id/statusLabel" style="@style/FieldLabel" android:text="@string/status" />
             <Spinner android:id="@+id/statusSpinner" style="@style/FilterSpinner" />
 
-            <TextView style="@style/FieldLabel" android:text="@string/max_popularity" />
+            <TextView android:id="@+id/popularityLabel" style="@style/FieldLabel" android:text="@string/max_popularity" />
             <Spinner android:id="@+id/popularitySpinner" style="@style/FilterSpinner" />
 
             <TextView android:id="@+id/dubLabel" style="@style/FieldLabel" android:text="@string/dub_language" />

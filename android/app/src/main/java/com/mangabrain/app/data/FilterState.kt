@@ -26,6 +26,34 @@ object FilterState {
 
     var medium: String = "anime"
 
+    /**
+     * Controls a medium has no data behind, by the key filterParams() uses.
+     *
+     * Suppressing the value matters more than hiding the control, because
+     * this is a singleton that outlives the tab: a score typed on the Anime
+     * tab was still in minScore on the Books tab and still went into the
+     * query. Three of these exclude every book at the SQL level rather than
+     * being ignored, since a NULL country never equals 'JP'.
+     *
+     * min_score is here for a different reason from the rest. A book can
+     * have no score and still be a good book, so the API lets unscored
+     * titles pass the floor - which makes the control a no-op on this tab
+     * rather than a filter, and a no-op control is worse than an absent one.
+     *
+     * "length" covers both bounds, which share a row and a source column.
+     */
+    private val UNSUPPORTED: Map<String, Set<String>> = mapOf(
+        "book" to setOf("min_score", "country", "status", "max_popularity", "length")
+    )
+
+    fun supports(control: String): Boolean {
+        // The dub filter is anime-only and always has been. Expressing that
+        // here rather than at each use keeps one answer to "is this control
+        // live?", which the badge and the query both need to agree on.
+        if (control == "dub_lang") return medium == "anime"
+        return control !in (UNSUPPORTED[medium] ?: emptySet())
+    }
+
     const val DEFAULT_W_SEMANTIC = 50
     const val DEFAULT_W_TAGS = 30
     const val DEFAULT_W_GENRES = 20
@@ -87,9 +115,18 @@ object FilterState {
     val activeCount: Int
         get() {
             var count = 0
-            for (value in listOf(yearMin, yearMax, minScore, minLen, maxLen,
-                                 format, country, status, maxPopularity, dubLang)) {
-                if (value.isNotBlank()) count++
+            // Only what is actually sent. A suppressed control still holds
+            // the value typed on another tab, and counting it made the badge
+            // claim filters the query did not carry.
+            val counted = listOf(
+                yearMin to "year", yearMax to "year", format to "format",
+                minScore to "min_score", country to "country", status to "status",
+                maxPopularity to "max_popularity",
+                minLen to "length", maxLen to "length",
+                dubLang to "dub_lang"
+            )
+            for ((value, control) in counted) {
+                if (value.isNotBlank() && supports(control)) count++
             }
             if (adult) count++
             if (crossMedia) count++
@@ -110,17 +147,17 @@ object FilterState {
         if (adult) params["adult"] = "true"
         put("year_min", yearMin)
         put("year_max", yearMax)
-        put("min_score", minScore)
-        put("country", country)
-        put("status", status)
-        put("max_popularity", maxPopularity)
-        if (maxLen.isNotBlank()) {
+        if (supports("min_score")) put("min_score", minScore)
+        if (supports("country")) put("country", country)
+        if (supports("status")) put("status", status)
+        if (supports("max_popularity")) put("max_popularity", maxPopularity)
+        if (supports("length") && maxLen.isNotBlank()) {
             params[if (medium == "anime") "max_episodes" else "max_chapters"] = maxLen
         }
-        if (minLen.isNotBlank()) {
+        if (supports("length") && minLen.isNotBlank()) {
             params[if (medium == "anime") "min_episodes" else "min_chapters"] = minLen
         }
-        if (medium == "anime") put("dub_lang", dubLang)
+        if (supports("dub_lang")) put("dub_lang", dubLang)
         if (excludeMal && malUser.isNotBlank()) params["mal_user"] = malUser
         if (excludeAnilist && anilistUser.isNotBlank()) params["anilist_user"] = anilistUser
         if (keepPlanned) params["keep_planned"] = "true"

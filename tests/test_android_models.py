@@ -146,6 +146,11 @@ def test_filter_state_only_builds_parameters_the_server_reads():
     for path in ENDPOINTS.values():
         known |= server_params(path)
     source = FILTER_STATE.read_text()
+    # From the first parameter builder onward. Everything above it is state
+    # and bookkeeping that happens to use the same Kotlin `to` syntax - the
+    # per-medium UNSUPPORTED map reads "book" to setOf(...) - and scanning
+    # it reported a medium name as a query parameter no endpoint reads.
+    source = source[source.index("fun filterParams") :]
     # params["x"] = ... and "x" to ... are the two shapes that file uses.
     used = set(re.findall(r'params\["([a-z_]+)"\]', source))
     used |= set(re.findall(r'"([a-z_]+)" to ', source))
