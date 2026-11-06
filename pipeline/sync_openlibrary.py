@@ -431,7 +431,15 @@ def sync(
     min_description: int,
     batch: int = 1000,
     cache: Path | None = DUMP_CACHE,
+    status: dict | None = None,
 ) -> int:
+    """Import the dump; returns the number of books written.
+
+    Pass `status` to learn whether the pass was complete. A stream that
+    ends early stops the import rather than raising, and records why
+    under status["truncated"] - printed here too, but a caller deciding
+    whether a dataset can be published cannot read stdout.
+    """
     import json
 
     import psycopg
@@ -440,7 +448,7 @@ def sync(
 
     written = skipped = 0
     started = time.monotonic()
-    status: dict = {}
+    status = {} if status is None else status
     pending: list[dict] = []
 
     with psycopg.connect(settings.database_url) as conn:
