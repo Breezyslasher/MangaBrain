@@ -168,10 +168,27 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
             FilterState.maxPopularity
         ) { FilterState.maxPopularity = it }
 
-        // The dub filter is anime-only, like the web client's.
-        val anime = FilterState.medium == "anime"
-        view.findViewById<View>(R.id.dubLabel).visibility = if (anime) View.VISIBLE else View.GONE
-        view.findViewById<View>(R.id.dubSpinner).visibility = if (anime) View.VISIBLE else View.GONE
+        // Visibility from the same answer the query uses, so a control is
+        // shown exactly when it would be sent. Offering one that cannot
+        // change the result is the worse failure of the two: on the Books
+        // tab, Origin and Status do not merely get ignored, they match no
+        // book at all, so the grid empties with nothing to explain why.
+        fun rows(control: String, vararg ids: Int) {
+            val visible = if (FilterState.supports(control)) View.VISIBLE else View.GONE
+            for (id in ids) view.findViewById<View>(id)?.visibility = visible
+        }
+        rows("dub_lang", R.id.dubLabel, R.id.dubSpinner)
+        rows("min_score", R.id.minScore)
+        rows("country", R.id.originLabel, R.id.countrySpinner)
+        rows("status", R.id.statusLabel, R.id.statusSpinner)
+        rows("max_popularity", R.id.popularityLabel, R.id.popularitySpinner)
+        rows("length", R.id.lengthRow)
+        // Format has no table entry: the vocabulary itself is the answer, and
+        // for books it is empty, leaving a spinner whose only choice is "Any".
+        val hasFormats = FilterState.formatsForMedium().isNotEmpty()
+        for (id in listOf(R.id.formatLabel, R.id.formatSpinner)) {
+            view.findViewById<View>(id)?.visibility = if (hasFormats) View.VISIBLE else View.GONE
+        }
     }
 
     private fun bindSpinner(

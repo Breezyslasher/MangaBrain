@@ -17,17 +17,61 @@ const state = {
 const PAGE_SIZE = 60;
 const MAX_MIX = 5;
 
+// Controls a medium has no data behind. Hiding them is not cosmetic: a
+// value left in a box still went into the query after switching tabs, and
+// three of these exclude every book at the SQL level rather than being
+// ignored, because a NULL country never equals 'JP'. So one table drives
+// both the hiding and the query, and the Books tab cannot ask a question
+// books have no answer to.
+//
+// Score is here for a different reason from the rest. A book can have a
+// NULL score and still be a good book, so the API now lets unscored titles
+// pass the floor - but that makes the control a no-op on this tab rather
+// than a filter, and a no-op slider is worse than an absent one.
+const UNSUPPORTED = {
+  book: ["minScore", "country", "status", "maxPop", "minLen", "maxLen"],
+};
+
+function supports(id) {
+  return !(UNSUPPORTED[state.medium] || []).includes(id);
+}
+
+function controlValue(id) {
+  const el = $(id);
+  if (!el || !supports(id)) return "";
+  return el.value;
+}
+
 const FORMATS = {
   anime: ["TV", "TV_SHORT", "MOVIE", "OVA", "ONA", "SPECIAL", "MUSIC"],
   manga: ["MANGA"],
   light_novel: ["NOVEL"],
   one_shot: ["ONE_SHOT"],
+  // Open Library has no format vocabulary - a work is a work - so the
+  // format filter has nothing to offer for books. An empty list leaves
+  // the control out rather than showing an empty dropdown.
+  book: [],
 };
 
 const GENRES = [
-  "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror",
-  "Mahou Shoujo", "Mecha", "Music", "Mystery", "Psychological", "Romance",
-  "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller",
+  "Action",
+  "Adventure",
+  "Comedy",
+  "Drama",
+  "Ecchi",
+  "Fantasy",
+  "Horror",
+  "Mahou Shoujo",
+  "Mecha",
+  "Music",
+  "Mystery",
+  "Psychological",
+  "Romance",
+  "Sci-Fi",
+  "Slice of Life",
+  "Sports",
+  "Supernatural",
+  "Thriller",
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -38,7 +82,10 @@ const $ = (id) => document.getElementById(id);
 function on(id, event, fn) {
   const node = $(id);
   if (node) node.addEventListener(event, fn);
-  else console.warn(`missing #${id} - stale cached index.html? Hard-refresh the page.`);
+  else
+    console.warn(
+      `missing #${id} - stale cached index.html? Hard-refresh the page.`,
+    );
 }
 
 const isChecked = (id) => {
@@ -63,10 +110,11 @@ function authHeaders() {
 }
 
 async function authFetch(url, options = {}) {
-  const withAuth = () => fetch(url, {
-    ...options,
-    headers: { ...(options.headers || {}), ...authHeaders() },
-  });
+  const withAuth = () =>
+    fetch(url, {
+      ...options,
+      headers: { ...(options.headers || {}), ...authHeaders() },
+    });
   const used = localStorage.getItem("mb_token") || "";
   let resp = await withAuth();
   if (resp.status === 401) {
@@ -75,10 +123,13 @@ async function authFetch(url, options = {}) {
     // one this request failed with; otherwise another caller already asked
     // (window.prompt blocks the thread, serializing the continuations).
     if ((localStorage.getItem("mb_token") || "") === used) {
-      const token = window.prompt("This MangaBrain server requires an access token:");
+      const token = window.prompt(
+        "This MangaBrain server requires an access token:",
+      );
       if (token && token.trim()) localStorage.setItem("mb_token", token.trim());
     }
-    if ((localStorage.getItem("mb_token") || "") !== used) resp = await withAuth();
+    if ((localStorage.getItem("mb_token") || "") !== used)
+      resp = await withAuth();
   }
   return resp;
 }
@@ -96,7 +147,11 @@ async function api(path, params = {}) {
   const resp = await authFetch(url);
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({}));
-    throw new Error(body.detail ? JSON.stringify(body.detail) : `Request failed (${resp.status})`);
+    throw new Error(
+      body.detail
+        ? JSON.stringify(body.detail)
+        : `Request failed (${resp.status})`,
+    );
   }
   return resp.json();
 }
@@ -106,26 +161,30 @@ function filterParams() {
     adult: $("adult").checked ? "true" : "",
     year_min: $("yearMin").value,
     year_max: $("yearMax").value,
-    min_score: $("minScore").value,
-    country: $("country").value,
-    status: $("status").value,
+    min_score: controlValue("minScore"),
+    country: controlValue("country"),
+    status: controlValue("status"),
     format: $("format").value,
-    max_popularity: $("maxPop").value,
+    max_popularity: controlValue("maxPop"),
     genre_in: GENRES.filter((g) => state.genreState[g] === "inc"),
     genre_ex: GENRES.filter((g) => state.genreState[g] === "exc"),
-    tag_in: Object.keys(state.tagState).filter((t) => state.tagState[t] === "inc"),
-    tag_ex: Object.keys(state.tagState).filter((t) => state.tagState[t] === "exc"),
+    tag_in: Object.keys(state.tagState).filter(
+      (t) => state.tagState[t] === "inc",
+    ),
+    tag_ex: Object.keys(state.tagState).filter(
+      (t) => state.tagState[t] === "exc",
+    ),
   };
   // One control per bound, mapped to the field the medium uses. A floor was
   // missing until now, so "a long series to sink into" could not be asked
   // for at all. Unknown lengths pass both bounds: an absent episode count is
   // not evidence a title is short, nor that it is long.
-  const maxLen = $("maxLen").value;
+  const maxLen = controlValue("maxLen");
   if (maxLen) {
     if (state.medium === "anime") params.max_episodes = maxLen;
     else params.max_chapters = maxLen;
   }
-  const minLen = $("minLen") ? $("minLen").value : "";
+  const minLen = controlValue("minLen");
   if (minLen) {
     if (state.medium === "anime") params.min_episodes = minLen;
     else params.min_chapters = minLen;
@@ -181,9 +240,13 @@ function setStatus(text) {
 
 function mediaTitle(media) {
   if (state.titleLang === "english") {
-    return media.title_english || media.title || media.title_native || `#${media.id}`;
+    return (
+      media.title_english || media.title || media.title_native || `#${media.id}`
+    );
   }
-  return media.title || media.title_english || media.title_native || `#${media.id}`;
+  return (
+    media.title || media.title_english || media.title_native || `#${media.id}`
+  );
 }
 
 function formatMembers(n) {
@@ -200,7 +263,8 @@ function mediaMeta(media) {
   if (media.average_score) parts.push(String(media.average_score));
   const members = formatMembers(media.popularity);
   if (members) parts.push(members);
-  if (media.medium && media.medium !== state.medium) parts.push(media.medium.replaceAll("_", " "));
+  if (media.medium && media.medium !== state.medium)
+    parts.push(media.medium.replaceAll("_", " "));
   // Measured and inherited dubs are labelled differently: "dub" means AniList
   // credits an English voice actor for this entry, "dub (series)" means a
   // relative is dubbed and this entry inherited it, which is a weaker claim.
@@ -301,7 +365,7 @@ async function loadDubLanguages() {
       "dub language picker: /dub/languages failed, keeping the English" +
         " fallback. If this is a 404 the API container predates the" +
         " endpoint and needs pulling.",
-      err
+      err,
     );
   }
 }
@@ -422,7 +486,12 @@ function renderPending() {
     // query's facets found it.
     const badge = "badge" in item ? item.badge : `${item.similarity}%`;
     grid.appendChild(
-      card(item.media, badge, () => loadRecommendations(item.media.id), item.components)
+      card(
+        item.media,
+        badge,
+        () => loadRecommendations(item.media.id),
+        item.components,
+      ),
     );
   }
   state.shown += next.length;
@@ -448,7 +517,12 @@ async function runDescribe(text) {
   clearResults();
   setStatus("Reading the catalog...");
   try {
-    const params = { ...filterParams(), medium: state.medium, q: term, limit: "60" };
+    const params = {
+      ...filterParams(),
+      medium: state.medium,
+      q: term,
+      limit: "60",
+    };
     const data = await api("/describe", params);
     renderDescribed(data);
   } catch (err) {
@@ -473,7 +547,7 @@ function renderDescribed(data) {
   setStatus(
     data.results.length
       ? ""
-      : "Nothing matches that description. Try fewer words, or loosen the filters."
+      : "Nothing matches that description. Try fewer words, or loosen the filters.",
   );
 }
 
@@ -511,11 +585,7 @@ async function runSearch(query, withFilters = false) {
     if (data.results.length) {
       setStatus("");
     } else {
-      setStatus(
-        withFilters
-          ? "No titles match those filters."
-          : "No matches."
-      );
+      setStatus(withFilters ? "No titles match those filters." : "No matches.");
     }
     const grid = $("results");
     for (const media of data.results) {
@@ -642,7 +712,9 @@ function renderRecommendations(data) {
   state.pending = data.results;
   state.shown = 0;
   renderPending();
-  setStatus(data.results.length ? "" : "No recommendations pass the active filters.");
+  setStatus(
+    data.results.length ? "" : "No recommendations pass the active filters.",
+  );
 
   // Only move the page when the seeds actually changed (a new title, a
   // Surprise me, a fresh For-you draw). Adjusting a slider or filter
@@ -725,9 +797,11 @@ async function loadAccountSettings() {
     const data = await api("/settings");
     if (data.anilist_username) $("alUser").value = data.anilist_username;
     if (data.mal_username) $("malUser").value = data.mal_username;
-    if (data.kitsu_username && $("kitsuUser")) $("kitsuUser").value = data.kitsu_username;
+    if (data.kitsu_username && $("kitsuUser"))
+      $("kitsuUser").value = data.kitsu_username;
     if (data.yamtrack_url) $("ytUrl").value = data.yamtrack_url;
-    if (data.yamtrack_token_set) $("ytToken").placeholder = "saved (enter to replace)";
+    if (data.yamtrack_token_set)
+      $("ytToken").placeholder = "saved (enter to replace)";
   } catch {
     // Settings are a convenience; the app works without them.
   }
@@ -743,7 +817,8 @@ async function saveAccountSettings() {
   // an empty string would clear the stored value server-side.
   if ($("kitsuUser")) body.kitsu_username = $("kitsuUser").value.trim();
   // Token is write-only: only send it when the user typed a new one.
-  if ($("ytToken").value.trim()) body.yamtrack_token = $("ytToken").value.trim();
+  if ($("ytToken").value.trim())
+    body.yamtrack_token = $("ytToken").value.trim();
   $("acctStatus").textContent = "Saving...";
   try {
     const resp = await authFetch("/settings", {
@@ -754,7 +829,8 @@ async function saveAccountSettings() {
     if (!resp.ok) throw new Error(`Save failed (${resp.status})`);
     const data = await resp.json();
     $("ytToken").value = "";
-    if (data.yamtrack_token_set) $("ytToken").placeholder = "saved (enter to replace)";
+    if (data.yamtrack_token_set)
+      $("ytToken").placeholder = "saved (enter to replace)";
     $("acctStatus").textContent = "Saved.";
   } catch (err) {
     $("acctStatus").textContent = err.message;
@@ -800,8 +876,10 @@ async function loadForYou() {
   const malName = $("malUser").value.trim();
   const hasListSource = isChecked("kitsuExclude") || isChecked("ytExclude");
   if (!anilistName && !malName && !hasListSource) {
-    setStatus("Enter an AniList or MAL username, or sync Kitsu/Yamtrack and"
-      + " tick its exclude box, then try again.");
+    setStatus(
+      "Enter an AniList or MAL username, or sync Kitsu/Yamtrack and" +
+        " tick its exclude box, then try again.",
+    );
     return;
   }
   state.mode = { type: "foryou" };
@@ -851,7 +929,10 @@ async function rerunForYou() {
 async function surprise() {
   setStatus("Rolling the dice...");
   try {
-    const media = await api("/random", { medium: state.medium, ...filterParams() });
+    const media = await api("/random", {
+      medium: state.medium,
+      ...filterParams(),
+    });
     await loadRecommendations(media.id);
   } catch (err) {
     setStatus(err.message);
@@ -866,7 +947,10 @@ async function refreshMal() {
   }
   $("malStatus").textContent = "Fetching lists (this can take a minute)...";
   try {
-    const resp = await authFetch(`/mal/${encodeURIComponent(username)}/refresh`, { method: "POST" });
+    const resp = await authFetch(
+      `/mal/${encodeURIComponent(username)}/refresh`,
+      { method: "POST" },
+    );
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({}));
       throw new Error(body.detail || `Refresh failed (${resp.status})`);
@@ -890,6 +974,18 @@ function populateFormats() {
     select.appendChild(opt);
   }
   $("formatWrap").style.display = state.medium === "anime" ? "" : "none";
+  // Each of these sits in its own <label>, which is the row to hide.
+  for (const id of [
+    "minScore",
+    "country",
+    "status",
+    "maxPop",
+    "minLen",
+    "maxLen",
+  ]) {
+    const row = $(id) && $(id).closest("label");
+    if (row) row.style.display = supports(id) ? "" : "none";
+  }
   // Print media has no dub, so the toggle is hidden rather than ignored.
   $("dubbedRow").style.display = state.medium === "anime" ? "" : "none";
   if (state.medium === "anime") {
@@ -910,7 +1006,8 @@ function renderGenreChips() {
     chip.textContent = genre;
     chip.addEventListener("click", () => {
       if (state.genreState[genre] === "inc") state.genreState[genre] = "exc";
-      else if (state.genreState[genre] === "exc") delete state.genreState[genre];
+      else if (state.genreState[genre] === "exc")
+        delete state.genreState[genre];
       else state.genreState[genre] = "inc";
       renderGenreChips();
       rerunActive();
@@ -1046,9 +1143,12 @@ async function refreshAnilist() {
   }
   $("alStatus").textContent = "Fetching lists...";
   try {
-    const resp = await authFetch(`/anilist/${encodeURIComponent(username)}/refresh`, {
-      method: "POST",
-    });
+    const resp = await authFetch(
+      `/anilist/${encodeURIComponent(username)}/refresh`,
+      {
+        method: "POST",
+      },
+    );
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({}));
       throw new Error(body.detail || `Refresh failed (${resp.status})`);
@@ -1064,7 +1164,8 @@ async function refreshAnilist() {
 
 function rerunActive() {
   if (!state.mode) return;
-  if (state.mode.type === "single") loadRecommendations(state.mode.id, { updateHash: false });
+  if (state.mode.type === "single")
+    loadRecommendations(state.mode.id, { updateHash: false });
   else if (state.mode.type === "mix") loadMix();
   else if (state.mode.type === "foryou") rerunForYou();
 }
@@ -1076,9 +1177,10 @@ const PATH_TO_MEDIUM = {
   "/manga": "manga",
   "/light-novel": "light_novel",
   "/one-shot": "one_shot",
+  "/books": "book",
 };
 const MEDIUM_TO_PATH = Object.fromEntries(
-  Object.entries(PATH_TO_MEDIUM).map(([path, medium]) => [medium, path])
+  Object.entries(PATH_TO_MEDIUM).map(([path, medium]) => [medium, path]),
 );
 
 function setMedium(medium) {
@@ -1091,7 +1193,9 @@ function setMedium(medium) {
 }
 
 function applyHash() {
-  const match = location.hash.match(/^#\/rec\/(anime|manga|light_novel|one_shot)\/(\d+)$/);
+  const match = location.hash.match(
+    /^#\/rec\/(anime|manga|light_novel|one_shot|book)\/(\d+)$/,
+  );
   if (!match) return false;
   setMedium(match[1]);
   loadRecommendations(Number(match[2]), { updateHash: false });
@@ -1104,12 +1208,20 @@ function bindEvents() {
       setMedium(button.dataset.medium);
       state.mode = null;
       // Keep the URL shareable: the medium lives in the path, hash cleared.
-      history.replaceState(null, "", MEDIUM_TO_PATH[button.dataset.medium] || "/");
+      history.replaceState(
+        null,
+        "",
+        MEDIUM_TO_PATH[button.dataset.medium] || "/",
+      );
       runSearch($("search").value);
     });
   }
 
-  on("search", "input", debounce((e) => runSearch(e.target.value), 300));
+  on(
+    "search",
+    "input",
+    debounce((e) => runSearch(e.target.value), 300),
+  );
 
   // The button is the only way to apply the filter panel to the catalog;
   // typing stays a plain title lookup so picking a seed is not slowed down
@@ -1139,9 +1251,26 @@ function bindEvents() {
     on(slider, "change", rerunActive);
   }
 
-  for (const id of ["adult", "dubLang", "crossMedia", "excludeFranchise", "yearMin", "yearMax",
-                    "minScore", "country", "status", "format", "maxPop", "maxLen", "minLen",
-                    "malExclude", "alExclude", "kitsuExclude", "ytExclude", "keepPlanned"]) {
+  for (const id of [
+    "adult",
+    "dubLang",
+    "crossMedia",
+    "excludeFranchise",
+    "yearMin",
+    "yearMax",
+    "minScore",
+    "country",
+    "status",
+    "format",
+    "maxPop",
+    "maxLen",
+    "minLen",
+    "malExclude",
+    "alExclude",
+    "kitsuExclude",
+    "ytExclude",
+    "keepPlanned",
+  ]) {
     on(id, "change", rerunActive);
   }
 
