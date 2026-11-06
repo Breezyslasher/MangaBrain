@@ -105,12 +105,26 @@ def install_tmdb(request: dict, report: Callable[[dict], None]) -> str:
 
 
 def install_tvmaze(request: dict, report: Callable[[dict], None]) -> str:
-    """TV: the whole TVmaze index, a few minutes. No key, no release - a
-    full read is cheap enough that the worker repeats it nightly."""
-    from pipeline import sync_tvmaze
+    """TV: the newest published TV release first, if there is one this
+    database has not loaded - it carries the embeddings, hours of NAS work
+    - then a full TVmaze read to top it up, a few minutes. With no release
+    yet, or GitHub unreachable, the read alone does the job."""
+    from pipeline import sync_tvmaze, tv_dataset
+    from pipeline.sync_anilist import get_state
 
+    loaded = ""
+    try:
+        url = tv_dataset.find_release()
+    except httpx.HTTPError:
+        url = None
+    if url is not None:
+        with _connect() as conn:
+            done = (get_state(conn, tv_dataset.LOADED_RELEASE_KEY) or {}).get("manifest")
+        if done != url:
+            result = tv_dataset.load(url, progress=report)
+            loaded = f" Loaded {result['embeddings']:,} embeddings from the published release."
     tally = sync_tvmaze.sync(progress=report)
-    return f"Fetched {tally['kept']:,} TV shows from TVmaze ({tally['read']:,} read)."
+    return f"Fetched {tally['kept']:,} TV shows from TVmaze ({tally['read']:,} read).{loaded}"
 
 
 INSTALLERS: dict[str, Callable[[dict, Callable[[dict], None]], str]] = {

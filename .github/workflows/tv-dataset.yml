@@ -1,0 +1,121 @@
+name: tv-dataset
+
+# TVmaze's shows with their embeddings, published so a new install loads
+# them instead of spending hours embedding ~48,000 shows on its own CPU.
+#
+# TVmaze's API is CC BY-SA ("the data can freely be used for any purpose,
+# as long as TVmaze is properly credited as source and your usage
+# complies with the ShareAlike provision"), so the release is CC BY-SA
+# too, credited to TVmaze, with the licence alongside. Only TVmaze's rows
+# are exported (pipeline.tv_dataset): TMDB's terms forbid redistribution,
+# and its shows never enter this build in the first place.
+#
+# One job: the fetch is minutes and the embedding a couple of hours on a
+# runner, so no checkpoint chain like the books build needs.
+on:
+  schedule:
+    # Weekly; cheap, and TVmaze changes daily.
+    - cron: "17 5 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tv-dataset
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: mangabrain
+          POSTGRES_PASSWORD: mangabrain
+          POSTGRES_DB: mangabrain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mangabrain -d mangabrain"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://mangabrain:mangabrain@localhost:5432/mangabrain
+      PYTHONUNBUFFERED: "1"
+      # All four cores; a runner serves nothing else.
+      EMBED_THREADS: "4"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project (CPU torch)
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install .
+
+      - name: Fetch TVmaze, embed, export
+        run: python -m pipeline.tv_dataset build --out tv-dataset
+
+      - name: Add the licence
+        run: |
+          cat > tv-dataset/LICENSE-TVmaze.txt <<'LICENCE'
+          TV data from TVmaze (https://www.tvmaze.com), used under the
+          Creative Commons Attribution-ShareAlike 4.0 licence
+          (https://creativecommons.org/licenses/by-sa/4.0/), as TVmaze's
+          API terms allow: "the data can freely be used for any purpose, as
+          long as TVmaze is properly credited as source and your usage
+          complies with the ShareAlike provision."
+
+          This dataset - the shows' names, summaries, genres, types,
+          statuses, premiere years, countries, image links and external ids,
+          and the embeddings computed from them - is itself released under
+          CC BY-SA 4.0.
+          LICENCE
+
+      # --latest=false: the latest marker belongs to the anime dataset,
+      # which every new install seeds from by that URL.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'NOTES'
+          TV shows from TVmaze with their synopsis embeddings: every show
+          with a summary of at least 200 characters, Japanese animation
+          left to the anime catalogue.
+
+          Licensed CC BY-SA 4.0. TV data from TVmaze
+          (https://www.tvmaze.com); see LICENSE-TVmaze.txt.
+
+          Load with:
+
+              python -m pipeline.tv_dataset load --release latest
+
+          The worker does this by itself when TV Shows is switched on in
+          Settings > Media, then tops it up from TVmaze. Loading MERGES:
+          only TVmaze's rows are touched, a show re-read more recently is
+          not rolled back, and embeddings computed locally are kept.
+          NOTES
+          TAG="tv-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$TAG" tv-dataset/* --latest=false \
+            --title "TV shows $(date -u +%F)" --notes-file notes.md
+
+      - name: Prune old TV releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Keep the two newest. tv- only, so nothing else is ever touched.
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '[.[] | select(.tag_name | startswith("tv-"))] | sort_by(.created_at) | reverse | .[2:] | .[].tag_name' |
+          while read -r tag; do
+            echo "pruning $tag"
+            gh release delete "$tag" --cleanup-tag --yes || true
+          done
