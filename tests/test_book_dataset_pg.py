@@ -334,3 +334,37 @@ def test_the_embed_upsert_writes_on_a_real_server(two_dbs):
             " WHERE media_id = 5 AND embed_model = 'model-v1'"
         ).fetchone()
     assert got == (DIM,)
+
+
+def test_a_seed_load_builds_the_vector_indexes_afterwards(two_dbs, tmp_path):
+    """Dropped for the bulk load, and back once it is in - the install
+    must not be left searching by sequential scan."""
+    import psycopg
+
+    from api.db import ensure_schema
+    from pipeline import book_dataset as bd
+
+    urls, use = two_dbs
+    out, _, _ = build_source(urls, use, tmp_path)
+    use(urls[1])
+    ensure_schema()
+    result = bd.load(out / bd.MANIFEST_NAME, ensure=False, rebuild_indexes=True)
+    assert result["inserted"] == 3 and result["embeddings"] == 2
+    with psycopg.connect(urls[1]) as conn:
+        names = {r[0] for r in conn.execute("SELECT indexname FROM pg_indexes").fetchall()}
+    assert set(bd.VECTOR_INDEXES) <= names
+
+
+def test_the_seed_flag_round_trips_through_sync_state(two_dbs):
+    from api.db import ensure_schema
+    from pipeline import book_dataset as bd
+
+    urls, use = two_dbs
+    use(urls[0])
+    ensure_schema()
+    assert bd.seed_pending() is False
+    bd.mark_seed_pending()
+    bd.mark_seed_pending()  # idempotent
+    assert bd.seed_pending() is True
+    bd.clear_seed_pending()
+    assert bd.seed_pending() is False

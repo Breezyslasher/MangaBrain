@@ -44,6 +44,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import time
 import zlib
@@ -384,11 +385,33 @@ def iter_payload(manifest: dict, base: str | Path):
         raise ValueError("the dataset ends mid-stream; a part is missing")
 
 
+def vector_index_ddl() -> list[str]:
+    """The vector indexes' CREATE statements, read from db/schema.sql.
+
+    Read rather than restated, so a change to the indexes - a new
+    dimension, a new parameter - cannot leave a stale copy here building
+    the old one.
+    """
+    from api.db import _schema_path
+
+    path = _schema_path()
+    if path is None:
+        raise FileNotFoundError("db/schema.sql not found")
+    statements = re.findall(
+        r"CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw_\d+\b.*?;", path.read_text(), re.S
+    )
+    names = sorted(stmt.split()[5] for stmt in statements)
+    if names != sorted(VECTOR_INDEXES):
+        raise ValueError(f"schema.sql defines vector indexes {names}, expected {VECTOR_INDEXES}")
+    return statements
+
+
 def load(
     location: str | Path,
     state_path: Path | None = None,
     from_release: bool = False,
     ensure: bool = True,
+    rebuild_indexes: bool = False,
 ) -> dict:
     import psycopg
 
@@ -405,6 +428,13 @@ def load(
     model = current_model_id()
     started = time.monotonic()
     with psycopg.connect(settings.database_url) as conn:
+        if rebuild_indexes:
+            # A bulk load into an empty-ish catalogue builds the HNSW graph
+            # faster once, afterwards, than one insert at a time - pgvector's
+            # own guidance. Inside the transaction, so a failed load puts the
+            # indexes back with everything else.
+            for name in VECTOR_INDEXES:
+                conn.execute(f"DROP INDEX IF EXISTS {name}")
         conn.execute("DROP TABLE IF EXISTS book_stage")
         conn.execute(STAGE_SQL)
         target = [list(r) for r in conn.execute(STAGE_TYPES_SQL).fetchall()]
@@ -435,6 +465,19 @@ def load(
         conn.execute("DROP TABLE book_stage")
         conn.commit()
 
+    if rebuild_indexes:
+        # The two statements alone, not ensure_schema(): that holds an
+        # advisory lock the API also takes at startup, and an API restart
+        # during an hour-long index build would hang behind it. If this
+        # process dies before the build finishes, the next startup's
+        # ensure_schema() creates the indexes anyway.
+        built = time.monotonic()
+        print("[books] building the vector indexes over the loaded catalogue", flush=True)
+        with psycopg.connect(settings.database_url, autocommit=True) as conn:
+            for ddl in vector_index_ddl():
+                conn.execute(ddl)
+        print(f"[books] vector indexes built in {time.monotonic() - built:.0f}s", flush=True)
+
     state = dict(manifest.get("state") or {})
     if from_release:
         # What the newest release already carries, so a build that
@@ -447,6 +490,83 @@ def load(
         flush=True,
     )
     return {"staged": staged, "inserted": inserted, "updated": updated, "embeddings": vectors}
+
+
+# ---------------------------------------------------------------------
+# Seeding a fresh install
+#
+# A fresh install gets the books release as well as the AniList one.
+# Fresh only: an install that already has a catalogue and upgrades must
+# not find itself downloading 3.5 GB and filling about 6 GB of disk it
+# never asked for. Such installs load it on purpose:
+#
+#     python -m pipeline.book_dataset load --release latest
+#
+# The intent is recorded in sync_state when the install is found empty,
+# and cleared once the books are in. That is what lets the seed retry: a
+# release may not exist yet - the first build takes about two days - or a
+# download may fail, and an install made today should still end up with
+# books, on a later nightly pass, without anyone remembering to ask.
+
+SEED_FLAG_KEY = "books_seed_pending"
+
+FLAG_SET_SQL = """
+    INSERT INTO sync_state (key, value) VALUES (%(key)s, 'true'::jsonb)
+    ON CONFLICT (key) DO UPDATE SET value = 'true'::jsonb, updated_at = now()
+"""
+FLAG_GET_SQL = "SELECT 1 FROM sync_state WHERE key = %(key)s"
+FLAG_CLEAR_SQL = "DELETE FROM sync_state WHERE key = %(key)s"
+
+
+def mark_seed_pending() -> None:
+    import psycopg
+
+    from api.config import settings
+
+    with psycopg.connect(settings.database_url) as conn:
+        conn.execute(FLAG_SET_SQL, {"key": SEED_FLAG_KEY})
+        conn.commit()
+
+
+def seed_pending() -> bool:
+    import psycopg
+
+    from api.config import settings
+
+    with psycopg.connect(settings.database_url) as conn:
+        return conn.execute(FLAG_GET_SQL, {"key": SEED_FLAG_KEY}).fetchone() is not None
+
+
+def clear_seed_pending() -> None:
+    import psycopg
+
+    from api.config import settings
+
+    with psycopg.connect(settings.database_url) as conn:
+        conn.execute(FLAG_CLEAR_SQL, {"key": SEED_FLAG_KEY})
+        conn.commit()
+
+
+def maybe_seed(repo: str = DEFAULT_REPO) -> bool:
+    """Load the newest books release if this install is waiting for one.
+
+    Never raises: a seed is best-effort, and a failure here must not cost
+    the nightly pass its AniList sync. Returns True only when it loaded.
+    """
+    try:
+        if not seed_pending():
+            return False
+        url = find_release_manifest(repo)
+        if url is None:
+            print("[books] no books release published yet; will try on the next pass", flush=True)
+            return False
+        print(f"[books] seeding this install from {url}", flush=True)
+        load(url, ensure=False, rebuild_indexes=True)
+        clear_seed_pending()
+        return True
+    except Exception as exc:  # noqa: BLE001 - best-effort by design
+        print(f"[books] seed failed ({type(exc).__name__}: {exc}); will retry", flush=True)
+        return False
 
 
 # ---------------------------------------------------------------------

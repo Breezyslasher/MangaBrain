@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     # pipeline.restore). Best-effort: on failure the worker falls back to a
     # normal full sync.
     seed_snapshot_url: str = ""
+    # Also seed the books release into a fresh install (pipeline.book_dataset).
+    # On by default, since Books is a tab like any other; about 3.5 GB to
+    # download and 6 GB on disk, so set SEED_BOOKS=false to skip it. Fresh
+    # installs only - an existing install that upgrades is never made to
+    # download it, and loads it on purpose with
+    # `python -m pipeline.book_dataset load --release latest`.
+    seed_books: bool = True
     # Optional self-hosted Yamtrack instance for list exclusion (see
     # api/routers/yamtrack.py). Token comes from the Yamtrack profile page.
     yamtrack_url: str = ""

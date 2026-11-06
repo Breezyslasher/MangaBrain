@@ -1,4 +1,12 @@
-name: dataset-publish
+name: AniList dataset (anime, manga, light novels)
+
+# Display name only. The file name, the asset name, the tag prefix and the
+# cache key all stay as they were, and each has something depending on it:
+# every install seeds from releases/latest/download/mangabrain-dataset.dump,
+# the resume step dispatches this file by name, the prune step and the
+# books workflow both key on the dataset- tag prefix, and a new cache
+# prefix would orphan the checkpoint and cost a 272-minute sync.
+# tests/test_dataset_names.py pins all four.
 
 on:
   schedule:
@@ -315,7 +323,7 @@ jobs:
           NOTES
           TAG="dataset-$(date -u +%Y%m%d-%H%M%S)"
           gh release create "$TAG" mangabrain-dataset.dump --latest \
-            --title "Catalog snapshot $(date -u +%F)" --notes-file notes.md
+            --title "AniList catalog $(date -u +%F)" --notes-file notes.md
 
       - name: Prune old snapshots
         env:

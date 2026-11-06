@@ -163,6 +163,12 @@ def main() -> None:
     from api.db import ensure_schema
 
     ensure_schema()
+    from pipeline import book_dataset
+    from pipeline.restore import catalog_is_empty
+
+    # Decided before any seed runs, since the AniList seed is what makes
+    # the catalogue non-empty.
+    fresh = catalog_is_empty()
     if settings.seed_snapshot_url:
         from pipeline.restore import seed_if_empty
 
@@ -171,10 +177,19 @@ def main() -> None:
         except Exception:
             traceback.print_exc()
             print("[nightly] snapshot seed failed; continuing with a normal sync")
+    # After the AniList seed, never before: that restore runs pg_restore
+    # --clean over sync_state, where this flag lives, and over media.
+    if fresh and settings.seed_books:
+        book_dataset.mark_seed_pending()
     client = RateLimitedClient(min_interval=settings.anilist_min_interval)
     interval = settings.sync_interval_hours * 3600
     while True:
         succeeded = True
+        # Each pass, until it lands: the first books release may not exist
+        # yet when an install is made, and a download may fail. Best-effort
+        # and never raises, so it cannot cost the pass its AniList sync.
+        if settings.seed_books:
+            book_dataset.maybe_seed()
         try:
             run_once(client)
         except Exception:
