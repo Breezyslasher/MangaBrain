@@ -153,3 +153,43 @@ def test_the_year_bounds_match_the_length_bounds():
     year = joined(build_filters(year_min=1990)[0])
     episodes = joined(build_filters(min_episodes=12)[0])
     assert ("IS NULL OR" in year) == ("IS NULL OR" in episodes)
+
+
+def test_an_unscored_title_passes_the_score_floor():
+    """The third filter to need this rule, and the one that would have
+    emptied the Books tab outright.
+
+    An Open Library work has no rating this project will store, so every
+    book has a NULL average_score. A bare >= is NULL for them, so moving
+    the score slider at all returned nothing, with no explanation.
+    """
+    from api.filters import build_filters
+
+    def joined(sql):
+        return " ".join(sql) if isinstance(sql, list) else str(sql)
+
+    assert "m.average_score IS NULL OR m.average_score >= " in joined(
+        build_filters(min_score=70)[0]
+    )
+
+
+def test_every_numeric_bound_treats_missing_data_the_same_way():
+    """Lengths, years and scores are one principle, not three
+    decisions. Each was fixed separately, after a medium arrived that
+    exposed it - so the rule is pinned across all of them rather than
+    per filter."""
+    from api.filters import build_filters
+
+    def joined(sql):
+        return " ".join(sql) if isinstance(sql, list) else str(sql)
+
+    for kwargs, column in (
+        ({"min_episodes": 12}, "m.episodes"),
+        ({"max_episodes": 26}, "m.episodes"),
+        ({"min_chapters": 10}, "m.chapters"),
+        ({"year_min": 1990}, "m.start_year"),
+        ({"year_max": 2020}, "m.start_year"),
+        ({"min_score": 70}, "m.average_score"),
+    ):
+        sql = joined(build_filters(**kwargs)[0])
+        assert f"{column} IS NULL OR" in sql, kwargs

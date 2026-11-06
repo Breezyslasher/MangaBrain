@@ -52,8 +52,13 @@ def build_filters(
     if year_max is not None:
         clauses.append("(m.start_year IS NULL OR m.start_year <= %(f_year_max)s)")
         params["f_year_max"] = year_max
+    # Unscored passes, for the third time and the same reason. An Open
+    # Library work carries no rating this project will store - its
+    # ratings are an audience signal and the scoring function may not
+    # read one - so every book has a NULL average_score, and a bare >=
+    # emptied the Books tab the moment the score slider moved.
     if min_score is not None:
-        clauses.append("m.average_score >= %(f_min_score)s")
+        clauses.append("(m.average_score IS NULL OR m.average_score >= %(f_min_score)s)")
         params["f_min_score"] = min_score
     if countries:
         clauses.append("m.country_of_origin = ANY(%(f_countries)s)")
