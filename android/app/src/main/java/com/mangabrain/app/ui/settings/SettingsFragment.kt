@@ -68,11 +68,18 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
     enum class Page { HOME, ACCOUNTS, ACCOUNT, EXCLUDE, FOR_YOU, MEDIA, DISPLAY, SERVER }
 
     /** The four list sources. Badge colours are the 3b palette. */
-    enum class Account(val labelRes: Int, val initials: String, val bgRes: Int, val fgRes: Int) {
-        ANILIST(R.string.account_anilist, "AL", R.color.accent_bg, R.color.accent_text),
-        MAL(R.string.account_mal, "MAL", R.color.badge_mal_bg, R.color.badge_mal_fg),
-        KITSU(R.string.account_kitsu, "KT", R.color.badge_kitsu_bg, R.color.badge_kitsu_fg),
-        YAMTRACK(R.string.account_yamtrack, "YT", R.color.ok_bg, R.color.ok)
+    /**
+     * Each list's own logo on its brand colour. Yamtrack's mark is its full
+     * app icon (a PNG with its own dark square), so it is drawn as is and
+     * [tinted] is false; the other three are white Simple Icons glyphs.
+     */
+    enum class Account(
+        val labelRes: Int, val logoRes: Int, val bgRes: Int, val tinted: Boolean = true
+    ) {
+        ANILIST(R.string.account_anilist, R.drawable.logo_anilist, R.color.brand_anilist),
+        MAL(R.string.account_mal, R.drawable.logo_myanimelist, R.color.brand_mal),
+        KITSU(R.string.account_kitsu, R.drawable.logo_kitsu, R.color.brand_kitsu),
+        YAMTRACK(R.string.account_yamtrack, R.drawable.logo_yamtrack, R.color.brand_yamtrack, tinted = false)
     }
 
     /** What the server last reported for a synced list. */
@@ -245,7 +252,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         }
         val badges = LinearLayout(requireContext()).apply { orientation = LinearLayout.HORIZONTAL }
         for (a in connected) {
-            badges.addView(initialsBadge(a, 34, circle = true).apply {
+            badges.addView(accountBadge(a, 34, circle = true).apply {
                 layoutParams = LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginEnd = -dp(8) }
             })
         }
@@ -337,7 +344,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                     ).joinToString(" · ")
                     else -> usernames[a].orEmpty()
                 }
-                addView(row(initialsBadge(a, 36, circle = false), getString(a.labelRes), summary) {
+                addView(row(accountBadge(a, 36, circle = false), getString(a.labelRes), summary) {
                     account = a
                     open(Page.ACCOUNT)
                 })
@@ -357,7 +364,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(0, dp(18), 0, dp(22))
         }
-        header.addView(initialsBadge(a, 68, circle = false, radius = 20f, textSize = 20f).apply {
+        header.addView(accountBadge(a, 68, circle = false, radius = 20f).apply {
             layoutParams = LinearLayout.LayoutParams(dp(68), dp(68))
         })
         header.addView(text(20f, R.color.text, bold = true).apply {
@@ -1222,19 +1229,14 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         setOnClickListener { onClick() }
     }
 
-    private fun initialsBadge(
+    private fun accountBadge(
         a: Account,
         sizeDp: Int,
         circle: Boolean,
-        radius: Float = 11f,
-        textSize: Float = if (sizeDp >= 40) 13f else 11f
-    ): TextView = TextView(requireContext()).apply {
-        text = a.initials
-        gravity = Gravity.CENTER
-        typeface = mono()
-        setTypeface(typeface, Typeface.BOLD)
-        this.textSize = textSize
-        setTextColor(color(a.fgRes))
+        radius: Float = 11f
+    ): ImageView = ImageView(requireContext()).apply {
+        setImageResource(a.logoRes)
+        contentDescription = getString(a.labelRes)
         background = GradientDrawable().apply {
             if (circle) {
                 shape = GradientDrawable.OVAL
@@ -1243,6 +1245,16 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 cornerRadius = dp(radius).toFloat()
             }
             setColor(color(a.bgRes))
+        }
+        // The background's shape is the outline, so the Yamtrack icon is
+        // cut to the same circle or rounded square as the other three.
+        clipToOutline = true
+        if (a.tinted) {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            val pad = dp(sizeDp) * 22 / 100
+            setPadding(pad, pad, pad, pad)
+        } else {
+            scaleType = ImageView.ScaleType.CENTER_CROP
         }
         layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
     }

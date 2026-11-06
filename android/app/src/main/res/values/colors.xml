@@ -36,4 +36,9 @@
     <color name="badge_kitsu_bg">#3A2A22</color>
     <color name="badge_kitsu_fg">#F0A77A</color>
     <color name="seed_meta">#A9B3CC</color>
+    <!-- List service brand colours, behind each service's logo in Settings. -->
+    <color name="brand_anilist">#02A9FF</color>
+    <color name="brand_mal">#2E51A2</color>
+    <color name="brand_kitsu">#FD755C</color>
+    <color name="brand_yamtrack">#2B2B2E</color>
 </resources>

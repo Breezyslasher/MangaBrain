@@ -1,0 +1,7 @@
+logo_yamtrack.png (app/src/main/res/drawable-nodpi) is the Yamtrack app
+icon, android-chrome-192x192.png from https://github.com/FuzzyGrim/Yamtrack
+(src/static/favicon), used unmodified to identify the Yamtrack account in
+Settings. Yamtrack is licensed under the GNU Affero General Public License
+v3.0. The AniList, MyAnimeList and Kitsu marks come from Simple Icons
+(LICENSE-SimpleIcons.txt). All four names and logos are trademarks of
+their respective owners and are shown only to identify each service.

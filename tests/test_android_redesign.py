@@ -121,14 +121,28 @@ def test_the_tab_bar_hides_on_detail_pages():
 
 def test_one_account_template_serves_all_four_lists():
     accounts = re.search(r"enum class Account\((.*?)\n    \}", SETTINGS, re.S).group(0)
-    for initials, bg, fg in (
-        ("AL", "accent_bg", "accent_text"),
-        ("MAL", "badge_mal_bg", "badge_mal_fg"),
-        ("KT", "badge_kitsu_bg", "badge_kitsu_fg"),
-        ("YT", "ok_bg", "ok"),
+    for logo, bg in (
+        ("logo_anilist", "brand_anilist"),
+        ("logo_myanimelist", "brand_mal"),
+        ("logo_kitsu", "brand_kitsu"),
+        ("logo_yamtrack", "brand_yamtrack"),
     ):
-        assert f'"{initials}", R.color.{bg}, R.color.{fg}' in accounts, initials
+        assert f"R.drawable.{logo}, R.color.{bg}" in accounts, logo
+        assert f'name="{bg}"' in COLORS, bg
     assert SETTINGS.count("private fun buildAccount(") == 1
+
+
+def test_each_list_shows_its_logo_with_its_licence():
+    drawables = ROOT / "res"
+    for name in ("logo_anilist", "logo_myanimelist", "logo_kitsu"):
+        vector = (drawables / f"drawable/{name}.xml").read_text()
+        assert "android:pathData=" in vector and "Simple Icons" in vector, name
+    png = (drawables / "drawable-nodpi/logo_yamtrack.png").read_bytes()
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    licenses = ROOT.parent.parent.parent / "licenses"
+    assert "CC0" in (licenses / "LICENSE-SimpleIcons.txt").read_text()
+    assert "Affero" in (licenses / "NOTICE-Yamtrack.txt").read_text()
+    assert "initialsBadge" not in SETTINGS
 
 
 def test_saving_one_account_leaves_the_other_three_alone():
