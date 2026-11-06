@@ -138,6 +138,21 @@ def progress_line(
     return " ".join(parts)
 
 
+def upsert_params(rows, stored_id: str, vectors) -> list[tuple]:
+    """One parameter tuple per row, shaped to UPSERT_SQL's placeholders.
+
+    Its own function so a test can hold it against the SQL. It carried a
+    fourth value from 5 Nov 2026 - an extra copy of the vector for a
+    binary_quantize column - and when that column was reverted the SQL
+    lost its placeholder but this tuple kept the value. psycopg rejects a
+    mismatch outright ("the query has 3 placeholders but 4 parameters
+    were passed"), so every embedding pass died on its first batch. The
+    source-text tests passed throughout: they read the SQL, and the SQL
+    was correct. Nothing checked the two against each other.
+    """
+    return [(row[0], stored_id, vec) for row, vec in zip(rows, vectors, strict=True)]
+
+
 def embed_missing(
     batch_size: int = 256,
     model_name: str | None = None,
@@ -173,10 +188,7 @@ def embed_missing(
             texts = [embed_text(row[1], row[2], row[3], row[4], row[5]) for row in rows]
             vectors = model.encode(texts, batch_size=encode_batch_size, normalize_embeddings=True)
             with conn.cursor() as cur:
-                cur.executemany(
-                    UPSERT_SQL,
-                    [(row[0], stored_id, vec, vec) for row, vec in zip(rows, vectors, strict=True)],
-                )
+                cur.executemany(UPSERT_SQL, upsert_params(rows, stored_id, vectors))
             conn.commit()
             total += len(rows)
             print(

@@ -128,3 +128,35 @@ def test_the_schema_records_why_rather_than_only_that():
     """A bare DROP invites the next person to re-add it."""
     assert "1,880,352" in SCHEMA, "the measurement that motivated it"
     assert "recall" in SCHEMA, "and the measurement that killed it"
+
+
+def test_the_upsert_parameters_fit_the_upsert_sql():
+    """Held against psycopg's own placeholder check, not read as text.
+
+    Every embedding pass crashed on its first batch from 5 Nov 2026: the
+    parameter tuple kept a value for a reverted column while the SQL lost
+    its placeholder. The text tests above all passed, because the SQL on
+    its own was right. This builds the real tuple and asks psycopg - the
+    thing that actually rejected it - whether the two agree.
+    """
+    from psycopg._queries import PostgresQuery
+    from psycopg.adapt import Transformer
+
+    from pipeline.embed import upsert_params
+
+    rows = [(41, "Dune", None, "desc", [], []), (42, "Solaris", None, "desc", [], [])]
+    params = upsert_params(rows, "model-v1", ["[0.1]", "[0.2]"])
+    assert len(params) == 2
+    for tup in params:
+        query = PostgresQuery(Transformer())
+        query.convert(UPSERT_SQL, tup)
+        query.dump(tup)  # raises ProgrammingError on a count mismatch
+
+
+def test_the_embed_loop_builds_its_parameters_through_upsert_params():
+    """So the check above covers what the loop actually sends, rather
+    than a copy of it the loop has drifted away from."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline/embed.py").read_text()
+    assert "cur.executemany(UPSERT_SQL, upsert_params(rows, stored_id, vectors))" in source
