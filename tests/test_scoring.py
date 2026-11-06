@@ -191,3 +191,35 @@ def test_both_clients_accept_an_absent_genre_component():
     app = (root / "web/app.js").read_text()
     assert "components.genres === null" in app
     assert "not compared" in app
+
+
+def test_the_ranking_function_itself_can_be_measured():
+    """Until now nothing measured it.
+
+    pipeline.benchmark answers "which embedding model" by raw cosine
+    and never calls final_score, so every change to the weights, to tag
+    similarity or to the genre term went in on argument alone. The
+    score mode ranks by the real weighted score and reports an absent
+    genre list treated both ways, so the change can be compared rather
+    than asserted.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline" / "benchmark.py").read_text()
+    body = source[source.index("def run_score_bench(") :]
+    body = body[: body.index("\ndef ", 1)]
+    assert "final_score(" in body
+    assert "tag_similarity(" in body
+    assert "genre_similarity(" in body
+    # Both treatments in one run, over one pool: a before/after taken
+    # from two runs would differ by the random negatives as well.
+    assert '"undefined"' in body and '"zero"' in body
+
+
+def test_both_benchmark_modes_rank_over_the_same_world():
+    """A second arrangement of pairs and negatives would drift from the
+    first, and the two numbers would stop being comparable."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pipeline" / "benchmark.py").read_text()
+    assert source.count("load_world(conn, pairs, negatives)") == 2

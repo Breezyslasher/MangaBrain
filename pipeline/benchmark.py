@@ -195,30 +195,7 @@ def run_bench(
 
     pairs = json.loads(Path(pairs_file).read_text())
     with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
-        involved = sorted({p["media_id"] for p in pairs} | {p["rec_id"] for p in pairs})
-        media_rows = conn.execute(MEDIA_TEXT_SQL, {"ids": involved}).fetchall()
-        by_id = {row["id"]: row for row in media_rows}
-
-        seed_ids = sorted({p["media_id"] for p in pairs})
-        franchises = load_franchises(conn, seed_ids)
-
-        kept = []
-        dropped_missing = dropped_franchise = 0
-        for p in pairs:
-            seed, target = p["media_id"], p["rec_id"]
-            if seed not in by_id or target not in by_id:
-                dropped_missing += 1
-                continue
-            if target in franchises.get(seed, set()):
-                dropped_franchise += 1
-                continue
-            kept.append(p)
-        print(
-            f"[benchmark] {len(kept)} pairs kept"
-            f" ({dropped_missing} not in catalog, {dropped_franchise} franchise-linked)"
-        )
-
-        neg_rows = conn.execute(NEGATIVES_SQL, {"exclude": involved, "n": negatives}).fetchall()
+        kept, by_id, franchises, neg_rows = load_world(conn, pairs, negatives)
 
     pool_rows = list(by_id.values()) + list(neg_rows)
     pool_ids = [row["id"] for row in pool_rows]
@@ -280,6 +257,135 @@ def run_bench(
         )
 
 
+def load_world(conn, pairs: list[dict], negatives: int):
+    """Pairs that survive filtering, plus the pool they are ranked in.
+
+    Split out of run_bench so the score benchmark ranks over exactly
+    the same world the model bake-off does, rather than a second
+    arrangement of it that could drift.
+    """
+    involved = sorted({p["media_id"] for p in pairs} | {p["rec_id"] for p in pairs})
+    by_id = {row["id"]: row for row in conn.execute(MEDIA_TEXT_SQL, {"ids": involved}).fetchall()}
+    franchises = load_franchises(conn, sorted({p["media_id"] for p in pairs}))
+
+    kept = []
+    dropped_missing = dropped_franchise = 0
+    for pair in pairs:
+        seed, target = pair["media_id"], pair["rec_id"]
+        if seed not in by_id or target not in by_id:
+            dropped_missing += 1
+            continue
+        if target in franchises.get(seed, set()):
+            dropped_franchise += 1
+            continue
+        kept.append(pair)
+    print(
+        f"[benchmark] {len(kept)} pairs kept"
+        f" ({dropped_missing} not in catalog, {dropped_franchise} franchise-linked)"
+    )
+    neg_rows = conn.execute(NEGATIVES_SQL, {"exclude": involved, "n": negatives}).fetchall()
+    return kept, by_id, franchises, neg_rows
+
+
+def run_score_bench(
+    pairs_file: str,
+    model_name: str,
+    negatives: int,
+    encode_batch_size: int,
+    weights_spec: str,
+) -> None:
+    """Rank by the REAL weighted score, not by raw cosine.
+
+    The existing benchmark answers "which embedding model", and it is
+    the only measurement this project has. Nothing measures the ranking
+    function itself, so every change to the weights, to tag similarity
+    or to the genre term has gone in on argument alone.
+
+    That became untenable with a concrete change in hand: genre
+    similarity over an empty set used to score zero, and a count found
+    3,028 anime, 5,130 manga and 50,454 books with no genres at all -
+    every one of them capped at 0.8 of the available score for a gap in
+    someone's cataloguing rather than anything about the title.
+
+    So this ranks each seed's pool by final_score and reports r@10 twice:
+    once treating an absent genre list as undefined (the weight
+    redistributes) and once as zero (what shipped before). The
+    difference is the change, measured.
+    """
+    import numpy as np
+    from sentence_transformers import SentenceTransformer
+
+    from api.scoring import Weights, final_score, genre_similarity, tag_similarity, tag_weight_map
+
+    parts = [float(x) for x in weights_spec.split(",")]
+    weights = Weights(semantic=parts[0], tags=parts[1], genres=parts[2]).normalized()
+    print(f"[benchmark] weights {weights.semantic:.2f}/{weights.tags:.2f}/{weights.genres:.2f}")
+
+    pairs = json.loads(Path(pairs_file).read_text())
+    with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        kept, by_id, franchises, neg_rows = load_world(conn, pairs, negatives)
+
+    pool_rows = list(by_id.values()) + list(neg_rows)
+    pool_ids = [row["id"] for row in pool_rows]
+    index_of = {media_id: i for i, media_id in enumerate(pool_ids)}
+    print(f"[benchmark] pool: {len(pool_rows)} titles ({len(neg_rows)} negatives)")
+
+    model = SentenceTransformer(model_name)
+    texts = [
+        embed_text(
+            row["title_romaji"],
+            row["title_english"],
+            row["description_clean"],
+            row["genres"],
+            row["tags"],
+        )
+        for row in pool_rows
+    ]
+    print(f"[benchmark] embedding pool with {model_name}...", flush=True)
+    vectors = np.asarray(
+        model.encode(texts, batch_size=encode_batch_size, normalize_embeddings=True)
+    )
+
+    # Precomputed once: the inner loop runs pool-size times per pair.
+    tag_maps = [tag_weight_map(row["tags"]) for row in pool_rows]
+    genre_sets = [list(row["genres"] or []) for row in pool_rows]
+    empty = sum(1 for g in genre_sets if not g)
+    print(f"[benchmark] {empty} of {len(pool_rows)} pool titles have no genres")
+
+    ranks: dict[str, list[int]] = {"undefined": [], "zero": []}
+    for done, pair in enumerate(kept, start=1):
+        seed, target = pair["media_id"], pair["rec_id"]
+        seed_idx = index_of[seed]
+        semantic = vectors @ vectors[seed_idx]
+        seed_tags, seed_genres = tag_maps[seed_idx], genre_sets[seed_idx]
+        excluded = {index_of[i] for i in ({seed} | franchises.get(seed, set())) if i in index_of}
+
+        for treatment in ("undefined", "zero"):
+            scores = np.empty(len(pool_rows), dtype=np.float32)
+            for i in range(len(pool_rows)):
+                genre_sim = genre_similarity(seed_genres, genre_sets[i])
+                if treatment == "zero" and genre_sim is None:
+                    genre_sim = 0.0
+                scores[i] = final_score(
+                    float(semantic[i]), tag_similarity(seed_tags, tag_maps[i]), genre_sim, weights
+                )
+            rank = rank_of_target(scores, index_of[target], excluded)
+            if rank is not None:
+                ranks[treatment].append(rank)
+        if done % 100 == 0:
+            print(f"[benchmark]   {done}/{len(kept)} pairs scored", flush=True)
+
+    print()
+    print(f"{'absent genres treated as':<26} {'n':>6} {'r@10':>7} {'r@50':>7} {'mrr':>7}")
+    for treatment in ("undefined", "zero"):
+        m = summarize(ranks[treatment])
+        label = "undefined (new)" if treatment == "undefined" else "zero (previous)"
+        print(
+            f"  {label:<24} {m['n']:>6} {m['recall@10']:>7.3f}"
+            f" {m['recall@50']:>7.3f} {m['mrr']:>7.3f}"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AniList recommendation-pair benchmark")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -306,9 +412,28 @@ def main() -> None:
     )
     run.add_argument("--encode-batch-size", type=int, default=16)
 
+    score = sub.add_parser("score", help="rank by the real weighted score, not raw cosine")
+    score.add_argument("--pairs-file", default="benchmark_pairs.json")
+    score.add_argument("--model", default=settings.embed_model)
+    score.add_argument("--negatives", type=int, default=2000)
+    score.add_argument("--encode-batch-size", type=int, default=32)
+    score.add_argument(
+        "--weights",
+        default="0.5,0.3,0.2",
+        help="semantic,tags,genres - the API's defaults",
+    )
+
     args = parser.parse_args()
     if args.command == "fetch":
         fetch_pairs(args.out, args.pairs, args.min_rating)
+    elif args.command == "score":
+        run_score_bench(
+            args.pairs_file,
+            args.model,
+            args.negatives,
+            args.encode_batch_size,
+            args.weights,
+        )
     else:
         run_bench(
             args.pairs_file,
