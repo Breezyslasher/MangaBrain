@@ -14,7 +14,7 @@ WEB_HTML = (ROOT / "web/index.html").read_text()
 WEB_JS = (ROOT / "web/app.js").read_text()
 ANDROID = ROOT / "android/app/src/main/java/com/mangabrain/app"
 FILTER_STATE = (ANDROID / "data/FilterState.kt").read_text()
-SETTINGS = (ANDROID / "ui/SettingsActivity.kt").read_text()
+SETTINGS = (ANDROID / "ui/settings/SettingsFragment.kt").read_text()
 DISCOVER = (ANDROID / "ui/discover/DiscoverFragment.kt").read_text()
 
 

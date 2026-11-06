@@ -151,6 +151,16 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         )
     }
 
+    /**
+     * Settings › Display changed the title language. Titles are read at
+     * bind time (MediaOut.displayTitle), so rebinding what is on screen is
+     * enough - no request needed.
+     */
+    fun refreshTitles() {
+        if (this::grid.isInitialized) grid.notifyDataSetChanged()
+        if (this::header.isInitialized) header.notifyDataSetChanged()
+    }
+
     override fun onResume() {
         super.onResume()
         refreshMedia()

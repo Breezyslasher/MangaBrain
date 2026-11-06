@@ -328,8 +328,7 @@ def test_the_app_shows_the_servers_own_explanation():
     # them silently drops the explanation - which is how this was missed.
     screens = [
         "ui/discover/DiscoverFragment.kt",
-        "ui/lists/ListsFragment.kt",
-        "ui/SettingsActivity.kt",
+        "ui/settings/SettingsFragment.kt",
     ]
     for screen in screens:
         source = (ROOT / "android/app/src/main/java/com/mangabrain/app" / screen).read_text()
@@ -447,7 +446,7 @@ def test_every_endpoint_that_takes_the_weights_accepts_all_of_them(path):
 def test_the_for_you_feed_sends_the_ratings_switch():
     """A switch that sets a field nobody transmits is a decoration.
 
-    The Mix tab toggles ForYouPrefs.useRatings and /foryou reads
+    Settings › For you toggles ForYouPrefs.useRatings and /foryou reads
     use_ratings, but the request never carried it, so turning rating
     weighting off left the feed rating-weighted.
     """

@@ -7,12 +7,10 @@ import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.materialswitch.MaterialSwitch
 import com.mangabrain.app.R
 import com.mangabrain.app.data.MixStore
 import com.mangabrain.app.ui.MainActivity
 import com.mangabrain.app.ui.MixAdapter
-import com.mangabrain.app.ui.discover.ForYouPrefs
 
 class MixFragment : Fragment(R.layout.fragment_mix) {
 
@@ -34,22 +32,6 @@ class MixFragment : Fragment(R.layout.fragment_mix) {
                 main.showDiscover()
                 main.discoverFragment().loadMix()
             }
-        }
-
-        val seeds = view.findViewById<TextView>(R.id.seedsValue)
-        seeds.text = ForYouPrefs.seeds.toString()
-        view.findViewById<Button>(R.id.seedsDown).setOnClickListener {
-            ForYouPrefs.seeds = (ForYouPrefs.seeds - 1).coerceAtLeast(1)
-            seeds.text = ForYouPrefs.seeds.toString()
-        }
-        view.findViewById<Button>(R.id.seedsUp).setOnClickListener {
-            ForYouPrefs.seeds = (ForYouPrefs.seeds + 1).coerceAtMost(20)
-            seeds.text = ForYouPrefs.seeds.toString()
-        }
-
-        view.findViewById<MaterialSwitch>(R.id.useRatingsSwitch).apply {
-            isChecked = ForYouPrefs.useRatings
-            setOnCheckedChangeListener { _, checked -> ForYouPrefs.useRatings = checked }
         }
 
         refresh()

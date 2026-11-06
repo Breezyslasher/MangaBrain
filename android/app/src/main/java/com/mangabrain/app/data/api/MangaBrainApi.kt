@@ -123,6 +123,20 @@ interface MangaBrainApi {
     @POST("datasets/{key}/install")
     suspend fun installDataset(@Path("key") key: String): DatasetOut
 
+    // What each list last synced, without syncing it: the Settings pages
+    // show "Synced 2 hours ago" and the entry counts from these.
+    @GET("anilist/{username}")
+    suspend fun anilistStatus(@Path("username") username: String): UserListsStatus
+
+    @GET("mal/{username}")
+    suspend fun malStatus(@Path("username") username: String): UserListsStatus
+
+    @GET("kitsu")
+    suspend fun kitsuStatus(): ExclusionStatus
+
+    @GET("yamtrack")
+    suspend fun yamtrackStatus(): ExclusionStatus
+
     @POST("anilist/{username}/refresh")
     suspend fun refreshAnilist(@Path("username") username: String): UserListsStatus
 

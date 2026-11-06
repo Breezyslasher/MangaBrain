@@ -13,4 +13,27 @@
     <color name="ok_bg">#1D3B2A</color>
     <color name="bad">#E05C6E</color>
     <color name="bad_bg">#3B1D22</color>
+    <!-- Redesign tokens (mobile spec 2a and Settings 3b). -->
+    <color name="field">#1A1E27</color>
+    <color name="border_2">#2B3245</color>
+    <color name="track">#262C3C</color>
+    <color name="dim">#727A8E</color>
+    <color name="ok">#37C9A5</color>
+    <color name="w_synopsis">#5B8DEF</color>
+    <color name="w_tags">#37C9A5</color>
+    <color name="w_genres">#E3B341</color>
+    <color name="w_taste">#8B93A7</color>
+    <color name="surface_hi">#1F2533</color>
+    <color name="accent_bg">#1D2B44</color>
+    <color name="accent_text">#8FB0F5</color>
+    <color name="nav_handle">#5A6176</color>
+    <color name="seed_from">#222A42</color>
+    <color name="seed_to">#372E4A</color>
+    <color name="sync_from">#222A44</color>
+    <color name="sync_to">#2D2A44</color>
+    <color name="badge_mal_bg">#22263A</color>
+    <color name="badge_mal_fg">#A9B3CC</color>
+    <color name="badge_kitsu_bg">#3A2A22</color>
+    <color name="badge_kitsu_fg">#F0A77A</color>
+    <color name="seed_meta">#A9B3CC</color>
 </resources>

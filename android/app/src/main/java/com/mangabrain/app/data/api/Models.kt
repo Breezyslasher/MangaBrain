@@ -45,8 +45,13 @@ data class MediaOut(
     val dub_source: String? = null
 ) {
     /** Same precedence the web client uses for its "English when available". */
+    /** English when available, unless Settings › Display asks for Romaji. */
     val displayTitle: String
-        get() = title_english ?: title ?: title_native ?: "#$id"
+        get() = if (com.mangabrain.app.data.FilterState.romajiTitles) {
+            title ?: title_english ?: title_native ?: "#$id"
+        } else {
+            title_english ?: title ?: title_native ?: "#$id"
+        }
 
     /** Year / format / score, and the dub marker when the server asserts one. */
     val displayMeta: String

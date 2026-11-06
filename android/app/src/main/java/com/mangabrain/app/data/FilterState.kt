@@ -38,6 +38,13 @@ object FilterState {
         "book" to "Books"
     )
 
+    /**
+     * Romaji titles instead of English ones (Settings › Display). A saved
+     * preference rather than a filter, which is why it is set in Settings
+     * and not on the Filters sheet; MediaOut.displayTitle reads it.
+     */
+    var romajiTitles: Boolean = false
+
     /** The server's selection (GET /settings). Empty until it answers. */
     var enabledMedia: List<String> = emptyList()
 
@@ -254,6 +261,7 @@ object FilterState {
         excludeMal = prefs.getBoolean("ex_mal", false)
         excludeKitsu = prefs.getBoolean("ex_kitsu", false)
         excludeYamtrack = prefs.getBoolean("ex_yamtrack", false)
+        romajiTitles = prefs.getBoolean("romaji_titles", false)
     }
 
     fun save(context: Context) {
@@ -271,6 +279,7 @@ object FilterState {
             .putBoolean("ex_mal", excludeMal)
             .putBoolean("ex_kitsu", excludeKitsu)
             .putBoolean("ex_yamtrack", excludeYamtrack)
+            .putBoolean("romaji_titles", romajiTitles)
             .apply()
     }
 
