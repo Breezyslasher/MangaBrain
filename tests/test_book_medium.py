@@ -64,3 +64,45 @@ def test_books_share_the_embedding_space():
     assert "CREATE TABLE IF NOT EXISTS media" in SCHEMA
     assert "CREATE TABLE IF NOT EXISTS book_media" not in SCHEMA
     assert "CREATE TABLE IF NOT EXISTS book_embeddings" not in SCHEMA
+
+
+def test_both_clients_offer_books():
+    """The API has served medium=book since the schema change; until the
+    clients offer it, nothing a user can press reaches those rows."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    html = (root / "web" / "index.html").read_text()
+    assert 'data-medium="book"' in html
+
+    app = (root / "web" / "app.js").read_text()
+    assert '"/books": "book"' in app, "deep link, like the other media"
+    assert "one_shot|book" in app, "and the recommendation hash route"
+
+    fragment = (
+        root / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
+    ).read_text()
+    assert '"book" to "Books"' in fragment
+
+
+def test_books_offer_no_format_filter():
+    """Open Library has no format vocabulary - a work is a work. An
+    empty list leaves the control out; a missing entry would too, but
+    says nothing about why."""
+    from pathlib import Path
+
+    app = (Path(__file__).resolve().parent.parent / "web" / "app.js").read_text()
+    formats = app[app.index("const FORMATS = {") :]
+    formats = formats[: formats.index("};")]
+    assert "book: []" in formats
+
+
+def test_every_api_medium_group_has_a_tab():
+    """So a medium cannot be added to the API and stay unreachable."""
+    from pathlib import Path
+
+    from api.media_groups import MEDIUM_GROUPS
+
+    html = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text()
+    for group in MEDIUM_GROUPS:
+        assert f'data-medium="{group}"' in html, group

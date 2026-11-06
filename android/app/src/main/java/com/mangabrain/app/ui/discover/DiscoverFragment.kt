@@ -47,7 +47,8 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         "anime" to "Anime",
         "manga" to "Manga",
         "light_novel" to "Light Novels",
-        "one_shot" to "One-Shots"
+        "one_shot" to "One-Shots",
+        "book" to "Books"
     )
 
     private lateinit var grid: GridAdapter

@@ -22,6 +22,10 @@ const FORMATS = {
   manga: ["MANGA"],
   light_novel: ["NOVEL"],
   one_shot: ["ONE_SHOT"],
+  // Open Library has no format vocabulary - a work is a work - so the
+  // format filter has nothing to offer for books. An empty list leaves
+  // the control out rather than showing an empty dropdown.
+  book: [],
 };
 
 const GENRES = [
@@ -1076,6 +1080,7 @@ const PATH_TO_MEDIUM = {
   "/manga": "manga",
   "/light-novel": "light_novel",
   "/one-shot": "one_shot",
+  "/books": "book",
 };
 const MEDIUM_TO_PATH = Object.fromEntries(
   Object.entries(PATH_TO_MEDIUM).map(([path, medium]) => [medium, path])
@@ -1091,7 +1096,7 @@ function setMedium(medium) {
 }
 
 function applyHash() {
-  const match = location.hash.match(/^#\/rec\/(anime|manga|light_novel|one_shot)\/(\d+)$/);
+  const match = location.hash.match(/^#\/rec\/(anime|manga|light_novel|one_shot|book)\/(\d+)$/);
   if (!match) return false;
   setMedium(match[1]);
   loadRecommendations(Number(match[2]), { updateHash: false });
