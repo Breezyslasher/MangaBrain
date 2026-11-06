@@ -45,10 +45,12 @@ def test_a_work_id_needs_no_request():
 
 
 def test_a_merged_edition_follows_its_redirect():
-    client = FakeOpenLibrary({
-        f"{OL}/books/OL1M.json": {"type": {"key": "/type/redirect"}, "location": "/books/OL2M"},
-        f"{OL}/books/OL2M.json": {"works": [{"key": "/works/OL9W"}]},
-    })
+    client = FakeOpenLibrary(
+        {
+            f"{OL}/books/OL1M.json": {"type": {"key": "/type/redirect"}, "location": "/books/OL2M"},
+            f"{OL}/books/OL2M.json": {"works": [{"key": "/works/OL9W"}]},
+        }
+    )
     assert yamtrack.openlibrary_work_key("OL1M", client) == "/works/OL9W"
 
 
