@@ -39,11 +39,18 @@ def build_filters(
     if formats:
         clauses.append("m.format = ANY(%(f_formats)s)")
         params["f_formats"] = [f.upper() for f in formats]
+    # An unknown year passes both bounds, the same rule the length bounds
+    # follow and for the same reason: missing data is not evidence against
+    # a title. It mattered little while AniList supplied a year for almost
+    # everything. It matters now - a work in Open Library carries no
+    # reliable date, because publication belongs to its editions, so about
+    # four books in five have none, and a bare >= silently excluded every
+    # one of them from any year-filtered search.
     if year_min is not None:
-        clauses.append("m.start_year >= %(f_year_min)s")
+        clauses.append("(m.start_year IS NULL OR m.start_year >= %(f_year_min)s)")
         params["f_year_min"] = year_min
     if year_max is not None:
-        clauses.append("m.start_year <= %(f_year_max)s")
+        clauses.append("(m.start_year IS NULL OR m.start_year <= %(f_year_max)s)")
         params["f_year_max"] = year_max
     if min_score is not None:
         clauses.append("m.average_score >= %(f_min_score)s")

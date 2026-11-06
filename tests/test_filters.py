@@ -122,3 +122,34 @@ def test_mal_exclusion_pairs_list_type_with_media_type():
     # the row's media_type.
     sql, _ = build_filters(mal_user="someuser")
     assert "l.list_type = lower(m.media_type)" in sql
+
+
+def test_an_unknown_year_passes_both_bounds():
+    """The same rule the length bounds follow: missing data is not
+    evidence against a title.
+
+    It mattered little while AniList supplied a year for almost
+    everything. An Open Library work carries no reliable date -
+    publication belongs to its editions - so about four books in five
+    have none, and a bare >= excluded every one of them from any
+    year-filtered search without saying so.
+    """
+    from api.filters import build_filters
+
+    def joined(sql):
+        return " ".join(sql) if isinstance(sql, list) else str(sql)
+
+    assert "m.start_year IS NULL OR m.start_year >= " in joined(build_filters(year_min=1990)[0])
+    assert "m.start_year IS NULL OR m.start_year <= " in joined(build_filters(year_max=2000)[0])
+
+
+def test_the_year_bounds_match_the_length_bounds():
+    """Two filters on the same principle must not disagree about it."""
+    from api.filters import build_filters
+
+    def joined(sql):
+        return " ".join(sql) if isinstance(sql, list) else str(sql)
+
+    year = joined(build_filters(year_min=1990)[0])
+    episodes = joined(build_filters(min_episodes=12)[0])
+    assert ("IS NULL OR" in year) == ("IS NULL OR" in episodes)
