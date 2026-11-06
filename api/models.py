@@ -221,6 +221,10 @@ class AppSettingsIn(BaseModel):
     kitsu_username: str | None = None
     yamtrack_url: str | None = None
     yamtrack_token: str | None = None
+    # The media tabs to show. Switching on a medium whose dataset is not
+    # installed requests the install (api.datasets); switching one off only
+    # hides the tab and deletes nothing.
+    enabled_media: list[str] | None = None
 
 
 class AppSettingsOut(BaseModel):
@@ -230,6 +234,46 @@ class AppSettingsOut(BaseModel):
     yamtrack_url: str = ""
     # The token itself is never returned, only whether one is configured.
     yamtrack_token_set: bool = False
+    # Never empty. Until someone chooses, every medium whose data is
+    # present - so an install without books does not show an empty tab.
+    enabled_media: list[str] = []
+
+
+class DatasetInstallOut(BaseModel):
+    """Where an install stands, as the worker last reported it."""
+
+    # queued | running | waiting | done | failed
+    state: str
+    # downloading | merging | indexing, while running
+    phase: str | None = None
+    bytes: int | None = None
+    total: int | None = None
+    message: str = ""
+    updated_at: str | None = None
+    # When a waiting install is next tried.
+    next_try: str | None = None
+
+
+class DatasetOut(BaseModel):
+    """One dataset an install can hold, and the media it provides."""
+
+    key: str
+    label: str
+    description: str
+    media: list[str]
+    download_hint: str = ""
+    installable: bool
+    installed: bool
+    items: int
+    embedded: int
+    install: DatasetInstallOut | None = None
+    # Whether there is anything to install yet. None when it cannot be
+    # known (GitHub unreachable) or does not apply.
+    release_available: bool | None = None
+
+
+class DatasetsOut(BaseModel):
+    datasets: list[DatasetOut]
 
 
 class DubLanguageOut(BaseModel):

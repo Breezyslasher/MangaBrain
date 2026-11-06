@@ -354,7 +354,13 @@ def iter_part(base: str | Path, name: str):
         yield from resp.iter_bytes(1 << 20)
 
 
-def iter_payload(manifest: dict, base: str | Path):
+# How often a load reports progress, in compressed bytes read. Each report
+# is a row write the settings page polls; every 64 MB is a few dozen of
+# them over a whole download.
+PROGRESS_EVERY = 64 * 1024 * 1024
+
+
+def iter_payload(manifest: dict, base: str | Path, progress=None):
     """Decompressed COPY data across every part, each part verified.
 
     Verified as it streams rather than downloaded first, so a load needs
@@ -363,12 +369,18 @@ def iter_payload(manifest: dict, base: str | Path):
     corrupt or tampered part is ever committed.
     """
     inflate = zlib.decompressobj(wbits=31)
+    total = sum(part["bytes"] for part in manifest["parts"])
+    done = reported = 0
     for part in manifest["parts"]:
         digest = hashlib.sha256()
         size = 0
         for chunk in iter_part(base, part["name"]):
             digest.update(chunk)
             size += len(chunk)
+            done += len(chunk)
+            if progress is not None and done - reported >= PROGRESS_EVERY:
+                reported = done
+                progress({"phase": "downloading", "bytes": done, "total": total})
             out = inflate.decompress(chunk)
             if out:
                 yield out
@@ -412,7 +424,13 @@ def load(
     from_release: bool = False,
     ensure: bool = True,
     rebuild_indexes: bool = False,
+    progress=None,
 ) -> dict:
+    """Merge a books dataset into this database. See the module docstring.
+
+    progress, if given, is called with a dict of phase and byte counts as
+    the load goes, for the settings page; it must not raise.
+    """
     import psycopg
 
     from api.config import settings
@@ -444,8 +462,10 @@ def load(
                 f" dataset {manifest['columns']} vs here {target}"
             )
         with conn.cursor() as cur, cur.copy("COPY book_stage FROM STDIN (FORMAT binary)") as copy:
-            for data in iter_payload(manifest, base):
+            for data in iter_payload(manifest, base, progress):
                 copy.write(data)
+        if progress is not None:
+            progress({"phase": "merging"})
         staged = conn.execute("SELECT count(*) FROM book_stage").fetchone()[0]
         updated = conn.execute(UPDATE_SQL).rowcount
         inserted = conn.execute(INSERT_SQL).rowcount
@@ -472,6 +492,8 @@ def load(
         # process dies before the build finishes, the next startup's
         # ensure_schema() creates the indexes anyway.
         built = time.monotonic()
+        if progress is not None:
+            progress({"phase": "indexing"})
         print("[books] building the vector indexes over the loaded catalogue", flush=True)
         with psycopg.connect(settings.database_url, autocommit=True) as conn:
             for ddl in vector_index_ddl():
@@ -493,80 +515,10 @@ def load(
 
 
 # ---------------------------------------------------------------------
-# Seeding a fresh install
-#
-# A fresh install gets the books release as well as the AniList one.
-# Fresh only: an install that already has a catalogue and upgrades must
-# not find itself downloading 3.5 GB and filling about 6 GB of disk it
-# never asked for. Such installs load it on purpose:
-#
-#     python -m pipeline.book_dataset load --release latest
-#
-# The intent is recorded in sync_state when the install is found empty,
-# and cleared once the books are in. That is what lets the seed retry: a
-# release may not exist yet - the first build takes about two days - or a
-# download may fail, and an install made today should still end up with
-# books, on a later nightly pass, without anyone remembering to ask.
-
-SEED_FLAG_KEY = "books_seed_pending"
-
-FLAG_SET_SQL = """
-    INSERT INTO sync_state (key, value) VALUES (%(key)s, 'true'::jsonb)
-    ON CONFLICT (key) DO UPDATE SET value = 'true'::jsonb, updated_at = now()
-"""
-FLAG_GET_SQL = "SELECT 1 FROM sync_state WHERE key = %(key)s"
-FLAG_CLEAR_SQL = "DELETE FROM sync_state WHERE key = %(key)s"
-
-
-def mark_seed_pending() -> None:
-    import psycopg
-
-    from api.config import settings
-
-    with psycopg.connect(settings.database_url) as conn:
-        conn.execute(FLAG_SET_SQL, {"key": SEED_FLAG_KEY})
-        conn.commit()
-
-
-def seed_pending() -> bool:
-    import psycopg
-
-    from api.config import settings
-
-    with psycopg.connect(settings.database_url) as conn:
-        return conn.execute(FLAG_GET_SQL, {"key": SEED_FLAG_KEY}).fetchone() is not None
-
-
-def clear_seed_pending() -> None:
-    import psycopg
-
-    from api.config import settings
-
-    with psycopg.connect(settings.database_url) as conn:
-        conn.execute(FLAG_CLEAR_SQL, {"key": SEED_FLAG_KEY})
-        conn.commit()
-
-
-def maybe_seed(repo: str = DEFAULT_REPO) -> bool:
-    """Load the newest books release if this install is waiting for one.
-
-    Never raises: a seed is best-effort, and a failure here must not cost
-    the nightly pass its AniList sync. Returns True only when it loaded.
-    """
-    try:
-        if not seed_pending():
-            return False
-        url = find_release_manifest(repo)
-        if url is None:
-            print("[books] no books release published yet; will try on the next pass", flush=True)
-            return False
-        print(f"[books] seeding this install from {url}", flush=True)
-        load(url, ensure=False, rebuild_indexes=True)
-        clear_seed_pending()
-        return True
-    except Exception as exc:  # noqa: BLE001 - best-effort by design
-        print(f"[books] seed failed ({type(exc).__name__}: {exc}); will retry", flush=True)
-        return False
+# Seeding a fresh install is an ordinary install request now
+# (pipeline.dataset_install), made by the worker when it starts against an
+# empty catalogue. The settings page makes the same request when a reader
+# switches Books on.
 
 
 # ---------------------------------------------------------------------

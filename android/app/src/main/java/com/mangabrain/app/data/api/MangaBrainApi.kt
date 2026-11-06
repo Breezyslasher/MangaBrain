@@ -117,6 +117,12 @@ interface MangaBrainApi {
     @PUT("settings")
     suspend fun saveSettings(@Body body: AppSettingsIn): AppSettingsOut
 
+    @GET("datasets")
+    suspend fun datasets(): DatasetsOut
+
+    @POST("datasets/{key}/install")
+    suspend fun installDataset(@Path("key") key: String): DatasetOut
+
     @POST("anilist/{username}/refresh")
     suspend fun refreshAnilist(@Path("username") username: String): UserListsStatus
 

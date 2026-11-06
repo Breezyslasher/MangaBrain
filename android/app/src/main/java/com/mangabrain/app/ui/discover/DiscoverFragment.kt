@@ -43,14 +43,6 @@ import kotlinx.coroutines.launch
  */
 class DiscoverFragment : Fragment(R.layout.fragment_discover) {
 
-    private val mediums = listOf(
-        "anime" to "Anime",
-        "manga" to "Manga",
-        "light_novel" to "Light Novels",
-        "one_shot" to "One-Shots",
-        "book" to "Books"
-    )
-
     private lateinit var grid: GridAdapter
     private lateinit var header: DiscoverHeaderAdapter
     private var searchJob: Job? = null
@@ -159,9 +151,45 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         )
     }
 
+    override fun onResume() {
+        super.onResume()
+        refreshMedia()
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (!hidden) refreshMedia()
+    }
+
+    /**
+     * The tabs follow the server's media selection, which the settings
+     * screen changes - so they are re-read whenever this screen comes back,
+     * including on return from Settings. A failure keeps the tabs as they
+     * were: the selection is a convenience, not a requirement.
+     */
+    private fun refreshMedia() {
+        val api = ServiceLocator.api(requireContext()) ?: return
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                FilterState.applySettings(api.settings())
+            } catch (e: Exception) {
+                return@launch
+            }
+            view?.let { buildMediumChips(it.findViewById(R.id.mediumChips)) }
+        }
+    }
+
     private fun buildMediumChips(group: ChipGroup) {
         group.removeAllViews()
-        for ((key, label) in mediums) {
+        val visible = FilterState.visibleMedia()
+        // A hidden medium is left only when nothing is on screen, as on the
+        // web: an open recommendation is not yanked away mid-read.
+        if (FilterState.medium !in visible && mode == null) {
+            FilterState.medium = visible.first()
+            FilterState.format = ""
+        }
+        for (key in visible) {
+            val label = FilterState.MEDIUM_LABELS.getValue(key)
             val chip = Chip(requireContext()).apply {
                 text = label
                 isCheckable = true

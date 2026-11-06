@@ -27,6 +27,26 @@ object FilterState {
     var medium: String = "anime"
 
     /**
+     * Medium key to tab label, in tab order. One list for the Discover tabs
+     * and the settings screen, matching the web client's tab buttons.
+     */
+    val MEDIUM_LABELS: Map<String, String> = linkedMapOf(
+        "anime" to "Anime",
+        "manga" to "Manga",
+        "light_novel" to "Light Novels",
+        "one_shot" to "One-Shots",
+        "book" to "Books"
+    )
+
+    /** The server's selection (GET /settings). Empty until it answers. */
+    var enabledMedia: List<String> = emptyList()
+
+    /** The tabs to show: the selection, or every tab before it is known. */
+    fun visibleMedia(): List<String> =
+        MEDIUM_LABELS.keys.filter { enabledMedia.isEmpty() || it in enabledMedia }
+            .ifEmpty { MEDIUM_LABELS.keys.toList() }
+
+    /**
      * Controls a medium has no data behind, by the key filterParams() uses.
      *
      * Suppressing the value matters more than hiding the control, because
@@ -212,7 +232,9 @@ object FilterState {
     fun applySettings(settings: com.mangabrain.app.data.api.AppSettingsOut) {
         anilistUser = settings.anilist_username.orEmpty()
         malUser = settings.mal_username.orEmpty()
+        enabledMedia = settings.enabled_media.orEmpty()
     }
+
 
     private const val PREFS = "mangabrain_filters"
 

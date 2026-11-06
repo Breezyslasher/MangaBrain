@@ -21,6 +21,7 @@ def reset(monkeypatch):
     # request that clears the middleware never opens a connection pool
     # (which would block waiting for Postgres).
     monkeypatch.setattr("api.routers.app_settings.read_settings", dict)
+    monkeypatch.setattr("api.routers.app_settings.current_enabled_media", lambda: ["anime"])
     main._rate_windows.clear()
     yield
 

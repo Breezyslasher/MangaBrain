@@ -82,7 +82,7 @@ label.check { flex-direction: row; align-items: center; gap: 0.5rem; }
 .row label { flex: 1; }
 .row button { flex: 1 1 auto; min-width: 0; padding: 0.45rem 0.5rem; font-size: 0.8rem; }
 
-input[type="text"], input[type="number"], input[type="search"], select {
+input[type="text"], input[type="password"], input[type="number"], input[type="search"], select {
   background: var(--card);
   border: 1px solid var(--border);
   color: var(--text);
@@ -322,3 +322,48 @@ button:hover { filter: brightness(1.1); }
    cast check is incomplete, because until then the filter hides titles it
    has not looked at yet. */
 .inline-note { color: var(--muted); font-size: 0.78rem; }
+
+/* Settings. The reset above zeroes margins, which takes away the auto
+   margin a modal dialog centres itself with, so it is put back. */
+.header-settings { margin-left: auto; }
+
+#settingsDialog {
+  margin: auto;
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  display: none;
+  flex-direction: column;
+  gap: 1rem;
+}
+#settingsDialog[open] { display: flex; }
+#settingsDialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+
+.settings-head { display: flex; align-items: center; justify-content: space-between; }
+
+.media-settings { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.dataset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: var(--card);
+}
+.dataset-title { font-weight: 600; }
+.dataset-desc, .dataset-status { font-size: 0.82rem; color: var(--muted); }
+.dataset-status.failed { color: #e57373; }
+.dataset-media { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; }
+.dataset progress { width: 100%; height: 0.5rem; accent-color: var(--accent); }
+
+@media (max-width: 600px) {
+  header { flex-wrap: wrap; gap: 0.5rem; }
+  #tabs { overflow-x: auto; max-width: 100%; }
+}

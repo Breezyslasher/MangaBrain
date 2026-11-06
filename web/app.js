@@ -2,6 +2,8 @@
 
 const state = {
   medium: "anime",
+  // The tabs to show, from /settings. null until it answers: every tab.
+  enabledMedia: null,
   mode: null, // {type: "single", id} | {type: "mix"}
   mix: [], // [{id, title}]
   pending: [], // rendered lazily via Show more
@@ -802,6 +804,7 @@ async function loadAccountSettings() {
     if (data.yamtrack_url) $("ytUrl").value = data.yamtrack_url;
     if (data.yamtrack_token_set)
       $("ytToken").placeholder = "saved (enter to replace)";
+    applyEnabledMedia(data.enabled_media);
   } catch {
     // Settings are a convenience; the app works without them.
   }
@@ -835,6 +838,226 @@ async function saveAccountSettings() {
   } catch (err) {
     $("acctStatus").textContent = err.message;
   }
+}
+
+// ---------------------------------------------------------------------
+// Settings: which media this install holds.
+//
+// Nothing here names a medium. The datasets, the media each one fills and
+// what it costs all come from GET /datasets, and the tab labels from the
+// tab buttons, so a medium added on the server shows up here as it is.
+
+const INSTALL_ACTIVE = ["queued", "running", "waiting"];
+let settingsPoll = null;
+
+function tabLabel(group) {
+  const button = document.querySelector(`#tabs button[data-medium="${group}"]`);
+  return button ? button.textContent : group;
+}
+
+// Tabs follow the selection. A deep link into a hidden medium is honoured
+// while it is on screen; only an idle page moves to a visible tab.
+function applyEnabledMedia(media) {
+  if (!Array.isArray(media) || !media.length) return;
+  state.enabledMedia = media;
+  for (const button of document.querySelectorAll("#tabs button")) {
+    button.hidden = !media.includes(button.dataset.medium);
+  }
+  if (!media.includes(state.medium) && !state.mode) {
+    setMedium(media[0]);
+    history.replaceState(null, "", MEDIUM_TO_PATH[media[0]] || "/");
+  }
+}
+
+function formatGB(bytes) {
+  return `${((bytes || 0) / 1e9).toFixed(2)} GB`;
+}
+
+function installText(dataset) {
+  const install = dataset.install;
+  if (install && install.state === "running") {
+    if (install.phase === "downloading" && install.total)
+      return `Downloading ${formatGB(install.bytes)} of ${formatGB(install.total)}`;
+    if (install.phase === "merging") return "Merging into the catalogue";
+    if (install.phase === "indexing") return "Building the search index";
+    return "Starting";
+  }
+  if (install && install.state === "queued")
+    return "Queued. The server starts it within a minute.";
+  if (install && (install.state === "waiting" || install.state === "failed"))
+    return install.message;
+  if (dataset.installed) {
+    const items = dataset.items.toLocaleString();
+    if (!dataset.installable) return `${items} titles`;
+    return `${items} installed, ${dataset.embedded.toLocaleString()} with embeddings`;
+  }
+  if (dataset.release_available === false)
+    return "Not published yet. It downloads as soon as it is.";
+  return `Not downloaded. ${dataset.download_hint}`;
+}
+
+function mediaStatus(text) {
+  $("mediaStatus").textContent = text || "";
+}
+
+async function renderMediaSettings() {
+  const wrap = $("mediaSettings");
+  let data;
+  try {
+    data = await api("/datasets");
+  } catch (err) {
+    wrap.textContent = err.message;
+    return;
+  }
+  const enabled = state.enabledMedia || [];
+  let active = false;
+  wrap.replaceChildren();
+  for (const dataset of data.datasets) {
+    const install = dataset.install;
+    if (install && INSTALL_ACTIVE.includes(install.state)) active = true;
+
+    const card = document.createElement("div");
+    card.className = "dataset";
+    const title = document.createElement("div");
+    title.className = "dataset-title";
+    title.textContent = dataset.label;
+    const desc = document.createElement("div");
+    desc.className = "dataset-desc";
+    desc.textContent = dataset.description;
+    const status = document.createElement("div");
+    status.className = "dataset-status";
+    if (install && install.state === "failed") status.classList.add("failed");
+    status.textContent = installText(dataset);
+    card.append(title, desc, status);
+
+    if (
+      install &&
+      install.state === "running" &&
+      install.phase === "downloading" &&
+      install.total
+    ) {
+      const bar = document.createElement("progress");
+      bar.max = install.total;
+      bar.value = install.bytes || 0;
+      card.append(bar);
+    }
+
+    const media = document.createElement("div");
+    media.className = "dataset-media";
+    for (const group of dataset.media) {
+      const label = document.createElement("label");
+      label.className = "check";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = enabled.includes(group);
+      box.addEventListener("change", () => toggleMedium(group, box, dataset));
+      label.append(box, ` ${tabLabel(group)}`);
+      media.append(label);
+    }
+    card.append(media);
+
+    // Retry after a failure; Update to merge in a newer release. Neither
+    // while one is already under way.
+    const busy = install && INSTALL_ACTIVE.includes(install.state);
+    if (
+      dataset.installable &&
+      !busy &&
+      (install?.state === "failed" || dataset.installed)
+    ) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent =
+        install?.state === "failed"
+          ? "Retry"
+          : "Update from the newest release";
+      button.addEventListener("click", () => installDataset(dataset));
+      card.append(button);
+    }
+    wrap.append(card);
+  }
+  clearTimeout(settingsPoll);
+  settingsPoll = null;
+  if (active && $("settingsDialog").open)
+    settingsPoll = setTimeout(renderMediaSettings, 4000);
+}
+
+async function toggleMedium(group, box, dataset) {
+  const current = state.enabledMedia || [];
+  const next = box.checked
+    ? [...current, group]
+    : current.filter((g) => g !== group);
+  if (!next.length) {
+    box.checked = true;
+    mediaStatus("At least one medium has to stay on.");
+    return;
+  }
+  const install = dataset.install;
+  const willDownload =
+    box.checked &&
+    dataset.installable &&
+    !dataset.installed &&
+    !(install && INSTALL_ACTIVE.includes(install.state));
+  // Asked before, never after: switching this on is what starts it.
+  if (
+    willDownload &&
+    !window.confirm(`Download ${dataset.label}? ${dataset.download_hint}`)
+  ) {
+    box.checked = false;
+    return;
+  }
+  mediaStatus(willDownload ? "Starting the download..." : "Saving...");
+  try {
+    const resp = await authFetch("/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled_media: next }),
+    });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(
+        body.detail ? String(body.detail) : `Save failed (${resp.status})`,
+      );
+    }
+    applyEnabledMedia((await resp.json()).enabled_media);
+    mediaStatus("");
+  } catch (err) {
+    box.checked = !box.checked;
+    mediaStatus(err.message);
+  }
+  await renderMediaSettings();
+}
+
+async function installDataset(dataset) {
+  if (
+    !dataset.installed &&
+    !window.confirm(`Download ${dataset.label}? ${dataset.download_hint}`)
+  )
+    return;
+  mediaStatus("");
+  try {
+    const resp = await authFetch(
+      `/datasets/${encodeURIComponent(dataset.key)}/install`,
+      {
+        method: "POST",
+      },
+    );
+    if (!resp.ok) throw new Error(`Request failed (${resp.status})`);
+  } catch (err) {
+    mediaStatus(err.message);
+  }
+  await renderMediaSettings();
+}
+
+function openSettings(event) {
+  if (event) event.preventDefault();
+  const dialog = $("settingsDialog");
+  if (!dialog.open) dialog.showModal();
+  renderMediaSettings();
+}
+
+function closeSettings() {
+  $("settingsDialog").close();
 }
 
 async function refreshYamtrack() {
@@ -1277,6 +1500,14 @@ function bindEvents() {
   on("ytRefresh", "click", refreshYamtrack);
   on("kitsuRefresh", "click", refreshKitsu);
   on("acctSave", "click", saveAccountSettings);
+  on("settingsBtn", "click", openSettings);
+  on("openSettingsLink", "click", openSettings);
+  on("settingsClose", "click", closeSettings);
+  // Esc closes a modal dialog too; either way, stop polling.
+  on("settingsDialog", "close", () => {
+    clearTimeout(settingsPoll);
+    settingsPoll = null;
+  });
 
   on("tagReq", "click", () => addTagFilter("inc"));
   on("tagExc", "click", () => addTagFilter("exc"));

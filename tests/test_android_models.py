@@ -27,6 +27,11 @@ CHECKED = [
     "RecommendationItem",
     "RelatedItem",
     "RecommendResponse",
+    "AppSettingsOut",
+    "AppSettingsIn",
+    "DatasetOut",
+    "DatasetInstallOut",
+    "DatasetsOut",
 ]
 
 

@@ -83,6 +83,23 @@
     <string name="entries_cached">%1$d entries cached</string>
 
     <string name="settings">Settings</string>
+    <string name="media">Media</string>
+    <string name="media_help">Choose which tabs to show. Switching on a medium that is not downloaded yet downloads it on the server in the background; switching one off only hides the tab.</string>
+    <string name="media_queued">Queued. The server starts it within a minute.</string>
+    <string name="media_starting">Starting</string>
+    <string name="media_downloading">Downloading %1$s of %2$s</string>
+    <string name="media_merging">Merging into the catalogue</string>
+    <string name="media_indexing">Building the search index</string>
+    <string name="media_titles">%1$s titles</string>
+    <string name="media_installed">%1$s installed, %2$s with embeddings</string>
+    <string name="media_not_published">Not published yet. It downloads as soon as it is.</string>
+    <string name="media_not_downloaded">Not downloaded. %1$s</string>
+    <string name="media_download_title">Download %1$s?</string>
+    <string name="media_download">Download</string>
+    <string name="media_retry">Retry</string>
+    <string name="media_update">Update from the newest release</string>
+    <string name="media_keep_one">At least one medium has to stay on.</string>
+    <string name="media_saving">Saving…</string>
     <string name="server_url">Server URL</string>
     <string name="server_url_hint">http://192.168.1.10:8009</string>
     <string name="access_token">Access token (optional)</string>
