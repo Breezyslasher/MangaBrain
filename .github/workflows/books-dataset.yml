@@ -1,0 +1,280 @@
+name: books-dataset
+
+# The Open Library catalogue as a published dataset, so a fresh install
+# does not spend three hours downloading the dump and a day or more
+# embedding it.
+#
+# Its own workflow and its own releases, never folded into
+# dataset-publish. The weekly anime release is restored with pg_restore
+# --clean, which replaces whole tables; books ride in a separate format
+# that merges on (source, source_id) instead (pipeline.book_dataset), so
+# the two can be loaded into one database in either order.
+#
+# Budget, from measurements rather than guesses. The import streams the
+# dump at ~5,300 rows/s on a runner (openlibrary-survey, 6 Nov 2026), so
+# ~40M rows is a little over two hours. The embedding is the long pole:
+# the 768-dim model runs at 8.1 rows/s on a runner (dataset-publish,
+# 2 Sep 2026, 161,835 rows), so ~930,000 books is about 32 hours. That
+# cannot fit one 358-minute job, so the build checkpoints and dispatches
+# its own next job until it is done - the chain dataset-publish already
+# uses, run longer. A first build is about seven jobs.
+#
+# After the first, a month costs one job: each run starts from the newest
+# published release, the import upserts only what the new dump changed,
+# and only books new to it need embedding.
+on:
+  schedule:
+    # Monthly, a few days after Open Library regenerates its dumps.
+    - cron: "41 2 3 * *"
+  workflow_dispatch:
+    inputs:
+      resume_attempt:
+        description: internal counter for the self-resume chain; leave at 0
+        required: false
+        default: "0"
+
+# contents: write publishes the release; actions: write lets a run
+# dispatch its own resume and delete the checkpoint it started from.
+permissions:
+  contents: write
+  actions: write
+
+# One build at a time. Two chains restoring the same checkpoint would
+# both embed the same books and race to save.
+concurrency:
+  group: books-dataset
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Pinned for the same reason as dataset-publish: ubuntu-latest rolled
+    # to a release with no postgresql-client-16. Nothing here shells out
+    # to the client, but the two builds should not drift apart.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 358
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: mangabrain
+          POSTGRES_PASSWORD: mangabrain
+          POSTGRES_DB: mangabrain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mangabrain -d mangabrain"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://mangabrain:mangabrain@localhost:5432/mangabrain
+      PYTHONUNBUFFERED: "1"
+      STATE: book-state.json
+    steps:
+      # The embed step sizes itself to what is left of the job, so it
+      # needs to know when the job began.
+      - name: Record the start time
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project (CPU torch)
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install .
+
+      # Schema, minus the vector indexes. The build never searches, and an
+      # HNSW index charges every insert - each chained job reloads the
+      # whole checkpoint, so with the index in place every job would pay
+      # to rebuild the graph for every book embedded so far.
+      - name: Prepare the build database
+        id: prepare
+        run: python -m pipeline.book_dataset prepare-ci
+
+      - name: Restore checkpoint from a previous job
+        id: checkpoint
+        uses: actions/cache/restore@v4
+        with:
+          path: book-checkpoint
+          key: books-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            books-checkpoint-
+
+      - name: Load checkpoint
+        id: load
+        if: steps.checkpoint.outputs.cache-matched-key != ''
+        run: |
+          python -m pipeline.book_dataset load --dir book-checkpoint --state "$STATE" --no-schema
+          rm -rf book-checkpoint
+
+      # No checkpoint means a fresh chain. It starts from the newest
+      # published release when there is one, which is what makes a
+      # monthly update one job rather than seven.
+      - name: Seed from the newest published release
+        id: seed
+        if: steps.checkpoint.outputs.cache-matched-key == ''
+        # The token only lifts the API rate limit, which unauthenticated
+        # runners share by IP. The release itself is public.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -m pipeline.book_dataset load --release latest --state "$STATE" --no-schema
+
+      # Skips itself when this build already imported the current dump.
+      # Fails when the stream ends early: a truncated import must not be
+      # published as a whole one, and it must not trigger a resume either.
+      - name: Import the current dump
+        id: import
+        timeout-minutes: 230
+        run: python -m pipeline.book_dataset import --state "$STATE"
+
+      # Stops itself between batches inside the budget and succeeds, so a
+      # failure here is a real crash and never a timeout. That distinction
+      # is what the resume below keys on: before the 5 Nov 2026 fix every
+      # embedding pass crashed on its first batch, and a chain that
+      # resumed on any failure would have spent twelve jobs proving it.
+      # 40 minutes are held back for the export, the checkpoint upload and
+      # a release.
+      - name: Embed within the job's remaining time
+        id: embed
+        if: steps.import.outcome == 'success'
+        timeout-minutes: 340
+        run: |
+          ELAPSED=$(( $(date +%s) - JOB_START ))
+          BUDGET=$(( 358 * 60 - ELAPSED - 40 * 60 ))
+          if [ "$BUDGET" -lt 300 ]; then
+            echo "no time left to embed in this job; the next one continues"
+            exit 0
+          fi
+          python -m pipeline.embed --max-seconds "$BUDGET"
+
+      # pipefail, because the default shell has none: a crashed status
+      # would otherwise "succeed" through the tee with empty outputs, and
+      # an empty pending is not '0', so it would dispatch a resume.
+      - name: Status
+        id: status
+        if: always()
+        run: |
+          set -o pipefail
+          python -m pipeline.book_dataset status --state "$STATE" | tee -a "$GITHUB_OUTPUT"
+
+      # Always, so progress survives whatever happened above. A checkpoint
+      # and a release are the same format: this directory is also what
+      # gets published when the build is complete.
+      #
+      # But not when the database never received the build's state. If
+      # the checkpoint failed to load - a schema change mid-chain, say -
+      # exporting would save a near-empty database as the newest
+      # checkpoint, and the step after would delete the real one.
+      - name: Export checkpoint
+        id: export
+        if: >-
+          always() && steps.prepare.outcome == 'success'
+          && steps.load.outcome != 'failure' && steps.seed.outcome != 'failure'
+        run: python -m pipeline.book_dataset export --out book-checkpoint --state "$STATE"
+
+      - name: Save checkpoint
+        id: save
+        if: always() && steps.export.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: book-checkpoint
+          key: books-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # After the new checkpoint is safely saved, not on load: deleting
+      # the old one first would leave nothing if this job then died. One
+      # live checkpoint at a time matters because the repository's cache
+      # is 10 GB in all and each of these is several gigabytes - left to
+      # pile up they would evict dataset-publish's checkpoint, and that
+      # costs a 272-minute AniList sync to rebuild.
+      - name: Delete the checkpoint this job started from
+        if: >-
+          always() && steps.save.outcome == 'success'
+          && steps.checkpoint.outputs.cache-matched-key != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh cache delete "${{ steps.checkpoint.outputs.cache-matched-key }}" -R "$GITHUB_REPOSITORY" || true
+
+      # Only when the embed step stopped on its budget with books left.
+      # Not on an import failure, not on an embed crash, and not when the
+      # status itself could not be read: each of those would resume into
+      # the same failure.
+      - name: Dispatch resume
+        if: >-
+          always() && steps.save.outcome == 'success'
+          && steps.embed.outcome == 'success'
+          && steps.status.outcome == 'success'
+          && steps.status.outputs.pending != ''
+          && steps.status.outputs.pending != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ATTEMPT="${{ github.event.inputs.resume_attempt || '0' }}"
+          if [ "$ATTEMPT" -ge 12 ]; then
+            echo "resume chain exhausted after $ATTEMPT attempts; leaving it to the next run"
+            exit 0
+          fi
+          echo "dispatching resume attempt $((ATTEMPT + 1))"
+          # --ref, or the resume lands on the default branch with a
+          # different definition from the one it began with.
+          gh workflow run books-dataset.yml -R "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
+            -f resume_attempt=$((ATTEMPT + 1))
+
+      - name: Publish release
+        if: success() && steps.status.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # --latest=false, and it is load-bearing. The release marked latest
+        # is the anime dataset, and every new install seeds from
+        # releases/latest/download/mangabrain-dataset.dump. GitHub marks a
+        # new release latest by default, so without this a books release
+        # would take the marker and every fresh install would 404.
+        run: |
+          cat > notes.md <<'NOTES'
+          Books from Open Library: every work with a description of at
+          least 200 characters and at least one subject, with genres,
+          subject tags and synopsis embeddings.
+
+          This release is split into parts because GitHub caps a single
+          asset at 2 GB. Do not download the parts by hand; load the
+          release with:
+
+              python -m pipeline.book_dataset load --release latest
+
+          Loading MERGES into an existing database rather than replacing
+          it. Anime and manga rows are never touched, books the release
+          does not carry are kept, a book your database imported more
+          recently is not rolled back, and embeddings your database
+          computed itself are kept. Every part is verified against the
+          manifest's SHA-256 as it streams, and a mismatch rolls the
+          whole load back.
+
+          Embeddings are only loaded when the release's embedding model
+          matches your database's; otherwise the books load without them
+          and the nightly pass embeds them locally.
+
+          Data from the Open Library works dump.
+          NOTES
+          TAG="books-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$TAG" book-checkpoint/* --latest=false \
+            --title "Books $(date -u +%F)" --notes-file notes.md
+
+      - name: Prune old books releases
+        if: success() && steps.status.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Each is several gigabytes; keep the two newest. books- only, so
+        # this can never touch the anime dataset's releases.
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '[.[] | select(.tag_name | startswith("books-"))] | sort_by(.created_at) | reverse | .[2:] | .[].tag_name' |
+          while read -r tag; do
+            echo "pruning $tag"
+            gh release delete "$tag" --cleanup-tag --yes || true
+          done

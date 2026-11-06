@@ -157,7 +157,17 @@ def embed_missing(
     batch_size: int = 256,
     model_name: str | None = None,
     encode_batch_size: int = ENCODE_BATCH_SIZE,
+    max_seconds: float | None = None,
 ) -> int:
+    """Embed every row missing a current-version embedding.
+
+    max_seconds stops the pass between batches once that much time has
+    gone, leaving the rest for the next run. The CI jobs need it: a step
+    killed at its timeout loses nothing already committed, but it FAILS,
+    and a failure cannot be told apart from a real crash - so the resume
+    chain would also re-dispatch on a bug. Stopping on a budget succeeds,
+    and the caller asks how much is left.
+    """
     # Imported lazily: pulls in torch, which the API service never needs.
     import torch
     from sentence_transformers import SentenceTransformer
@@ -182,6 +192,13 @@ def embed_missing(
         )
         started = time.monotonic()
         while True:
+            if max_seconds is not None and time.monotonic() - started >= max_seconds:
+                print(
+                    f"[embed] stopping at the {max_seconds:.0f}s budget;"
+                    f" {max(pending - total, 0)} left for the next run",
+                    flush=True,
+                )
+                break
             rows = conn.execute(SELECT_MISSING_SQL, (stored_id, batch_size)).fetchall()
             if not rows:
                 break
@@ -219,6 +236,12 @@ def main() -> None:
     parser.add_argument("--encode-batch-size", type=int, default=ENCODE_BATCH_SIZE)
     parser.add_argument("--model", default=None, help="override EMBED_MODEL")
     parser.add_argument(
+        "--max-seconds",
+        type=float,
+        default=None,
+        help="stop between batches after this long; the rest waits for the next run",
+    )
+    parser.add_argument(
         "--prune-stale",
         action="store_true",
         help="after embedding completes, delete rows of other embedding versions",
@@ -228,8 +251,11 @@ def main() -> None:
         batch_size=args.batch_size,
         model_name=args.model,
         encode_batch_size=args.encode_batch_size,
+        max_seconds=args.max_seconds,
     )
-    if args.prune_stale:
+    # Pruning needs a complete new version, and a budgeted stop is by
+    # definition not one, so a timed pass never prunes.
+    if args.prune_stale and args.max_seconds is None:
         prune_stale(args.model)
 
 
