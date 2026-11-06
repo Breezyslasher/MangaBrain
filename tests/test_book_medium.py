@@ -188,7 +188,7 @@ def test_the_media_check_constraints_are_not_rebuilt_on_every_start():
     scanned every row; behind a busy worker that stalled startup into a
     502. They are re-stated only when the stored definition is out of
     date, and NOT VALID, so even then no existing row is scanned."""
-    block = SCHEMA[SCHEMA.index("DO $$", SCHEMA.index("re-stated here")) :]
+    block = SCHEMA[SCHEMA.index("DO $$", SCHEMA.index("is missing a value, and NOT VALID")) :]
     block = block[: block.index("END $$;")]
     assert block.count("pg_get_constraintdef(oid) LIKE") == 2
     assert block.count(") NOT VALID;") == 2
