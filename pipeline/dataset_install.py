@@ -85,6 +85,11 @@ def install_tmdb(request: dict, report: Callable[[dict], None]) -> str:
         client = sync_tmdb.TmdbClient(key)
         try:
             tally = sync_tmdb.full(conn, client, progress=report)
+            # Asked for again after the full pass is done ("Check TMDB for
+            # changes now"): the full pass skips completed kinds, so run the
+            # changes feed the nightly pass would.
+            if not tally:
+                tally = sync_tmdb.changes(conn, client)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401:
                 raise RuntimeError(
@@ -96,7 +101,7 @@ def install_tmdb(request: dict, report: Callable[[dict], None]) -> str:
         count = conn.execute(
             "SELECT count(*) FROM media WHERE source = %s", (sync_tmdb.SOURCE,)
         ).fetchone()[0]
-    return f"Fetched {count:,} films and shows from TMDB ({tally.get('kept', 0):,} this pass)."
+    return f"{count:,} films and shows from TMDB ({tally.get('kept', 0):,} this pass)."
 
 
 def install_tvmaze(request: dict, report: Callable[[dict], None]) -> str:

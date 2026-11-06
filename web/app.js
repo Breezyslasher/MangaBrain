@@ -1000,7 +1000,7 @@ async function renderMediaSettings() {
       button.textContent =
         install?.state === "failed"
           ? "Retry"
-          : "Update from the newest release";
+          : dataset.update_label || "Update from the newest release";
       button.addEventListener("click", () => installDataset(dataset));
       card.append(button);
     }

@@ -33,6 +33,10 @@ class Dataset:
     # False for a dataset the worker maintains on its own and that cannot
     # be absent - AniList is synced every night whatever is selected.
     installable: bool
+    # What asking for the install again does, as the settings page labels
+    # it. Books load a published release; TV and films have none and are
+    # fetched from their source, so "the newest release" would be wrong.
+    update_label: str = "Update from the newest release"
 
 
 DATASETS: tuple[Dataset, ...] = (
@@ -71,6 +75,7 @@ DATASETS: tuple[Dataset, ...] = (
         source="tvmaze",
         download_hint="A few minutes of TVmaze requests, then embedding on this machine.",
         installable=True,
+        update_label="Fetch again from TVmaze now",
     ),
     Dataset(
         key="tmdb",
@@ -89,6 +94,7 @@ DATASETS: tuple[Dataset, ...] = (
             " machine. Needs a free TMDB API key."
         ),
         installable=True,
+        update_label="Check TMDB for changes now",
     ),
 )
 

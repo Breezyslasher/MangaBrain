@@ -175,7 +175,8 @@ data class DatasetOut(
     val items: Int,
     val embedded: Int,
     val install: DatasetInstallOut? = null,
-    val release_available: Boolean? = null
+    val release_available: Boolean? = null,
+    val update_label: String? = null
 )
 
 data class DatasetsOut(
