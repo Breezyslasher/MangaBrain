@@ -1,4 +1,12 @@
-"""Films and TV shows from TMDB (https://www.themoviedb.org).
+"""Films from TMDB (https://www.themoviedb.org).
+
+TV shows come from TVmaze instead (pipeline.sync_tvmaze), whose CC BY-SA
+licence allows what this engine does with the data. TMDB's API terms
+(1.C, last updated 20 Oct 2023) forbid using TMDB content "in connection
+with, including for training, a machine learning (ML) or artificial
+intelligence (AI) based Application" and making "derivatives" of it,
+which an embedding-based recommender plausibly is. Do not switch this on
+for an install without TMDB's written permission for the use.
 
 Fetched by each install with its own API key and kept in its own
 database - never published as a dataset. That is the shape TMDB's terms
@@ -8,10 +16,10 @@ medium; the worker fetches it, and refreshes it on a rolling schedule.
 
 Three passes:
 
-  full     every id in TMDB's daily id exports (films and TV, adult and
-           video entries dropped), each fetched with its keywords. Resumable:
-           progress is kept in sync_state per type. About 1.4 million
-           requests, ten hours or so at the rate below.
+  full     every id in TMDB's daily film id export (adult and video
+           entries dropped), each fetched with its keywords. Resumable:
+           progress is kept in sync_state. About 1.2 million requests,
+           nine hours or so at the rate below.
   changes  the ids TMDB reports changed since the last pass (its /changes
            feeds), re-fetched. Run nightly.
   refresh  rows older than REFRESH_DAYS re-fetched, oldest first, a slice
@@ -19,7 +27,7 @@ Three passes:
 
 What is kept (measured by pipeline.survey_screen, 6 Nov 2026): a title
 needs an overview of at least MIN_OVERVIEW characters, which about 43% of
-films and 36% of shows have. Japanese animation is dropped: the anime
+films have. Japanese animation is dropped: the anime
 catalogue already holds it, from AniList, with far better tags.
 
 What is stored maps onto the media table the anime rows use: overview as
@@ -72,7 +80,6 @@ CHUNK = 400
 # (TMDB type, path in the API, export file prefix, media_type, medium)
 KINDS = {
     "movie": ("movie", "movie", "MOVIE", "movie"),
-    "tv": ("tv", "tv_series", "TV", "tv"),
 }
 
 # TMDB status words onto the catalogue's AniList-derived vocabulary, so the
@@ -184,19 +191,11 @@ def row_for(kind: str, data: dict) -> dict | None:
     overview = clean(data.get("overview"))
     if len(overview) < MIN_OVERVIEW or is_japanese_animation(data):
         return None
-    if kind == "movie":
-        title = clean(data.get("title"))
-        original = clean(data.get("original_title"))
-        released = data.get("release_date")
-        fmt = "MOVIE"
-        episodes = None
-    else:
-        title = clean(data.get("name"))
-        original = clean(data.get("original_name"))
-        released = data.get("first_air_date")
-        kind_word = clean(data.get("type")) or "Scripted"
-        fmt = kind_word.upper().replace(" ", "_")
-        episodes = data.get("number_of_episodes")
+    title = clean(data.get("title"))
+    original = clean(data.get("original_title"))
+    released = data.get("release_date")
+    fmt = "MOVIE"
+    episodes = None
     if not title:
         return None
     keywords = data.get("keywords") or {}
@@ -357,7 +356,7 @@ def export_ids(kind: str) -> tuple[str, list[int]]:
 def full(
     conn: psycopg.Connection,
     client: TmdbClient,
-    kinds: Iterable[str] = ("movie", "tv"),
+    kinds: Iterable[str] = ("movie",),
     progress: Callable[[dict], None] | None = None,
 ) -> dict[str, int]:
     """Every exported id, once, resumable. Ids are processed in ascending

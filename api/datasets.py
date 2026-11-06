@@ -61,19 +61,31 @@ DATASETS: tuple[Dataset, ...] = (
         installable=True,
     ),
     Dataset(
-        key="tmdb",
-        label="Films and TV",
+        key="tvmaze",
+        label="TV shows",
         description=(
-            "From TMDB, fetched with your own API key (Settings > Server): about 600,000"
-            " films and shows with a real overview, Japanese animation left to the anime"
-            " tab. TMDB's terms rule out publishing it, so this install fetches it itself"
-            " and refreshes it nightly. This product uses the TMDB API but is not"
-            " endorsed or certified by TMDB."
+            "From TVmaze (tvmaze.com), licensed CC BY-SA: about 51,000 shows with a real"
+            " summary, Japanese animation left to the anime tab. Read in full every night."
         ),
-        media=("movie", "tv"),
+        media=("tv",),
+        source="tvmaze",
+        download_hint="A few minutes of TVmaze requests, then embedding on this machine.",
+        installable=True,
+    ),
+    Dataset(
+        key="tmdb",
+        label="Films",
+        description=(
+            "From TMDB, fetched with your own API key (Settings > Server): about 520,000"
+            " films with a real overview. TMDB's terms rule out publishing it, so this"
+            " install fetches it itself and refreshes it nightly. This product uses TMDB"
+            " and the TMDB APIs but is not endorsed, certified, or otherwise approved by"
+            " TMDB."
+        ),
+        media=("movie",),
         source="tmdb",
         download_hint=(
-            "About 1.4 million TMDB requests, roughly ten hours, then embedding on this"
+            "About 1.2 million TMDB requests, roughly nine hours, then embedding on this"
             " machine. Needs a free TMDB API key."
         ),
         installable=True,

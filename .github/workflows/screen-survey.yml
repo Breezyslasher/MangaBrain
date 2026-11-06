@@ -11,6 +11,14 @@ name: screen-survey
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "survey = measure the sources; terms = print TMDB's and TVmaze's current terms to the log"
+        required: false
+        type: choice
+        default: survey
+        options:
+          - survey
+          - terms
       sample:
         description: titles per source and type
         required: false
@@ -45,7 +53,45 @@ jobs:
       - name: Install dependencies
         run: pip install "httpx>=0.27"
 
+      # The terms decide what may be done with TMDB data - above all,
+      # whether a dataset may be published - and they change. The dev
+      # container cannot reach themoviedb.org, so the runner reads the live
+      # page and prints its text, rather than anyone relying on memory.
+      - name: Print TMDB's and TVmaze's terms
+        if: ${{ inputs.mode == 'terms' }}
+        run: |
+          for url in https://www.themoviedb.org/api-terms-of-use https://www.themoviedb.org/terms-of-use \
+              https://www.tvmaze.com/api https://www.tvmaze.com/site/terms https://www.tvmaze.com/site/legal; do
+            echo "===== $url ($(date -u +%F))"
+            curl -sSL -A "MangaBrain terms check" "$url" | python -c '
+          import html, re, sys
+          from html.parser import HTMLParser
+
+          class Text(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.out, self.skip = [], 0
+              def handle_starttag(self, tag, attrs):
+                  if tag in ("script", "style", "nav", "header", "footer"):
+                      self.skip += 1
+                  if tag in ("p", "li", "h1", "h2", "h3", "h4", "br", "div"):
+                      self.out.append("\n")
+              def handle_endtag(self, tag):
+                  if tag in ("script", "style", "nav", "header", "footer") and self.skip:
+                      self.skip -= 1
+              def handle_data(self, data):
+                  if not self.skip:
+                      self.out.append(data)
+
+          parser = Text()
+          parser.feed(sys.stdin.read())
+          text = re.sub(r"[ \t]+", " ", "".join(parser.out))
+          print(re.sub(r"\n\s*\n+", "\n\n", text).strip())
+          '
+          done
+
       - name: Survey TV and film sources
+        if: ${{ inputs.mode != 'terms' }}
         env:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
@@ -55,7 +101,7 @@ jobs:
             --json screen-survey.json
 
       - name: Upload result
-        if: always()
+        if: ${{ always() && inputs.mode != 'terms' }}
         uses: actions/upload-artifact@v4
         with:
           name: screen-survey

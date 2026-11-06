@@ -37,26 +37,6 @@ def test_a_film_maps_onto_the_media_row():
     assert row["cover_medium"].endswith("/w342/p.jpg")
 
 
-def test_a_show_uses_its_type_episodes_and_results_keywords():
-    data = {
-        "id": 1399,
-        "name": "Show",
-        "original_name": "Show",
-        "overview": LONG,
-        "genres": [{"name": "Drama"}],
-        "keywords": {"results": [{"name": "dragon"}]},
-        "first_air_date": "2011-04-17",
-        "status": "Returning Series",
-        "type": "Miniseries",
-        "number_of_episodes": 8,
-        "origin_country": ["GB"],
-    }
-    row = sync_tmdb.row_for("tv", data)
-    assert (row["media_type"], row["medium"], row["format"]) == ("TV", "tv", "MINISERIES")
-    assert row["episodes"] == 8 and row["status"] == "RELEASING"
-    assert row["tags"][0]["name"] == "dragon"
-
-
 def test_short_overviews_adult_and_japanese_animation_are_kept_out():
     assert sync_tmdb.row_for("movie", movie(overview="Too short.")) is None
     assert sync_tmdb.row_for("movie", movie(adult=True)) is None
@@ -135,13 +115,17 @@ def test_a_v4_token_goes_in_a_header_and_a_v3_key_in_the_query():
         v3.close()
 
 
-def test_films_and_tv_are_an_installable_dataset_never_a_release():
+def test_films_are_an_installable_dataset_never_a_release():
     from api.datasets import BY_KEY
     from pipeline.dataset_install import INSTALLERS
 
     dataset = BY_KEY["tmdb"]
-    assert dataset.media == ("movie", "tv") and dataset.source == "tmdb"
-    assert "not endorsed or certified by TMDB" in dataset.description
+    assert dataset.media == ("movie",) and dataset.source == "tmdb"
+    # TMDB's terms, paragraph 3, give this notice word for word.
+    assert (
+        "uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB"
+        in dataset.description
+    )
     assert "tmdb" in INSTALLERS
     install = inspect.getsource(INSTALLERS["tmdb"])
     assert "find_release_manifest" not in install and "sync_tmdb.full" in install
@@ -152,3 +136,7 @@ def test_the_tmdb_key_is_write_only():
 
     assert "tmdb_api_key_set" in AppSettingsOut.model_fields
     assert "tmdb_api_key" not in AppSettingsOut.model_fields
+
+
+def test_tmdb_no_longer_fetches_tv():
+    assert set(sync_tmdb.KINDS) == {"movie"}

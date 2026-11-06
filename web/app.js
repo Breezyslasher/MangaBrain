@@ -32,9 +32,10 @@ const MAX_MIX = 5;
 // than a filter, and a no-op slider is worse than an absent one.
 const UNSUPPORTED = {
   book: ["minScore", "country", "status", "maxPop", "minLen", "maxLen"],
-  // Films and TV come from TMDB, whose popularity and vote fields are never
-  // stored (nothing may rank or filter by fame), so there is no score or
-  // popularity behind either control; length has no column for them.
+  // Films (TMDB) and TV (TVmaze): their popularity, vote and rating
+  // fields are never stored (nothing may rank or filter by fame), so there
+  // is no score or popularity behind either control; length has no
+  // column for them.
   movie: ["minScore", "maxPop", "minLen", "maxLen"],
   tv: ["minScore", "maxPop", "minLen", "maxLen"],
 };
@@ -60,8 +61,20 @@ const FORMATS = {
   book: [],
   // Every film is a film, so there is nothing to choose between.
   movie: [],
-  // TMDB's show types, as pipeline/sync_tmdb.py stores them.
-  tv: ["SCRIPTED", "MINISERIES", "DOCUMENTARY", "REALITY", "TALK_SHOW", "NEWS"],
+  // TVmaze's show types, as pipeline/sync_tvmaze.py stores them.
+  tv: [
+    "SCRIPTED",
+    "ANIMATION",
+    "REALITY",
+    "DOCUMENTARY",
+    "TALK_SHOW",
+    "GAME_SHOW",
+    "NEWS",
+    "SPORTS",
+    "VARIETY",
+    "AWARD_SHOW",
+    "PANEL_SHOW",
+  ],
 };
 
 const GENRES = [
