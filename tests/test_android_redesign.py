@@ -176,3 +176,14 @@ def test_statuses_wait_for_the_usernames():
 
 def test_the_media_page_keeps_polling_only_while_shown():
     assert "if (!active || isHidden || stack.last() != Page.MEDIA) break" in SETTINGS
+
+
+def test_every_android_resource_is_well_formed_xml():
+    """aapt refuses a malformed resource before Kotlin is even compiled,
+    and the first redesign build died on '--' inside a comment, which XML
+    forbids. A strict parse here catches that class of mistake in a second
+    rather than a CI round."""
+    import xml.dom.minidom
+
+    for path in sorted((ROOT / "res").rglob("*.xml")):
+        xml.dom.minidom.parse(str(path))
