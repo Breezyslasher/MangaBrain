@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "survey = measure the sources; terms = print TMDB's current API terms to the log"
+        description: "survey = measure the sources; terms = print TMDB's and TVmaze's current terms to the log"
         required: false
         type: choice
         default: survey
@@ -57,10 +57,11 @@ jobs:
       # whether a dataset may be published - and they change. The dev
       # container cannot reach themoviedb.org, so the runner reads the live
       # page and prints its text, rather than anyone relying on memory.
-      - name: Print TMDB's API terms
+      - name: Print TMDB's and TVmaze's terms
         if: ${{ inputs.mode == 'terms' }}
         run: |
-          for url in https://www.themoviedb.org/api-terms-of-use https://www.themoviedb.org/terms-of-use; do
+          for url in https://www.themoviedb.org/api-terms-of-use https://www.themoviedb.org/terms-of-use \
+              https://www.tvmaze.com/api https://www.tvmaze.com/site/terms https://www.tvmaze.com/site/legal; do
             echo "===== $url ($(date -u +%F))"
             curl -sSL -A "MangaBrain terms check" "$url" | python -c '
           import html, re, sys
