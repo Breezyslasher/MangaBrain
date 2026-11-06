@@ -59,7 +59,7 @@ def release_available(dataset: Dataset) -> bool | None:
 
 def installed_keys(conn) -> set[str]:
     present = catalogue_counts(conn)
-    return {d.key for d in DATASETS if not d.installable or present.get(d.source, (0, 0))[0] > 0}
+    return {d.key for d in DATASETS if d.always_present or present.get(d.source, (0, 0))[0] > 0}
 
 
 def to_out(conn, dataset: Dataset) -> DatasetOut:
@@ -72,7 +72,7 @@ def to_out(conn, dataset: Dataset) -> DatasetOut:
         media=list(dataset.media),
         download_hint=dataset.download_hint,
         installable=dataset.installable,
-        installed=(not dataset.installable) or items > 0,
+        installed=dataset.always_present or items > 0,
         items=items,
         embedded=embedded,
         install=DatasetInstallOut(
