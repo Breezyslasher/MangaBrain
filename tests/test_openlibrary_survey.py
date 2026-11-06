@@ -105,3 +105,34 @@ def test_an_empty_stream_ends_rather_than_hangs():
     from pipeline.survey_openlibrary import ChunkReader
 
     assert ChunkReader([]).readinto(bytearray(8)) == 0
+
+
+def test_one_pass_answers_every_threshold():
+    """A full survey is ~2.6 hours, so re-running it per candidate floor
+    is not a way to choose one.
+
+    200 characters was picked to exclude taglines, not to select good
+    records, and at 2.32% of a ~40M-work dump the difference is between
+    roughly 930,000 books and a few hundred thousand - which decides
+    embedding hours, how many release assets it takes to ship, and what
+    competes for a place in the results.
+    """
+    from pipeline.survey_openlibrary import THRESHOLDS
+
+    assert (200, 1) in THRESHOLDS, "the current floor must stay comparable"
+    assert len({chars for chars, _ in THRESHOLDS}) >= 3, "several description floors"
+    assert len({tags for _, tags in THRESHOLDS}) >= 2, "and more than one subject floor"
+
+
+def test_each_threshold_reports_its_embedding_cost():
+    """The count alone does not say what it would cost to act on."""
+    source = SURVEY.read_text()
+    assert "h to embed" in source
+    assert "165_000" in source, "scaled from the rate this project actually measured"
+
+
+def test_the_grid_counts_subjects_not_merely_their_presence():
+    """The usable count asks only whether subjects exist; a floor of 3
+    needs the number."""
+    source = SURVEY.read_text()
+    assert "len(subjects) >= tags" in source

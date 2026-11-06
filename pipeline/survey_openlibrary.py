@@ -42,6 +42,15 @@ DUMP_URL = "https://openlibrary.org/data/ol_dump_works_latest.txt.gz"
 # this a description is a tagline, not something to embed.
 MIN_DESCRIPTION = 200
 
+# 200 characters was chosen to exclude taglines, not to select good
+# records, and the difference matters: at 2.32% of a ~40M-work dump the
+# catalogue is around 930,000 books, which is 5.6x the anime and manga
+# catalogue combined and more vector than a single release asset can
+# hold. Where to put the floor is a judgement about result quality, and
+# it should be made against numbers rather than re-run for hours per
+# guess. Each pass now counts every combination.
+THRESHOLDS = [(200, 1), (200, 3), (400, 1), (400, 3), (600, 1), (600, 3), (1000, 3)]
+
 
 class ChunkReader(io.RawIOBase):
     """A file-like view over httpx's chunk iterator.
@@ -84,6 +93,7 @@ def survey(limit: int | None, min_description: int) -> dict:
     counts = {"rows": 0, "parsed": 0, "with_description": 0, "with_subjects": 0, "usable": 0}
     lengths: list[int] = []
     subject_counts: list[int] = []
+    grid = dict.fromkeys(THRESHOLDS, 0)
     started = time.monotonic()
 
     with httpx.stream("GET", DUMP_URL, timeout=120.0, follow_redirects=True) as resp:
@@ -113,6 +123,9 @@ def survey(limit: int | None, min_description: int) -> dict:
                     counts["usable"] += 1
                     lengths.append(len(description))
                     subject_counts.append(len(subjects))
+                for chars, tags in THRESHOLDS:
+                    if len(description) >= chars and len(subjects) >= tags:
+                        grid[(chars, tags)] += 1
                 if counts["rows"] % 250_000 == 0:
                     rate = counts["rows"] / max(time.monotonic() - started, 1e-9)
                     print(
@@ -124,6 +137,7 @@ def survey(limit: int | None, min_description: int) -> dict:
     counts["median_length"] = int(statistics.median(lengths)) if lengths else 0
     counts["median_subjects"] = int(statistics.median(subject_counts)) if subject_counts else 0
     counts["seconds"] = round(time.monotonic() - started, 1)
+    counts["grid"] = grid
     return counts
 
 
@@ -151,6 +165,17 @@ def main() -> None:
     print(f"median description   {counts['median_length']:>12,} chars")
     print(f"median subjects      {counts['median_subjects']:>12,}")
     print(f"elapsed              {counts['seconds']:>12,} s")
+    grid = counts.get("grid") or {}
+    if grid:
+        print("\nwhat each floor would keep, of the rows read:")
+        for (chars, tags), kept in grid.items():
+            share = kept / rows
+            hours = kept / 165_000 * (70 / 60)
+            print(
+                f"  {chars:>5}+ chars, {tags}+ subjects   {kept:>10,}"
+                f"  ({share:.2%})   ~{hours:.1f}h to embed"
+            )
+
     if counts["usable"]:
         # The anime catalogue took roughly 70 minutes of CI to embed at
         # ~165,000 entries; that is the only rate measured on this
