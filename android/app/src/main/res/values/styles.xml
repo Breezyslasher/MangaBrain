@@ -65,4 +65,78 @@
         <item name="android:textSize">16sp</item>
         <item name="android:autofillHints"></item>
     </style>
+    <!-- Redesign (2a / 3b) -->
+    <style name="SettingsLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:paddingStart">22dp</item>
+        <item name="android:paddingEnd">22dp</item>
+        <item name="android:paddingTop">6dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.11</item>
+        <item name="android:textColor">@color/muted</item>
+        <item name="android:textSize">10.5sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="SettingsCard">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">14dp</item>
+        <item name="android:layout_marginEnd">14dp</item>
+        <item name="android:layout_marginBottom">16dp</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:divider">@drawable/divider</item>
+        <item name="android:showDividers">middle</item>
+    </style>
+
+    <style name="PageTitle">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:paddingStart">22dp</item>
+        <item name="android:paddingEnd">22dp</item>
+        <item name="android:paddingTop">26dp</item>
+        <item name="android:paddingBottom">18dp</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">32sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">-0.03</item>
+    </style>
+
+    <style name="BigField">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">52dp</item>
+        <item name="android:background">@drawable/bg_field</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textColorHint">@color/dim</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:autofillHints"></item>
+    </style>
+
+    <style name="PillButton" parent="Widget.Material3.Button">
+        <item name="android:minHeight">52dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textSize">14.5sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="cornerRadius">999dp</item>
+        <item name="backgroundTint">@color/accent</item>
+        <item name="android:textColor">#FFFFFF</item>
+    </style>
+
+    <style name="PillButton.Bad" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minHeight">52dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textSize">14.5sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="cornerRadius">999dp</item>
+        <item name="strokeColor">@color/bad_bg</item>
+        <item name="android:textColor">@color/bad</item>
+    </style>
 </resources>

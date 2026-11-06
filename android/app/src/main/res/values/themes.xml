@@ -6,5 +6,49 @@
         <item name="android:textColorPrimary">@color/text</item>
         <item name="android:textColorSecondary">@color/muted</item>
         <item name="android:statusBarColor" tools:targetApi="21">@color/bg</item>
+        <item name="android:navigationBarColor">@color/surface</item>
+        <!-- Space Grotesk throughout; numbers that should line up use
+             @font/jetbrains_mono where they are set. -->
+        <item name="android:fontFamily">@font/space_grotesk</item>
+        <item name="fontFamily">@font/space_grotesk</item>
+        <item name="materialSwitchStyle">@style/Widget.MangaBrain.Switch</item>
+        <item name="bottomNavigationStyle">@style/Widget.MangaBrain.BottomNav</item>
+    </style>
+
+    <!-- Toggle switch (3b): accent track and white thumb on; border_2 track
+         and muted thumb off. No outline, so the two states read by colour. -->
+    <style name="Widget.MangaBrain.Switch" parent="Widget.Material3.CompoundButton.MaterialSwitch">
+        <item name="trackTint">@color/switch_track</item>
+        <item name="thumbTint">@color/switch_thumb</item>
+        <item name="trackDecorationTint">@android:color/transparent</item>
+    </style>
+
+    <!-- Tab bar (3b): four equal columns, a 22dp icon over an 11.5sp label,
+         and a 60x30 accent_bg pill behind the active icon. -->
+    <style name="Widget.MangaBrain.BottomNav" parent="Widget.Material3.BottomNavigationView">
+        <item name="android:background">@drawable/bg_bottom_bar</item>
+        <item name="itemIconTint">@color/nav_item</item>
+        <item name="itemTextColor">@color/nav_item</item>
+        <item name="itemIconSize">22dp</item>
+        <item name="labelVisibilityMode">labeled</item>
+        <item name="itemActiveIndicatorStyle">@style/Widget.MangaBrain.BottomNav.Pill</item>
+        <item name="itemTextAppearanceActive">@style/TextAppearance.MangaBrain.TabActive</item>
+        <item name="itemTextAppearanceInactive">@style/TextAppearance.MangaBrain.Tab</item>
+    </style>
+
+    <style name="Widget.MangaBrain.BottomNav.Pill" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:width">60dp</item>
+        <item name="android:height">30dp</item>
+        <item name="android:color">@color/accent_bg</item>
+    </style>
+
+    <style name="TextAppearance.MangaBrain.Tab" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textSize">11.5sp</item>
+        <item name="fontFamily">@font/space_grotesk</item>
+        <item name="android:fontFamily">@font/space_grotesk</item>
+    </style>
+
+    <style name="TextAppearance.MangaBrain.TabActive" parent="TextAppearance.MangaBrain.Tab">
+        <item name="android:textStyle">bold</item>
     </style>
 </resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SIL Open Font License 1.1; the licence text is in android/licenses/. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <font android:font="@font/jetbrains_mono_medium" android:fontStyle="normal" android:fontWeight="500"
+        app:font="@font/jetbrains_mono_medium" app:fontStyle="normal" app:fontWeight="500" />
+    <font android:font="@font/jetbrains_mono_bold" android:fontStyle="normal" android:fontWeight="700"
+        app:font="@font/jetbrains_mono_bold" app:fontStyle="normal" app:fontWeight="700" />
+</font-family>
