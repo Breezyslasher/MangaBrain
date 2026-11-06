@@ -30,11 +30,51 @@ from pipeline.openlibrary import MIN_DESCRIPTION, description_of, iter_works
 
 SOURCE = "openlibrary"
 
+# Subjects that are not about the book.
+#
+# Measured on the first 5,327 imported books: "New York Times
+# bestseller" appears 70 times and "New York Times reviewed" 75. Those
+# are popularity, and this project's one inviolable rule is that
+# popularity never enters the ranking function - a subject list is an
+# input to tag similarity, so letting them through would have put it
+# there by the side door.
+#
+# The rest are bibliographic form headings: what kind of ARTEFACT the
+# record describes, not what the book is about. Two books share nothing
+# meaningful by both being large-print, or both being conference
+# proceedings, but tag similarity would score them as if they did.
+NOISE_SUBJECTS = {
+    "new york times bestseller",
+    "new york times reviewed",
+    "bestsellers",
+    "large type books",
+    "exhibitions",
+    "congresses",
+    "case studies",
+    "pictorial works",
+    "general",
+    "handbooks, manuals, etc",
+    "early works to 1800",
+    "specimens",
+    "collectibles",
+    "accessible book",
+    "protected daisy",
+    "in library",
+    "internet archive wishlist",
+    "overdrive",
+}
+
 # Open Library has no genre vocabulary - everything is a subject, from
 # "Fiction" to "Cats in fiction, juvenile". The score reads genres and
 # tags as separate terms, so leaving genres empty would silently zero
 # one of three for every book. These are the subjects that are genres
 # in all but name; the rest stay tags.
+#
+# Extended from the measured distribution rather than from guesses
+# about what Open Library calls things: the first import left 52% of
+# books with no genre at all, and the commonest unmapped subjects were
+# its MARC-flavoured spellings - "Fiction, general", "Juvenile
+# literature", "Comic books, strips".
 GENRE_SUBJECTS = {
     "fiction": "Fiction",
     "nonfiction": "Non-fiction",
@@ -65,7 +105,57 @@ GENRE_SUBJECTS = {
     "history": "History",
     "philosophy": "Philosophy",
     "science": "Science",
+    # Spellings the first import showed Open Library actually using.
+    "juvenile literature": "Children",
+    "comic books, strips": "Comics",
+    "comic books, strips, etc": "Comics",
+    "graphic novels": "Comics",
+    "politics and government": "Politics",
+    "political science": "Politics",
+    "psychology": "Psychology",
+    "christianity": "Religion",
+    "religion": "Religion",
+    "cooking": "Cooking",
+    "art": "Art",
+    "music": "Music",
+    "sports": "Sports",
+    "nature": "Nature",
+    "medicine": "Medicine",
+    "law": "Law",
+    "education": "Education",
+    "economics": "Economics",
+    "business": "Business",
+    "mathematics": "Mathematics",
+    "technology": "Technology",
+    "self-help": "Self-help",
+    "true crime": "True Crime",
+    "war": "War",
+    "westerns": "Western",
+    "fairy tales": "Fairy Tales",
+    "folklore": "Folklore",
+    "memoirs": "Biography",
+    "diaries": "Biography",
+    "correspondence": "Biography",
+    # Bare forms, which is how the BISAC headings spell them once the
+    # "Fiction, ... , general" wrapper is stripped.
+    "historical": "Historical",
+    "literary": "Literary",
+    "crime": "Crime",
+    "action": "Adventure",
+    "coming of age": "Coming of Age",
+    "family life": "Family",
+    "sagas": "Saga",
+    "satire": "Satire",
+    "dystopian": "Dystopian",
+    "classics": "Classics",
+    "war & military": "War",
 }
+
+# "Fiction, romance, general" and "Fiction, mystery & detective,
+# general" are one heading each in Open Library, and the genre is the
+# middle part. Listing every spelling would be endless; reading the
+# shape is not.
+BISAC_FICTION = re.compile(r"^fiction,\s*([^,]+?)(?:,\s*general)?$")
 
 # Tags carry no weight of their own here. AniList ranks each tag 0-100
 # by how well it fits, and tag_similarity reads that rank; Open Library
@@ -135,6 +225,26 @@ def covers_of(work: dict) -> tuple[str | None, str | None]:
     return f"{base}-M.jpg", f"{base}-L.jpg"
 
 
+def genre_for(lowered: str) -> str | None:
+    """A genre for a subject, by name or by BISAC shape."""
+    direct = GENRE_SUBJECTS.get(lowered)
+    if direct:
+        return direct
+    match = BISAC_FICTION.match(lowered)
+    if match:
+        inner = match.group(1).strip()
+        if inner == "general":
+            return "Fiction"
+        # "mystery & detective" and "science fiction & fantasy" pair a
+        # genre with its near neighbour; the first is the one the
+        # heading is filed under.
+        for candidate in (inner, *(part.strip() for part in inner.split("&"))):
+            genre = GENRE_SUBJECTS.get(candidate)
+            if genre:
+                return genre
+    return None
+
+
 def row_for(work: dict, min_description: int) -> dict | None:
     """A media row, or None if the work cannot be ranked."""
     key = str(work.get("key") or "")
@@ -147,11 +257,20 @@ def row_for(work: dict, min_description: int) -> dict | None:
     genres: list[str] = []
     tags: list[dict] = []
     for subject in subjects:
-        genre = GENRE_SUBJECTS.get(subject.lower())
-        if genre and genre not in genres:
-            genres.append(genre)
-        else:
-            tags.append({"name": subject, "rank": SUBJECT_RANK, "is_adult": False})
+        lowered = subject.lower().strip(" .")
+        if lowered in NOISE_SUBJECTS:
+            continue
+        genre = genre_for(lowered)
+        if genre:
+            # Not an else-branch onto tags: a subject that IS a genre
+            # must not become a tag merely because another subject
+            # already contributed the same genre. Measured - "Children's
+            # fiction" landed in tags 141 times in 5,327 books, because
+            # "Juvenile fiction" had reached "Children" first.
+            if genre not in genres:
+                genres.append(genre)
+            continue
+        tags.append({"name": subject, "rank": SUBJECT_RANK, "is_adult": False})
 
     cover_medium, cover_large = covers_of(work)
     return {

@@ -123,3 +123,50 @@ def test_nothing_is_filtered_on_popularity():
     for banned in ("edition_count", "want_to_read", "popularity", "ratings", "readinglog"):
         assert f'work.get("{banned}")' not in source, banned
         assert f'"{banned}"]' not in source, banned
+
+
+def test_popularity_never_reaches_the_tag_vector():
+    """The one inviolable rule in this project, and Open Library files
+    bestseller status as a subject.
+
+    Measured on the first 5,327 books: "New York Times bestseller"
+    appeared 70 times and "New York Times reviewed" 75. Subjects become
+    tags, tags feed tag_similarity, so letting these through would put
+    popularity into the ranking function by the side door - two books
+    scoring as alike for having sold well.
+    """
+    row = row_for({**WORK, "subjects": ["New York Times bestseller", "Foxes"]}, 200)
+    assert [t["name"] for t in row["tags"]] == ["Foxes"]
+
+
+def test_bibliographic_form_headings_are_not_content():
+    """Two books share nothing by both being large-print, or both being
+    conference proceedings. Tag similarity would score them as if they
+    did."""
+    row = row_for({**WORK, "subjects": ["Large type books", "Congresses", "Dragons"]}, 200)
+    assert [t["name"] for t in row["tags"]] == ["Dragons"]
+
+
+def test_a_subject_that_is_a_genre_never_becomes_a_tag():
+    """Measured: "Children's fiction" landed in tags 141 times across
+    5,327 books, because "Juvenile fiction" reached the same genre
+    first and the duplicate fell through to the tag branch."""
+    row = row_for({**WORK, "subjects": ["Juvenile fiction", "Children's fiction", "Foxes"]}, 200)
+    assert row["genres"] == ["Children"]
+    assert [t["name"] for t in row["tags"]] == ["Foxes"]
+
+
+def test_the_bisac_shape_is_read_rather_than_enumerated():
+    """Open Library files genres as "Fiction, romance, general". Listing
+    every spelling would be endless; reading the shape is not."""
+    from pipeline.sync_openlibrary import genre_for
+
+    assert genre_for("fiction, romance, general") == "Romance"
+    assert genre_for("fiction, historical, general") == "Historical"
+    assert genre_for("fiction, general") == "Fiction"
+    # A pair names the genre and its near neighbour; the first is the
+    # heading it is filed under.
+    assert genre_for("fiction, mystery & detective, general") == "Mystery"
+    assert genre_for("fiction, science fiction & fantasy, general") == "Science Fiction"
+    # And a subject that is not a genre stays a tag.
+    assert genre_for("social aspects") is None
