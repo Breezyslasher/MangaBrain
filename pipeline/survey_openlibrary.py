@@ -28,105 +28,23 @@ the measurement.
 """
 
 import argparse
-import gzip
-import io
-import json
 import statistics
 import time
 
-import httpx
+from pipeline.openlibrary import (
+    DUMP_URL,
+    MIN_DESCRIPTION,
+    description_of,
+    iter_works,
+)
 
-DUMP_URL = "https://openlibrary.org/data/ol_dump_works_latest.txt.gz"
-
-# The same floor the source probe used, and for the same reason: below
-# this a description is a tagline, not something to embed.
-MIN_DESCRIPTION = 200
-
+# Candidate floors, counted together. A full survey is hours, so
+# re-running it per threshold is not a way to choose one.
+#
 # 200 characters was chosen to exclude taglines, not to select good
-# records, and the difference matters: at 2.32% of a ~40M-work dump the
-# catalogue is around 930,000 books, which is 5.6x the anime and manga
-# catalogue combined and more vector than a single release asset can
-# hold. Where to put the floor is a judgement about result quality, and
-# it should be made against numbers rather than re-run for hours per
-# guess. Each pass now counts every combination.
+# records, and the difference decides embedding hours, how many release
+# assets it takes to ship, and what competes for a place in the results.
 THRESHOLDS = [(200, 1), (200, 3), (400, 1), (400, 3), (600, 1), (600, 3), (1000, 3)]
-
-
-class ChunkReader(io.RawIOBase):
-    """A file-like view over httpx's chunk iterator.
-
-    gzip.GzipFile wants an object with .read(); iter_raw() yields bytes.
-    Passing the generator straight in raised "'generator' object has no
-    attribute 'read'" on the first byte of a multi-gigabyte download,
-    which is a cheap failure but only at runtime - hence the test that
-    drives real gzip bytes through this in chunks.
-    """
-
-    def __init__(self, chunks) -> None:
-        self._chunks = iter(chunks)
-        self._buffer = b""
-
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, target) -> int:
-        while not self._buffer:
-            try:
-                self._buffer = next(self._chunks)
-            except StopIteration:
-                return 0
-        size = min(len(target), len(self._buffer))
-        target[:size] = self._buffer[:size]
-        self._buffer = self._buffer[size:]
-        return size
-
-
-def description_of(work: dict) -> str:
-    """Open Library stores a description as a string or as {value: ...}."""
-    value = work.get("description")
-    if isinstance(value, dict):
-        return str(value.get("value") or "")
-    return str(value or "")
-
-
-def download_chunks(url: str, max_attempts: int = 8):
-    """Raw bytes of the dump, continuing across dropped connections.
-
-    Measured: Open Library closed the connection 1,258,174,288 bytes
-    into a 4,078,855,962-byte file, 54 minutes in, and the whole survey
-    was lost with it. A Range request resumes from the last byte
-    received, and because the caller keeps one decompressor across the
-    whole generator the gzip stream never notices the seam.
-
-    If the server ignores Range and answers 200, resuming would feed
-    the file twice into a decompressor expecting the middle of it, so
-    that is refused rather than silently corrupting the count.
-    """
-    offset = 0
-    attempts = 0
-    while True:
-        headers = {"Range": f"bytes={offset}-"} if offset else {}
-        try:
-            with httpx.stream(
-                "GET", url, headers=headers, timeout=120.0, follow_redirects=True
-            ) as resp:
-                resp.raise_for_status()
-                if offset and resp.status_code != 206:
-                    print(f"  server ignored Range (HTTP {resp.status_code}); cannot resume")
-                    return
-                for chunk in resp.iter_raw():
-                    offset += len(chunk)
-                    yield chunk
-                return
-        except httpx.HTTPError as exc:
-            attempts += 1
-            if attempts > max_attempts:
-                print(f"  giving up at {offset:,} bytes after {attempts} attempts: {exc}")
-                return
-            print(
-                f"  connection lost at {offset:,} bytes; resuming (attempt {attempts})",
-                flush=True,
-            )
 
 
 def survey(limit: int | None, min_description: int) -> dict:
@@ -136,50 +54,28 @@ def survey(limit: int | None, min_description: int) -> dict:
     grid = dict.fromkeys(THRESHOLDS, 0)
     started = time.monotonic()
 
-    reader = io.BufferedReader(ChunkReader(download_chunks(DUMP_URL)), buffer_size=1 << 20)
-    try:
-        with gzip.GzipFile(fileobj=reader, mode="rb") as stream:
-            for raw in stream:
-                counts["rows"] += 1
-                if limit and counts["rows"] > limit:
-                    break
-                # Five tab-separated columns; the JSON is the last.
-                parts = raw.decode("utf-8", "replace").rstrip("\n").split("\t")
-                if len(parts) < 5:
-                    continue
-                try:
-                    work = json.loads(parts[4])
-                except ValueError:
-                    continue
-                counts["parsed"] += 1
-                description = description_of(work)
-                subjects = work.get("subjects") or []
-                if len(description) >= min_description:
-                    counts["with_description"] += 1
-                if subjects:
-                    counts["with_subjects"] += 1
-                if len(description) >= min_description and subjects:
-                    counts["usable"] += 1
-                    lengths.append(len(description))
-                    subject_counts.append(len(subjects))
-                for chars, tags in THRESHOLDS:
-                    if len(description) >= chars and len(subjects) >= tags:
-                        grid[(chars, tags)] += 1
-                if counts["rows"] % 250_000 == 0:
-                    rate = counts["rows"] / max(time.monotonic() - started, 1e-9)
-                    print(
-                        f"  {counts['rows']:>10,} rows  {counts['usable']:>9,} usable"
-                        f"  {rate:,.0f} rows/s",
-                        flush=True,
-                    )
-    except (OSError, EOFError, httpx.HTTPError) as exc:
-        # Report what was counted. The first full attempt spent 54
-        # minutes and printed nothing but progress lines because the
-        # dropped connection raised out of the loop: a partial count
-        # over twelve million rows is a measurement, and throwing it
-        # away to re-raise is not.
-        counts["truncated"] = f"{type(exc).__name__}: {exc}"
-        print(f"\n  stream ended early ({type(exc).__name__}); reporting what was counted")
+    for rows, work in iter_works(limit, status=counts):
+        counts["rows"] = rows
+        counts["parsed"] += 1
+        description = description_of(work)
+        subjects = work.get("subjects") or []
+        if len(description) >= min_description:
+            counts["with_description"] += 1
+        if subjects:
+            counts["with_subjects"] += 1
+        if len(description) >= min_description and subjects:
+            counts["usable"] += 1
+            lengths.append(len(description))
+            subject_counts.append(len(subjects))
+        for chars, tags in THRESHOLDS:
+            if len(description) >= chars and len(subjects) >= tags:
+                grid[(chars, tags)] += 1
+        if rows % 250_000 == 0:
+            rate = rows / max(time.monotonic() - started, 1e-9)
+            print(
+                f"  {rows:>10,} rows  {counts['usable']:>9,} usable  {rate:,.0f} rows/s",
+                flush=True,
+            )
 
     counts["median_length"] = int(statistics.median(lengths)) if lengths else 0
     counts["median_subjects"] = int(statistics.median(subject_counts)) if subject_counts else 0
