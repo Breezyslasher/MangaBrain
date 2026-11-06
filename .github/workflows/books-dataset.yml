@@ -13,11 +13,14 @@ name: books-dataset
 # Budget, from measurements rather than guesses. The import streams the
 # dump at ~5,300 rows/s on a runner (openlibrary-survey, 6 Nov 2026), so
 # ~40M rows is a little over two hours. The embedding is the long pole:
-# the 768-dim model runs at 8.1 rows/s on a runner (dataset-publish,
-# 2 Sep 2026, 161,835 rows), so ~930,000 books is about 32 hours. That
-# cannot fit one 358-minute job, so the build checkpoints and dispatches
-# its own next job until it is done - the chain dataset-publish already
-# uses, run longer. A first build is about seven jobs.
+# the 768-dim model ran at 8.1 rows/s on anime synopses (dataset-publish,
+# 2 Sep 2026), but books measured 3.2 rows/s on the first build (6 Nov
+# 2026, three threads): book descriptions run to the model's full 512
+# tokens far more often, and attention cost grows with the square of the
+# length. ~965,000 books is then about 84 hours. That cannot fit one
+# 358-minute job, so the build checkpoints and dispatches its own next
+# job until it is done - the chain dataset-publish already uses, run
+# longer. A first build is about sixteen jobs; the resume cap is 30.
 #
 # After the first, a month costs one job: each run starts from the newest
 # published release, the import upserts only what the new dump changed,
@@ -215,7 +218,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ATTEMPT="${{ github.event.inputs.resume_attempt || '0' }}"
-          if [ "$ATTEMPT" -ge 12 ]; then
+          # Twelve was sized for 32 hours of embedding. At the measured
+          # 3.2 rows/s a first build needs about sixteen jobs, and a chain
+          # cut short waits a month for the next scheduled run. Still a
+          # cap, so a job that makes no progress cannot loop forever.
+          if [ "$ATTEMPT" -ge 30 ]; then
             echo "resume chain exhausted after $ATTEMPT attempts; leaving it to the next run"
             exit 0
           fi
