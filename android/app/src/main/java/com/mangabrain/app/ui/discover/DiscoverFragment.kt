@@ -194,17 +194,24 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
      * The medium dropdown. Rebuilt whenever the selection of media changes
      * (Settings > Media), so it lists exactly the visible ones.
      */
+    /** Settings > Media changed the selection; FilterState already has it. */
+    fun mediaChanged() {
+        view?.let { buildMediumSpinner(it.findViewById(R.id.mediumSpinner)) }
+    }
+
     private fun buildMediumSpinner(spinner: Spinner) {
         val visible = FilterState.visibleMedia()
-        // A hidden medium is left only when nothing is on screen, as on the
-        // web: an open recommendation is not yanked away mid-read.
-        if (FilterState.medium !in visible && mode == null) {
+        // A medium switched off in Settings leaves the dropdown at once, even
+        // with its results on screen: keeping it listed while it was in use
+        // read as the setting not having worked. Its results go with it.
+        if (FilterState.medium !in visible) {
             FilterState.medium = visible.first()
             FilterState.format = ""
+            mode = null
+            clear()
+            status(null)
         }
-        // The current medium stays listed even when hidden, so the field
-        // never shows something other than what is on screen.
-        val keys = if (FilterState.medium in visible) visible else visible + FilterState.medium
+        val keys = visible
         val labels = keys.map { FilterState.MEDIUM_LABELS[it] ?: it }
         spinner.adapter = ArrayAdapter(requireContext(), R.layout.item_medium_spinner, labels).apply {
             setDropDownViewResource(R.layout.item_medium_dropdown)

@@ -56,10 +56,14 @@ def test_both_clients_hide_tabs_the_selection_leaves_out():
     assert "enabledMedia = settings.enabled_media.orEmpty()" in FILTER_STATE
 
 
-def test_neither_client_moves_a_reader_off_an_open_title():
-    """A hidden medium is only left when nothing is on screen."""
+def test_a_medium_switched_off_leaves_the_android_dropdown_at_once():
+    """On the web a hidden medium is only left when nothing is on screen,
+    so a shared link into it still opens. Android has no such links, and
+    keeping a switched-off medium listed while it was in use read as the
+    setting not having worked, so the app leaves it straight away."""
     assert "!media.includes(state.medium) && !state.mode" in WEB_JS
-    assert "FilterState.medium !in visible && mode == null" in DISCOVER
+    assert "if (FilterState.medium !in visible) {" in DISCOVER
+    assert "fun mediaChanged()" in DISCOVER and "discoverFragment()?.mediaChanged()" in SETTINGS
 
 
 def test_the_android_tabs_follow_changes_made_in_settings():
