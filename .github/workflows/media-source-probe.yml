@@ -25,7 +25,6 @@ on:
           - videogames
           - screen
           - comics
-          - screen-survey
 
 permissions:
   contents: read
@@ -37,9 +36,7 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    # 20 for the quick probes; screen-survey fetches a few hundred titles
-    # per source and pages TVmaze slowly, so it gets longer.
-    timeout-minutes: 60
+    timeout-minutes: 20
     env:
       # Without this the probe's streaming log stays empty until it exits.
       PYTHONUNBUFFERED: "1"
@@ -58,24 +55,4 @@ jobs:
         run: pip install "httpx>=0.27" "pydantic-settings>=2.3"
 
       - name: Measure
-        if: ${{ inputs.domain != 'screen-survey' }}
         run: python -m pipeline.probe_media_sources "${{ inputs.domain || 'all' }}"
-
-      # The deep version of "screen": TMDB sampled uniformly from its daily
-      # id exports, and TVmaze, for synopsis and tag coverage. TMDB needs a
-      # free key in the TMDB_API_KEY repository secret (v3 key or v4 read
-      # access token); without it only TVmaze runs. See
-      # pipeline/survey_screen.py.
-      - name: Survey TV and film sources
-        if: ${{ inputs.domain == 'screen-survey' }}
-        env:
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-        run: python -m pipeline.survey_screen --sample 300 --json screen-survey.json
-
-      - name: Upload screen survey
-        if: ${{ inputs.domain == 'screen-survey' && always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: screen-survey
-          path: screen-survey.json
-          if-no-files-found: ignore
