@@ -399,7 +399,7 @@ def iter_payload(manifest: dict, base: str | Path, progress=None):
                 f"{part['name']} does not match its manifest"
                 f" ({size:,} bytes, expected {part['bytes']:,}); nothing was loaded"
             )
-        print(f"[books] verified {part['name']} ({size / 1e9:.2f} GB)", flush=True)
+        print(f"[dataset] verified {part['name']} ({size / 1e9:.2f} GB)", flush=True)
     tail = inflate.flush()
     if tail:
         yield tail

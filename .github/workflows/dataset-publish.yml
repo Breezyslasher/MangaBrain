@@ -280,6 +280,14 @@ jobs:
       - name: Dump snapshot
         run: python -m pipeline.snapshot --out mangabrain-dataset.dump
 
+      # The same catalogue in the merge format (pipeline.anilist_dataset),
+      # for installs that already hold other media: the snapshot above is
+      # restored with pg_restore --clean, which would delete their books,
+      # TV and films. This one merges, and is what Settings > Media's
+      # "Reload from the newest release" loads.
+      - name: Export merge-format copy
+        run: python -m pipeline.anilist_dataset export --out anilist-dataset
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -316,13 +324,19 @@ jobs:
           mid-pass, so some rows can still be null. The filters accept either
           source as a yes, so a null row is covered whenever ANN matched it.
 
+          The mangabrain-anilist.* files are the same catalogue in a format
+          that MERGES instead (python -m pipeline.anilist_dataset load
+          --release latest, or Settings > Media > Reload from the newest
+          release): only anime and manga rows are touched, a title synced
+          more recently is kept, and books, TV and films are left alone.
+
           Restoring over a populated database REPLACES it. pg_restore
           --clean drops the media table, so any local backfill_dub pass is
           lost; pipeline.restore refuses unless the catalog is empty or
           --force is given.
           NOTES
           TAG="dataset-$(date -u +%Y%m%d-%H%M%S)"
-          gh release create "$TAG" mangabrain-dataset.dump --latest \
+          gh release create "$TAG" mangabrain-dataset.dump anilist-dataset/* --latest \
             --title "AniList catalog $(date -u +%F)" --notes-file notes.md
 
       - name: Prune old snapshots

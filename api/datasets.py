@@ -49,8 +49,13 @@ DATASETS: tuple[Dataset, ...] = (
         ),
         media=("anime", "manga", "light_novel", "one_shot"),
         source="anilist",
-        download_hint="",
-        installable=False,
+        download_hint="About 1 GB, with the embeddings.",
+        # Installable so it can be reloaded: the weekly release now also
+        # carries a merge-format copy (pipeline.anilist_dataset) that loads
+        # over a live install without touching books, TV or films. The
+        # worker still syncs AniList nightly whatever is selected.
+        installable=True,
+        update_label="Reload from the newest release",
     ),
     Dataset(
         key="books",

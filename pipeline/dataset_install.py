@@ -127,7 +127,29 @@ def install_tvmaze(request: dict, report: Callable[[dict], None]) -> str:
     return f"Fetched {tally['kept']:,} TV shows from TVmaze ({tally['read']:,} read).{loaded}"
 
 
+def install_anilist(request: dict, report: Callable[[dict], None]) -> str:
+    """Anime and manga: merge the newest weekly release's merge-format copy.
+
+    Never the pg_dump snapshot beside it, which replaces whole tables and
+    would delete every book, TV show and film. Titles this install synced
+    more recently are kept; the nightly AniList sync carries on as usual.
+    """
+    from pipeline import anilist_dataset
+
+    url = anilist_dataset.find_release()
+    if url is None:
+        raise NotYet(
+            "The newest anime release does not carry the merge format yet; checking again hourly."
+        )
+    result = anilist_dataset.load(url, progress=report)
+    return (
+        f"Loaded {result['staged']:,} titles ({result['inserted']:,} new,"
+        f" {result['updated']:,} updated, {result['embeddings']:,} embeddings)."
+    )
+
+
 INSTALLERS: dict[str, Callable[[dict, Callable[[dict], None]], str]] = {
+    "anilist": install_anilist,
     "books": install_books,
     "tmdb": install_tmdb,
     "tvmaze": install_tvmaze,
