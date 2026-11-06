@@ -58,6 +58,8 @@ MANIFEST_NAME = "mangabrain-books.manifest.json"
 PART_PREFIX = "mangabrain-books.copy.gz.part"
 DEFAULT_REPO = "Breezyslasher/MangaBrain"
 RELEASE_TAG_PREFIX = "books-"
+# sync_state key recording the manifest URL of the release last loaded.
+LOADED_RELEASE_KEY = "books_loaded_release"
 
 # Under GitHub's 2 GiB asset cap with room to spare. A part is a byte
 # range of one gzip stream, not a valid gzip file of its own: the parts
@@ -483,6 +485,22 @@ def load(
                 flush=True,
             )
         conn.execute("DROP TABLE book_stage")
+        if isinstance(location, str):
+            # Which release this database now holds, so the worker's update
+            # check (pipeline.dataset_install.check_for_updates) can tell a
+            # newer one from the one already loaded, whichever path loaded
+            # it: the settings page, a first-run seed or this CLI.
+            from pipeline.sync_anilist import set_state
+
+            set_state(
+                conn,
+                LOADED_RELEASE_KEY,
+                {
+                    "manifest": location,
+                    "dump_version": (manifest.get("state") or {}).get("dump_version"),
+                    "loaded_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                },
+            )
         conn.commit()
 
     if rebuild_indexes:

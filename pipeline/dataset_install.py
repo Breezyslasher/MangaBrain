@@ -30,6 +30,11 @@ from api.datasets import BY_KEY, DATASETS, read_install, request_install, write_
 NOT_YET_RETRY = timedelta(hours=1)
 NETWORK_RETRY = timedelta(hours=6)
 
+# How often an installed books catalogue looks for a newer release. The
+# books workflow publishes monthly, so daily is plenty; one GitHub API call.
+UPDATE_CHECK_INTERVAL = timedelta(hours=20)
+UPDATE_CHECK_KEY = "books_update_check"
+
 
 class NotYet(Exception):
     """Nothing to install yet. Waiting will fix it."""
@@ -70,6 +75,71 @@ def install_books(request: dict, report: Callable[[dict], None]) -> str:
 INSTALLERS: dict[str, Callable[[dict, Callable[[dict], None]], str]] = {
     "books": install_books,
 }
+
+
+def check_for_updates() -> bool:
+    """Queue a books update when a newer release is out. Never raises.
+
+    The books counterpart of the nightly AniList sync. AniList is asked
+    for what changed; Open Library has no such API, only a monthly dump,
+    so the books workflow imports and embeds each dump on GitHub and this
+    loads the result. The load merges on (source, source_id): new books
+    arrive with their embeddings, changed ones are updated in place, and
+    nothing is deleted.
+
+    Only for a database that has books. One whose Books tab was never
+    switched on must not start a 3.5 GB download on its own; it gets
+    books through the settings page, which makes the same request.
+
+    A database with books but no record of a release (imported locally
+    with pipeline.sync_openlibrary) takes the first release it sees,
+    which is how a local import gets its embeddings without spending
+    days of NAS CPU on them. Returns True if an update was queued.
+    """
+    from pipeline import book_dataset
+    from pipeline.sync_anilist import get_state, set_state
+
+    try:
+        with _connect() as conn:
+            checked = (get_state(conn, UPDATE_CHECK_KEY) or {}).get("checked_at")
+            recent = datetime.now(UTC) - UPDATE_CHECK_INTERVAL
+            if checked and datetime.fromisoformat(checked) > recent:
+                return False
+            has_books = conn.execute(
+                "SELECT 1 FROM media WHERE source = 'openlibrary' LIMIT 1"
+            ).fetchone()
+            if has_books is None:
+                return False
+            current = read_install(conn, "books") or {}
+            if current.get("state") in ("queued", "running", "waiting"):
+                return False
+            url = book_dataset.find_release_manifest()
+            set_state(
+                conn,
+                UPDATE_CHECK_KEY,
+                {
+                    "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                },
+            )
+            if url is None:
+                return False
+            loaded = get_state(conn, book_dataset.LOADED_RELEASE_KEY) or {}
+            if loaded.get("manifest") == url:
+                return False
+            request_install(conn, "books")
+            write_install(
+                conn,
+                "books",
+                {
+                    **(read_install(conn, "books") or {}),
+                    "message": "A newer books release is out; updating",
+                },
+            )
+            print(f"[datasets] newer books release found; queued {url}", flush=True)
+            return True
+    except Exception:  # noqa: BLE001 - the nightly pass must outlive this
+        traceback.print_exc()
+        return False
 
 
 def request(key: str, fresh: bool = False) -> None:
