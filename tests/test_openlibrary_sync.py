@@ -170,3 +170,46 @@ def test_the_bisac_shape_is_read_rather_than_enumerated():
     assert genre_for("fiction, science fiction & fantasy, general") == "Science Fiction"
     # And a subject that is not a genre stays a tag.
     assert genre_for("social aspects") is None
+
+
+def test_bisac_top_level_categories_are_mapped_completely():
+    """Open Library carries BISAC's top-level headings verbatim, in
+    capitals. Unlike the long tail of subjects they are a closed
+    vocabulary, so they can be mapped completely rather than guessed
+    at - "BUSINESS & ECONOMICS" appeared 25 times and "SOCIAL SCIENCE"
+    19 among books that had ended up with no genre at all."""
+    from pipeline.sync_openlibrary import genre_for
+
+    assert genre_for("business & economics") == "Business"
+    assert genre_for("social science") == "Social Science"
+    assert genre_for("comics & graphic novels") == "Comics"
+
+
+def test_a_cataloguers_gloss_is_not_part_of_the_name():
+    """ "Poetry (poetic works by one author)" is the heading Poetry."""
+    from pipeline.sync_openlibrary import genre_for
+
+    assert genre_for("poetry (poetic works by one author)") == "Poetry"
+
+
+def test_marc_subdivisions_are_dropped_rather_than_tagged():
+    """They say what the record is ABOUT its subject, not what the book
+    is. Among genre-less books they were the whole top of the list:
+    "History and criticism" 84, "Criticism and interpretation" 59,
+    "Social aspects" 49. As tags they would make two unrelated academic
+    books look alike."""
+    row = row_for(
+        {**WORK, "subjects": ["History and criticism", "Study and teaching", "Foxes"]}, 200
+    )
+    assert [t["name"] for t in row["tags"]] == ["Foxes"]
+
+
+def test_a_book_with_no_genre_is_still_imported():
+    """Plenty of books genuinely have no genre in any vocabulary, and
+    the measured top of the genre-less list is MARC subdivisions rather
+    than missed spellings. Dropping them would discard real books for a
+    gap in Open Library's cataloguing."""
+    row = row_for({**WORK, "subjects": ["Plant chemistry", "Insect-plant relationships"]}, 200)
+    assert row is not None
+    assert row["genres"] == []
+    assert len(row["tags"]) == 2
