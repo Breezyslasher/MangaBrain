@@ -18,6 +18,14 @@ name: openlibrary-survey
 on:
   workflow_dispatch:
     inputs:
+      survey:
+        description: "content = how much is rankable; ratings = would a score column mean anything"
+        required: false
+        type: choice
+        default: content
+        options:
+          - content
+          - ratings
       limit:
         description: "rows to read; 0 reads the whole dump (tens of minutes)"
         required: false
@@ -55,8 +63,20 @@ jobs:
       - name: Install dependencies
         run: pip install "httpx>=0.27"
 
-      - name: Survey
+      - name: Survey content
+        if: ${{ (inputs.survey || 'content') == 'content' }}
         run: |
           python -m pipeline.survey_openlibrary \
+            --limit "${{ inputs.limit || '2000000' }}" \
+            --min-description "${{ inputs.min_description || '200' }}"
+
+      # Reads a second dump the works dump knows nothing about, and joins
+      # the two on the work key. Same gate as the content survey, so the
+      # coverage figure is coverage of the books we would actually import
+      # rather than of Open Library at large.
+      - name: Survey ratings
+        if: ${{ inputs.survey == 'ratings' }}
+        run: |
+          python -m pipeline.survey_openlibrary_ratings \
             --limit "${{ inputs.limit || '2000000' }}" \
             --min-description "${{ inputs.min_description || '200' }}"
