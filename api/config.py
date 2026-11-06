@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     # api/routers/yamtrack.py). Token comes from the Yamtrack profile page.
     yamtrack_url: str = ""
     yamtrack_token: str = ""
+    # Hardcover (api/routers/hardcover.py): a personal access token from
+    # hardcover.app > Settings > API. Settings page value wins over this.
+    hardcover_token: str = ""
     # Public-exposure hardening (e.g. behind a Cloudflare Tunnel). AUTH_TOKEN
     # set = every API request must carry Authorization: Bearer <token> (the
     # SPA prompts once and remembers it); unset = open, for LAN-only use.

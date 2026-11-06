@@ -20,14 +20,12 @@ Configure YAMTRACK_URL (e.g. http://192.168.1.5:8000) and YAMTRACK_TOKEN
 (the account token from Yamtrack's profile settings).
 """
 
-import re
-
 import httpx
 from fastapi import APIRouter, HTTPException
 
 from api.config import settings
-from api.db import get_pool
 from api.models import ExclusionStatus
+from api.openlibrary_match import book_ids_by_work, openlibrary_client, openlibrary_work_key
 from api.routers.app_settings import effective_yamtrack_config
 from api.routers.exclusions import get_status, store_exclusion_list
 from pipeline.client import RateLimitedClient
@@ -37,53 +35,6 @@ router = APIRouter()
 LIST_NAME = "yamtrack"
 PAGE_LIMIT = 500
 MEDIA_TYPES = (("anime", "mal_anime"), ("manga", "mal_manga"), ("book", None))
-
-OPENLIBRARY = "https://openlibrary.org"
-# Open Library ids: OL<digits> then M (edition), W (work) or A (author).
-OL_ID = re.compile(r"^OL\d+([MW])$")
-
-
-def openlibrary_work_key(media_id: str, client: RateLimitedClient) -> str | None:
-    """The work key ("/works/OL45804W") for a Yamtrack Open Library id.
-
-    Yamtrack's book search stores the top edition, so the id is usually an
-    edition and needs one request to find its work; a work id passes
-    straight through. Returns None for anything unresolvable, which the
-    caller counts as skipped rather than failing the whole sync.
-    """
-    match = OL_ID.match(media_id.strip())
-    if not match:
-        return None
-    if match.group(1) == "W":
-        return f"/works/{media_id.strip()}"
-    path = f"/books/{media_id.strip()}"
-    # One hop of redirect: a merged edition answers with a redirect record
-    # naming the edition that survived.
-    for _ in range(2):
-        try:
-            edition = client.request("GET", f"{OPENLIBRARY}{path}.json")
-        except (httpx.HTTPStatusError, httpx.TransportError, RuntimeError):
-            return None
-        if (edition.get("type") or {}).get("key") != "/type/redirect":
-            break
-        path = str(edition.get("location") or "")
-        if not path.startswith("/books/"):
-            return None
-    works = edition.get("works") or []
-    key = (works[0] or {}).get("key") if works else None
-    return key if isinstance(key, str) and key.startswith("/works/") else None
-
-
-def book_ids_by_work(work_keys: list[str]) -> dict[str, int]:
-    """media.id for each work key the books catalog holds."""
-    if not work_keys:
-        return {}
-    with get_pool().connection() as conn:
-        rows = conn.execute(
-            "SELECT source_id, id FROM media WHERE source = 'openlibrary' AND source_id = ANY(%s)",
-            (work_keys,),
-        ).fetchall()
-    return {source_id: media_id for source_id, media_id in rows}
 
 
 def _fetch_media(client: RateLimitedClient, base: str, media_type: str) -> list[dict]:
@@ -138,12 +89,7 @@ def refresh_yamtrack() -> ExclusionStatus:
     books: list[tuple[str, dict]] = []
     # Open Library is a different host and takes no Yamtrack token, so it
     # gets its own client, paced for a public API and cached on disk.
-    openlibrary = RateLimitedClient(
-        min_interval=0.35,
-        cache_dir=settings.http_cache_dir,
-        max_retries=settings.interactive_max_retries,
-        timeout=settings.interactive_timeout,
-    )
+    openlibrary = openlibrary_client()
     try:
         for media_type, kind in MEDIA_TYPES:
             try:

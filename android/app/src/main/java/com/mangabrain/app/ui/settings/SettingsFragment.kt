@@ -79,7 +79,11 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         ANILIST(R.string.account_anilist, R.drawable.logo_anilist, R.color.brand_anilist),
         MAL(R.string.account_mal, R.drawable.logo_myanimelist, R.color.brand_mal),
         KITSU(R.string.account_kitsu, R.drawable.logo_kitsu, R.color.brand_kitsu),
-        YAMTRACK(R.string.account_yamtrack, R.drawable.logo_yamtrack, R.color.brand_yamtrack, tinted = false)
+        YAMTRACK(R.string.account_yamtrack, R.drawable.logo_yamtrack, R.color.brand_yamtrack, tinted = false),
+        // Token-only, like Yamtrack's token: no username, so "connected"
+        // means a token is saved. Its mark keeps its own indigo, inset on
+        // the pale tint it is drawn on.
+        HARDCOVER(R.string.account_hardcover, R.drawable.logo_hardcover, R.color.brand_hardcover)
     }
 
     /** What the server last reported for a synced list. */
@@ -91,6 +95,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
     /** Usernames from GET /settings; Yamtrack's entry is its URL. */
     private val usernames = mutableMapOf<Account, String>()
     private var yamtrackTokenSet = false
+    private var hardcoverTokenSet = false
     private val statuses = mutableMapOf<Account, ListStatus>()
     private var statusesLoaded = false
     private var settingsLoaded = false
@@ -339,7 +344,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 val summary = when {
                     !connected(a) -> getString(R.string.not_connected)
                     statuses[a]?.syncedAt != null -> listOfNotNull(
-                        usernames[a]?.takeIf { a != Account.YAMTRACK },
+                        usernames[a]?.takeIf { a == Account.ANILIST || a == Account.MAL || a == Account.KITSU },
                         getString(R.string.synced_ago, timeAgo(statuses[a]!!.syncedAt!!))
                     ).joinToString(" · ")
                     else -> usernames[a].orEmpty()
@@ -410,12 +415,27 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                     }
                 }
             }
+        } else if (a == Account.HARDCOVER) {
+            primary = field(fields, R.string.label_api_token,
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+            primary.hint = getString(if (hardcoverTokenSet) R.string.saved else R.string.hint_hardcover_token)
+            // Write-only, like Yamtrack's: an empty field means unchanged.
+            // Before the first save, Connect saves it instead.
+            primary.setOnFocusChangeListener { _, focused ->
+                val value = primary.text.toString().trim()
+                if (!focused && connected(a) && value.isNotEmpty()) {
+                    saveAccount(a, value = value) {
+                        primary.setText("")
+                        primary.hint = getString(R.string.saved)
+                    }
+                }
+            }
         } else {
             primary = field(fields, R.string.label_username, InputType.TYPE_CLASS_TEXT)
             primary.setText(usernames[a].orEmpty())
             primary.hint = getString(R.string.hint_username)
         }
-        primary.setOnFocusChangeListener { _, focused ->
+        if (a != Account.HARDCOVER) primary.setOnFocusChangeListener { _, focused ->
             val value = primary.text.toString().trim()
             if (!focused && connected(a) && value.isNotEmpty() && value != usernames[a]) {
                 saveAccount(a, value = value)
@@ -442,7 +462,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 setOnClickListener {
                     val value = primary.text.toString().trim()
                     if (value.isEmpty()) {
-                        toast(getString(R.string.needs_username))
+                        toast(getString(if (a == Account.HARDCOVER) R.string.needs_token else R.string.needs_username))
                         return@setOnClickListener
                     }
                     saveAccount(a, value = value) { syncAccount(a) }
@@ -512,6 +532,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             Account.MAL -> AppSettingsIn(mal_username = value)
             Account.KITSU -> AppSettingsIn(kitsu_username = value)
             Account.YAMTRACK -> AppSettingsIn(yamtrack_url = value, yamtrack_token = yamtrackToken)
+            Account.HARDCOVER -> AppSettingsIn(hardcover_token = value)
         }
         viewLifecycleOwner.lifecycleScope.launch {
             try {
@@ -539,6 +560,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                     Account.MAL -> fromLists(api.refreshMal(usernames[a].orEmpty()))
                     Account.KITSU -> fromExclusion(api.refreshKitsu())
                     Account.YAMTRACK -> fromExclusion(api.refreshYamtrack())
+                    Account.HARDCOVER -> fromExclusion(api.refreshHardcover())
                 }
                 if (stack.last() == Page.ACCOUNT && account == a) {
                     // A Connect turns into Disconnect / Sync now.
@@ -596,6 +618,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             Account.MAL -> fromLists(api.malStatus(usernames[a].orEmpty()))
             Account.KITSU -> fromExclusion(api.kitsuStatus())
             Account.YAMTRACK -> fromExclusion(api.yamtrackStatus())
+            Account.HARDCOVER -> fromExclusion(api.hardcoverStatus())
         }
     } catch (e: Exception) {
         null
@@ -611,7 +634,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         status.lists.map { it.list_type.replaceFirstChar { c -> c.uppercase() } to it.entry_count }
     )
 
-    /** Kitsu and Yamtrack report one count, so one tile. */
+    /** Kitsu, Yamtrack and Hardcover report one count, so one tile. */
     private fun fromExclusion(status: ExclusionStatus): ListStatus = ListStatus(
         parseIso(status.updated_at),
         listOf(getString(R.string.stat_entries) to status.entry_count)
@@ -638,6 +661,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         Account.MAL -> FilterState.excludeMal
         Account.KITSU -> FilterState.excludeKitsu
         Account.YAMTRACK -> FilterState.excludeYamtrack
+        Account.HARDCOVER -> FilterState.excludeHardcover
     }
 
     private fun setExcluded(a: Account, on: Boolean) {
@@ -646,6 +670,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             Account.MAL -> FilterState.excludeMal = on
             Account.KITSU -> FilterState.excludeKitsu = on
             Account.YAMTRACK -> FilterState.excludeYamtrack = on
+            Account.HARDCOVER -> FilterState.excludeHardcover = on
         }
         FilterState.save(requireContext())
     }
@@ -1070,12 +1095,15 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         usernames[Account.KITSU] = settings.kitsu_username.orEmpty()
         usernames[Account.YAMTRACK] = settings.yamtrack_url.orEmpty()
         yamtrackTokenSet = settings.yamtrack_token_set == true
+        hardcoverTokenSet = settings.hardcover_token_set == true
     }
 
-    private fun connected(a: Account): Boolean = !usernames[a].isNullOrBlank()
+    private fun connected(a: Account): Boolean =
+        if (a == Account.HARDCOVER) hardcoverTokenSet else !usernames[a].isNullOrBlank()
 
     private fun displayName(a: Account): String = when (a) {
         Account.YAMTRACK -> usernames[a].orEmpty().removePrefix("https://").removePrefix("http://")
+        Account.HARDCOVER -> getString(R.string.hardcover_token_saved)
         else -> usernames[a].orEmpty()
     }
 

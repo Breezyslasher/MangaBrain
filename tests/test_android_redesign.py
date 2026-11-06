@@ -119,13 +119,14 @@ def test_the_tab_bar_hides_on_detail_pages():
     assert "fun setTabBarVisible(visible: Boolean)" in MAIN
 
 
-def test_one_account_template_serves_all_four_lists():
+def test_one_account_template_serves_every_list():
     accounts = re.search(r"enum class Account\((.*?)\n    \}", SETTINGS, re.S).group(0)
     for logo, bg in (
         ("logo_anilist", "brand_anilist"),
         ("logo_myanimelist", "brand_mal"),
         ("logo_kitsu", "brand_kitsu"),
         ("logo_yamtrack", "brand_yamtrack"),
+        ("logo_hardcover", "brand_hardcover"),
     ):
         assert f"R.drawable.{logo}, R.color.{bg}" in accounts, logo
         assert f'name="{bg}"' in COLORS, bg
@@ -142,17 +143,33 @@ def test_each_list_shows_its_logo_with_its_licence():
     licenses = ROOT.parent.parent.parent / "licenses"
     assert "CC0" in (licenses / "LICENSE-SimpleIcons.txt").read_text()
     assert "Affero" in (licenses / "NOTICE-Yamtrack.txt").read_text()
+    hardcover = (drawables / "drawable/logo_hardcover.xml").read_text()
+    assert "android:pathData=" in hardcover and "hardcover-docs" in hardcover
+    assert "MIT License" in (licenses / "LICENSE-HardcoverDocs.txt").read_text()
     assert "initialsBadge" not in SETTINGS
 
 
-def test_saving_one_account_leaves_the_other_three_alone():
+def test_saving_one_account_leaves_the_others_alone():
     """AppSettingsIn's nulls are omitted from the body, so each branch
     sets exactly one account's field."""
     block = SETTINGS[SETTINGS.index("val body = when (a) {") :]
     block = block[: block.index("\n        }")]
-    assert block.count("AppSettingsIn(") == 4
+    assert block.count("AppSettingsIn(") == 5
     for line in block.splitlines()[1:]:
-        assert line.count("_username =") + line.count("yamtrack_url =") == 1, line
+        fields = (
+            line.count("_username =")
+            + line.count("yamtrack_url =")
+            + line.count("hardcover_token =")
+        )
+        assert fields == 1, line
+
+
+def test_hardcover_is_connected_by_its_token_and_excludable():
+    assert "if (a == Account.HARDCOVER) hardcoverTokenSet" in SETTINGS
+    assert "api.refreshHardcover()" in SETTINGS and "api.hardcoverStatus()" in SETTINGS
+    filters = (JAVA / "data/FilterState.kt").read_text()
+    assert 'if (excludeHardcover) add("hardcover")' in filters
+    assert '"ex_hardcover"' in filters
 
 
 def test_for_you_lives_in_settings_not_mix():
