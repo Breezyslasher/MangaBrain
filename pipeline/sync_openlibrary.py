@@ -85,6 +85,10 @@ NOISE_SUBJECTS = {
     "dictionaries",
     "abstracts",
     "sources",
+    "religious aspects",
+    "description and travel",
+    "foreign relations",
+    "civilization",
 }
 
 # Open Library has no genre vocabulary - everything is a subject, from
@@ -189,6 +193,7 @@ GENRE_SUBJECTS = {
     "sociology": "Social Science",
     "archaeology": "History",
     "biography & autobiography": "Biography",
+    "literature": "Literary",
 }
 
 # "Fiction, romance, general" and "Fiction, mystery & detective,
@@ -348,9 +353,19 @@ def genre_for(lowered: str) -> str | None:
         # genre with its near neighbour; the first is the one the
         # heading is filed under.
         for candidate in (inner, *(part.strip() for part in inner.split("&"))):
-            genre = GENRE_SUBJECTS.get(candidate)
+            genre = GENRE_SUBJECTS.get(candidate) or BISAC_TOP.get(candidate)
             if genre:
                 return genre
+            if candidate.endswith("s"):
+                genre = GENRE_SUBJECTS.get(candidate[:-1]) or BISAC_TOP.get(candidate[:-1])
+                if genre:
+                    return genre
+    # Last: Open Library pluralises some headings and not others -
+    # "thrillers" against "thriller". One rule, where listing both
+    # spellings of everything is a chore that would stay half done.
+    if lowered.endswith("s"):
+        singular = lowered[:-1]
+        return GENRE_SUBJECTS.get(singular) or BISAC_TOP.get(singular)
     return None
 
 
