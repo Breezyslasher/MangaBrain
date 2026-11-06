@@ -62,6 +62,29 @@ NOISE_SUBJECTS = {
     "in library",
     "internet archive wishlist",
     "overdrive",
+    # MARC subdivisions: what the record says ABOUT its subject, not
+    # what the book is. Measured among books that ended with no genre,
+    # where they dominate the top of the list.
+    "history and criticism",
+    "criticism and interpretation",
+    "social aspects",
+    "social conditions",
+    "social life and customs",
+    "economic conditions",
+    "economic policy",
+    "government policy",
+    "study and teaching",
+    "popular works",
+    "handbooks, manuals",
+    "catalogs",
+    "methods",
+    "bibliography",
+    "indexes",
+    "periodicals",
+    "statistics",
+    "dictionaries",
+    "abstracts",
+    "sources",
 }
 
 # Open Library has no genre vocabulary - everything is a subject, from
@@ -149,6 +172,23 @@ GENRE_SUBJECTS = {
     "dystopian": "Dystopian",
     "classics": "Classics",
     "war & military": "War",
+    # Academic subject areas, which are genres in the sense that
+    # matters here: a coarse category a reader would browse by.
+    "physics": "Science",
+    "chemistry": "Science",
+    "biology": "Science",
+    "astronomy": "Science",
+    "geology": "Science",
+    "computer science": "Technology",
+    "engineering": "Technology",
+    "bible": "Religion",
+    "theology": "Religion",
+    "law and legislation": "Law",
+    "linguistics": "Language",
+    "anthropology": "Social Science",
+    "sociology": "Social Science",
+    "archaeology": "History",
+    "biography & autobiography": "Biography",
 }
 
 # "Fiction, romance, general" and "Fiction, mystery & detective,
@@ -156,6 +196,66 @@ GENRE_SUBJECTS = {
 # middle part. Listing every spelling would be endless; reading the
 # shape is not.
 BISAC_FICTION = re.compile(r"^fiction,\s*([^,]+?)(?:,\s*general)?$")
+
+# Open Library also carries BISAC's top-level categories verbatim, in
+# capitals: "BUSINESS & ECONOMICS", "SOCIAL SCIENCE". They are a closed
+# vocabulary, so unlike the long tail of subjects they can be mapped
+# completely rather than guessed at.
+BISAC_TOP = {
+    "business & economics": "Business",
+    "social science": "Social Science",
+    "political science": "Politics",
+    "computers": "Technology",
+    "technology & engineering": "Technology",
+    "science": "Science",
+    "mathematics": "Mathematics",
+    "medical": "Medicine",
+    "health & fitness": "Health",
+    "body, mind & spirit": "Spirituality",
+    "religion": "Religion",
+    "philosophy": "Philosophy",
+    "psychology": "Psychology",
+    "self-help": "Self-help",
+    "biography & autobiography": "Biography",
+    "literary criticism": "Criticism",
+    "literary collections": "Literary",
+    "language arts & disciplines": "Language",
+    "foreign language study": "Language",
+    "juvenile nonfiction": "Children",
+    "young adult nonfiction": "Young Adult",
+    "performing arts": "Performing Arts",
+    "photography": "Photography",
+    "architecture": "Architecture",
+    "design": "Design",
+    "crafts & hobbies": "Crafts",
+    "games & activities": "Games",
+    "gardening": "Gardening",
+    "house & home": "Home",
+    "pets": "Pets",
+    "transportation": "Transportation",
+    "true crime": "True Crime",
+    "study aids": "Education",
+    "reference": "Reference",
+    "antiques & collectibles": "Antiques",
+    "comics & graphic novels": "Comics",
+    "humor": "Comedy",
+    "travel": "Travel",
+    "cooking": "Cooking",
+    "art": "Art",
+    "music": "Music",
+    "nature": "Nature",
+    "sports & recreation": "Sports",
+    "law": "Law",
+    "education": "Education",
+    "history": "History",
+    "poetry": "Poetry",
+    "drama": "Drama",
+    "fiction": "Fiction",
+}
+
+# "Poetry (poetic works by one author)" is one heading; the gloss in
+# brackets is cataloguer's prose, not part of the name.
+PARENTHETICAL = re.compile(r"\s*\([^)]*\)\s*$")
 
 # Tags carry no weight of their own here. AniList ranks each tag 0-100
 # by how well it fits, and tag_similarity reads that rank; Open Library
@@ -227,9 +327,18 @@ def covers_of(work: dict) -> tuple[str | None, str | None]:
 
 def genre_for(lowered: str) -> str | None:
     """A genre for a subject, by name or by BISAC shape."""
-    direct = GENRE_SUBJECTS.get(lowered)
+    lowered = PARENTHETICAL.sub("", lowered).strip()
+    direct = GENRE_SUBJECTS.get(lowered) or BISAC_TOP.get(lowered)
     if direct:
         return direct
+    # "&" pairs a category with its neighbour wherever it appears, not
+    # only inside the fiction wrapper: "BUSINESS & ECONOMICS" is filed
+    # under the first of them.
+    if "&" in lowered:
+        for part in (p.strip() for p in lowered.split("&")):
+            paired = GENRE_SUBJECTS.get(part) or BISAC_TOP.get(part)
+            if paired:
+                return paired
     match = BISAC_FICTION.match(lowered)
     if match:
         inner = match.group(1).strip()
