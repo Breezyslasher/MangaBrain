@@ -213,3 +213,26 @@ def test_a_book_with_no_genre_is_still_imported():
     assert row is not None
     assert row["genres"] == []
     assert len(row["tags"]) == 2
+
+
+def test_a_plural_heading_resolves_to_its_singular():
+    """Open Library pluralises some headings and not others -
+    "Fiction, thrillers, general" appeared 39 times against a map that
+    knew only "thriller". One rule beats listing both spellings of
+    everything, which would stay half done."""
+    from pipeline.sync_openlibrary import genre_for
+
+    assert genre_for("thrillers") == "Thriller"
+    assert genre_for("fiction, thrillers, general") == "Thriller"
+
+
+def test_the_plural_fallback_runs_after_the_bisac_shape():
+    """Order matters and got this wrong once: a plural check that
+    returned early stopped "Fiction, historical, general" from ever
+    reaching the wrapper rule, silently un-mapping headings that had
+    been working."""
+    from pipeline.sync_openlibrary import genre_for
+
+    assert genre_for("fiction, historical, general") == "Historical"
+    assert genre_for("fiction, general") == "Fiction"
+    assert genre_for("fiction, mystery & detective, general") == "Mystery"
