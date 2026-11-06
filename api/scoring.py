@@ -36,11 +36,29 @@ class Weights:
         )
 
 
-def genre_similarity(genres_a: Iterable[str], genres_b: Iterable[str]) -> float:
-    """Jaccard similarity over genre sets."""
+def genre_similarity(genres_a: Iterable[str], genres_b: Iterable[str]) -> float | None:
+    """Jaccard similarity over genre sets, or None when one side has none.
+
+    None, not zero. Jaccard over an empty set is undefined rather than
+    minimal, and the difference decides how a title ranks: zero says
+    "these share no genres", which is evidence of dissimilarity, while
+    an absent genre list says nothing at all.
+
+    It became load bearing with books. AniList gives almost everything
+    genres; Open Library has no genre vocabulary, and after mapping its
+    BISAC and MARC headings 34% of imported books still have none -
+    their subjects are topics like "Plant chemistry". Scored as zero
+    those books cap at 0.8 of the available score, losing a fifth of
+    their ranking to a gap in someone's cataloguing. This codebase
+    already settled that question for lengths and for years: missing
+    data is not evidence against a title.
+
+    Returning None rather than taking a flag means a caller that
+    forgets gets a TypeError instead of a quietly wrong ranking.
+    """
     set_a, set_b = set(genres_a), set(genres_b)
     if not set_a or not set_b:
-        return 0.0
+        return None
     return len(set_a & set_b) / len(set_a | set_b)
 
 
@@ -71,14 +89,24 @@ def tag_weight_map(tags: Iterable[Mapping]) -> dict[str, float]:
 def final_score(
     semantic: float,
     tag_sim: float,
-    genre_sim: float,
+    genre_sim: float | None,
     weights: Weights = Weights(),
     taste_sim: float = 0.0,
 ) -> float:
     """Weighted blend of the content similarities, each in [0, 1]. taste_sim
     is cosine similarity to the user's own taste-profile vector; with the
-    default taste weight of zero it does not participate."""
+    default taste weight of zero it does not participate.
+
+    A genre_sim of None means the comparison could not be made, so the
+    genre weight is redistributed across the terms that could - the
+    same fallback the taste weight already uses when no list source is
+    available. Scoring it as zero instead would rank a title down for
+    having no genres on record, which is not a fact about the title.
+    """
     w = weights.normalized()
+    if genre_sim is None:
+        w = Weights(w.semantic, w.tags, 0.0, w.taste).normalized()
+        genre_sim = 0.0
     semantic = min(max(semantic, 0.0), 1.0)
     taste_sim = min(max(taste_sim, 0.0), 1.0)
     return w.semantic * semantic + w.tags * tag_sim + w.genres * genre_sim + w.taste * taste_sim

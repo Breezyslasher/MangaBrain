@@ -222,6 +222,25 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw_768
 -- too slow to serve, but not the emergency it looked like.
 ALTER TABLE embeddings DROP COLUMN IF EXISTS embedding_bits;
 
+-- dub_backfill_state holds a foreign key into media, and pipeline.restore
+-- drops it so pg_restore --clean can replace the snapshot's tables -
+-- pg_restore has no CASCADE, and one such key stopped a whole restore.
+-- An idempotent table creation cannot put the constraint back on a
+-- table that already exists, so it is re-stated here, the same way the
+-- media CHECK constraints are.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'dub_backfill_state_media_id_fkey'
+          AND conrelid = 'dub_backfill_state'::regclass
+    ) THEN
+        ALTER TABLE dub_backfill_state
+            ADD CONSTRAINT dub_backfill_state_media_id_fkey
+            FOREIGN KEY (media_id) REFERENCES media (id) ON DELETE CASCADE;
+    END IF;
+END $$;
+
 -- Provenance, so the catalogue can hold entries AniList does not have.
 --
 -- media.id has always been the AniList id, and it is in URLs, in

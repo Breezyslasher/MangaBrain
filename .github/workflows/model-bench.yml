@@ -23,6 +23,24 @@ on:
         description: allow models shipping custom code (jina v5 etc.); runs third-party code
         required: false
         default: "false"
+      mode:
+        description: >-
+          "models" compares embedding models by raw cosine, which is all
+          this benchmark could ever do. "score" ranks by the real
+          weighted score - semantic, tags, genres - and reports r@10 with
+          an absent genre list treated as undefined and as zero, so a
+          change to the ranking function can be measured instead of
+          argued.
+        required: false
+        default: models
+        type: choice
+        options:
+          - models
+          - score
+      weights:
+        description: 'score mode: semantic,tags,genres - the API defaults'
+        required: false
+        default: 0.5,0.3,0.2
 
 permissions:
   contents: read
@@ -85,7 +103,15 @@ jobs:
       - name: Fetch recommendation pairs
         run: python -m pipeline.benchmark fetch --out pairs.json
 
+      - name: Rank by the weighted score
+        if: inputs.mode == 'score'
+        run: |
+          python -m pipeline.benchmark score --pairs-file pairs.json \
+            --negatives "${{ inputs.negatives || '2000' }}" \
+            --weights "${{ inputs.weights || '0.5,0.3,0.2' }}"
+
       - name: Run benchmark
+        if: inputs.mode != 'score'
         env:
           # Optional: lets gated models (e.g. google/embeddinggemma-300m)
           # download. Unset is fine for the default list.

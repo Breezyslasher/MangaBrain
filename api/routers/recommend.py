@@ -465,7 +465,9 @@ def _recommend_for_seeds(
             components=ScoreComponents(
                 semantic=round(semantic, 4),
                 tags=round(tag_sim, 4),
-                genres=round(genre_sim, 4),
+                # None, not 0: the pair had no genres to compare, and
+                # reporting zero would read as "nothing in common".
+                genres=round(genre_sim, 4) if genre_sim is not None else None,
                 taste=round(taste_sim, 4) if taste_vec is not None else None,
             ),
         )

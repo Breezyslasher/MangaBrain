@@ -344,10 +344,17 @@ function card(media, badgeText, onClick, components) {
   const el = document.createElement("div");
   el.className = "card";
   if (components) {
+    // genres is null when neither side had any to compare - books from
+    // Open Library often have none. Math.round(null * 100) is 0, which
+    // would read as "nothing in common" rather than "not compared".
+    const genrePart =
+      components.genres === null || components.genres === undefined
+        ? " genres: not compared"
+        : ` genres: ${Math.round(components.genres * 100)}`;
     el.title =
       `Match components - synopsis: ${Math.round(components.semantic * 100)},` +
       ` tags: ${Math.round(components.tags * 100)},` +
-      ` genres: ${Math.round(components.genres * 100)}`;
+      genrePart;
   }
   const img = document.createElement("img");
   img.className = "cover";
