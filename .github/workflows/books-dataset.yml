@@ -20,7 +20,7 @@ name: books-dataset
 # length. ~965,000 books is then about 84 hours. That cannot fit one
 # 358-minute job, so the build checkpoints and dispatches its own next
 # job until it is done - the chain dataset-publish already uses, run
-# longer. A first build is about sixteen jobs; MAX_RESUMES leaves room.
+# longer. A first build is about sixteen jobs; the resume cap is 30.
 #
 # After the first, a month costs one job: each run starts from the newest
 # published release, the import upserts only what the new dump changed,
@@ -222,8 +222,7 @@ jobs:
           # 3.2 rows/s a first build needs about sixteen jobs, and a chain
           # cut short waits a month for the next scheduled run. Still a
           # cap, so a job that makes no progress cannot loop forever.
-          MAX_RESUMES=30
-          if [ "$ATTEMPT" -ge "$MAX_RESUMES" ]; then
+          if [ "$ATTEMPT" -ge 30 ]; then
             echo "resume chain exhausted after $ATTEMPT attempts; leaving it to the next run"
             exit 0
           fi
