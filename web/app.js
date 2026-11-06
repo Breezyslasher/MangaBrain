@@ -61,9 +61,11 @@ const FORMATS = {
   book: [],
   // Every film is a film, so there is nothing to choose between.
   movie: [],
-  // TVmaze's show types, as pipeline/sync_tvmaze.py stores them.
+  // TVmaze's show types, as pipeline/sync_tvmaze.py stores them, plus
+  // MINISERIES, which only TMDB (TV's second source) uses.
   tv: [
     "SCRIPTED",
+    "MINISERIES",
     "ANIMATION",
     "REALITY",
     "DOCUMENTARY",

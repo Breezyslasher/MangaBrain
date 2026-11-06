@@ -32,6 +32,7 @@ from collections.abc import Callable
 
 import httpx
 import psycopg
+from psycopg.types.json import Jsonb
 
 from api.config import settings
 
@@ -83,7 +84,14 @@ def row_for(show: dict) -> dict | None:
     year = re.match(r"(\d{4})", show.get("premiered") or "")
     image = show.get("image") or {}
     kind = clean(show.get("type")) or "Scripted"
+    externals = show.get("externals") or {}
+    external_ids = {}
+    if externals.get("imdb"):
+        external_ids["imdb"] = str(externals["imdb"])
+    if externals.get("thetvdb"):
+        external_ids["tvdb"] = str(externals["thetvdb"])
     return {
+        "external_ids": external_ids,
         "source": SOURCE,
         "source_id": str(int(show["id"])),
         "title": title,
@@ -105,7 +113,7 @@ UPDATE_SQL = """
         genres = %(genres)s, format = %(format)s, country_of_origin = %(country)s,
         start_year = %(start_year)s, status = %(status)s,
         cover_image_medium = %(cover_medium)s, cover_image_large = %(cover_large)s,
-        synced_at = now()
+        external_ids = %(external_ids)s, synced_at = now()
     WHERE source = %(source)s AND source_id = %(source_id)s
 """
 
@@ -116,20 +124,48 @@ INSERT_SQL = """
         id, source, source_id, media_type, medium,
         title_romaji, title_english, description, description_clean,
         genres, tags, format, country_of_origin, start_year, status,
-        cover_image_medium, cover_image_large, synced_at
+        cover_image_medium, cover_image_large, external_ids, synced_at
     ) VALUES (
         nextval('media_external_id_seq'), %(source)s, %(source_id)s, 'TV', 'tv',
         %(title)s, %(title)s, %(description)s, %(description)s,
         %(genres)s, '[]', %(format)s, %(country)s, %(start_year)s, %(status)s,
-        %(cover_medium)s, %(cover_large)s, now()
+        %(cover_medium)s, %(cover_large)s, %(external_ids)s, now()
     )
     ON CONFLICT (source, source_id) DO NOTHING
 """
 
 
 def store(conn: psycopg.Connection, row: dict) -> None:
-    if conn.execute(UPDATE_SQL, row).rowcount == 0:
-        conn.execute(INSERT_SQL, row)
+    params = {**row, "external_ids": Jsonb(row["external_ids"])}
+    if conn.execute(UPDATE_SQL, params).rowcount == 0:
+        conn.execute(INSERT_SQL, params)
+
+
+# TMDB is TV's second source: it fills in shows TVmaze lacks. When both
+# hold a show, TVmaze's row stands and TMDB's goes - matched by IMDb or
+# TheTVDB id, or failing both by the same title and premiere year. Run
+# after every TVmaze read, since TVmaze may have just added a show TMDB
+# was covering.
+DEDUPE_SQL = """
+    DELETE FROM media t
+    WHERE t.source = 'tmdb' AND t.medium = 'tv' AND EXISTS (
+        SELECT 1 FROM media v
+        WHERE v.source = 'tvmaze' AND (
+            (t.external_ids ? 'imdb' AND v.external_ids->>'imdb' = t.external_ids->>'imdb')
+            OR (t.external_ids ? 'tvdb' AND v.external_ids->>'tvdb' = t.external_ids->>'tvdb')
+            OR (lower(v.title_english) = lower(t.title_english)
+                AND v.start_year IS NOT DISTINCT FROM t.start_year
+                AND v.country_of_origin IS NOT DISTINCT FROM t.country_of_origin)
+        )
+    )
+"""
+
+
+def dedupe(conn: psycopg.Connection) -> int:
+    """Remove TMDB shows that TVmaze also holds; returns how many."""
+    removed = conn.execute(DEDUPE_SQL).rowcount
+    conn.commit()
+    return removed
 
 
 def pages(client: httpx.Client):
@@ -191,6 +227,7 @@ def sync(progress: Callable[[dict], None] | None = None) -> dict[str, int]:
                 (SOURCE, seen),
             ).rowcount
             conn.commit()
+        tally["duplicates_removed"] = dedupe(conn)
     tally["removed"] = removed
     print(f"[tvmaze] done: {tally}", flush=True)
     return tally

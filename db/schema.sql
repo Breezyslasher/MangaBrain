@@ -263,6 +263,16 @@ UPDATE media SET source_id = id::text WHERE source_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_media_source ON media (source, source_id);
 CREATE SEQUENCE IF NOT EXISTS media_external_id_seq START WITH 1000000000;
 
+-- Ids a title carries on other sites, for telling the same show apart
+-- when two sources hold it: TV comes from TVmaze first and TMDB second,
+-- and both name a show's IMDb and TheTVDB ids. {"imdb": "tt0944947",
+-- "tvdb": "121361"}. Empty for sources with nothing to match.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS external_ids JSONB NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS idx_media_ext_imdb ON media ((external_ids->>'imdb'))
+    WHERE external_ids ? 'imdb';
+CREATE INDEX IF NOT EXISTS idx_media_ext_tvdb ON media ((external_ids->>'tvdb'))
+    WHERE external_ids ? 'tvdb';
+
 -- The CHECK constraints are inline in CREATE TABLE, which only helps a
 -- fresh database; an existing one keeps the constraint it was built
 -- with. Re-stating them validates against existing rows without
