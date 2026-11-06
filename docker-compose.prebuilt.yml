@@ -67,6 +67,11 @@ services:
       SYNC_INTERVAL_HOURS: "24"
       EMBED_THREADS: ${MANGABRAIN_EMBED_THREADS:-0}
       SEED_SNAPSHOT_URL: https://github.com/Breezyslasher/MangaBrain/releases/latest/download/mangabrain-dataset.dump
+      # A fresh install also loads the books release: about 3.5 GB to
+      # download and 6 GB on disk. "false" skips it. Existing installs are
+      # never seeded; load it on purpose with
+      # python -m pipeline.book_dataset load --release latest
+      SEED_BOOKS: ${MANGABRAIN_SEED_BOOKS:-true}
     volumes:
       - hf_cache:/root/.cache/huggingface
       # The Open Library dump, 4 GB, kept between runs. Named rather
