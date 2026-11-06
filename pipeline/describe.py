@@ -69,6 +69,25 @@ MAX_FACETS = 5
 # than 6000 synopses in memory.
 FACET_POOL = 2000
 
+# How much description a title needs before it can answer a free-text
+# search. Presence was the old test, and it was the wrong one in both
+# directions.
+#
+# pipeline.embed composes a row's text as genres, then ranked tags, then
+# the description, and falls back to the title ONLY when there is no
+# description at all. So a title with eight tags and ninety characters
+# of blurb has a real vector - it is not the degenerate case this gate
+# was built for. Excluding it from the catalogue on description length
+# alone would drop good books for a failure they do not have.
+#
+# But a forty-character blurb still says almost nothing, and in a
+# free-text search it competes with titles that say a great deal. So the
+# gate stays, as a length rather than a presence: thin rows are
+# catalogued, found by title, by tag and by genre, and offered as
+# neighbours - they simply do not enter description search, where they
+# have nothing to contribute.
+MIN_SEARCHABLE_SYNOPSIS = 80
+
 # How near the top of a facet's pool a title must be for that facet to
 # count as HIT. The pool stays deep because fusion needs ranks, but being
 # somewhere in 2,000 rows is not a match - it is roughly a tenth of the
@@ -143,7 +162,11 @@ def build_sql(dim: int, filter_sql: str, require_synopsis: bool = True) -> str:
     # on the strength of their titles alone. They are excluded here by
     # default, which the recommender does not do - there a seed's own
     # genres and tags still carry real signal.
-    synopsis_sql = "" if not require_synopsis else (" AND coalesce(m.description_clean, '') <> ''")
+    synopsis_sql = (
+        ""
+        if not require_synopsis
+        else f" AND length(coalesce(m.description_clean, '')) >= {MIN_SEARCHABLE_SYNOPSIS}"
+    )
     # The cast is repeated in the SELECT, not omitted: the ORDER BY below
     # must match the partial index expression textually, and an uncast
     # copy here is a SECOND distance computation for every pooled row -

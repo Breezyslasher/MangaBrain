@@ -44,7 +44,27 @@ from pipeline.openlibrary import (
 # 200 characters was chosen to exclude taglines, not to select good
 # records, and the difference decides embedding hours, how many release
 # assets it takes to ship, and what competes for a place in the results.
-THRESHOLDS = [(200, 1), (200, 3), (400, 1), (400, 3), (600, 1), (600, 3), (1000, 3)]
+#
+# The (0, n) rows size the question the floor glosses over: a book with
+# a short description but eight subjects is NOT the degenerate case.
+# pipeline.embed puts genres and tags before the description and only
+# falls back to the title when there is no description at all, so such
+# a row has a real vector. How many books a 200-character floor throws
+# away for a failure they do not have is a number, not an opinion.
+THRESHOLDS = [
+    (0, 5),
+    (0, 8),
+    (50, 3),
+    (50, 8),
+    (100, 3),
+    (200, 1),
+    (200, 3),
+    (400, 1),
+    (400, 3),
+    (600, 1),
+    (600, 3),
+    (1000, 3),
+]
 
 
 def survey(limit: int | None, min_description: int) -> dict:
