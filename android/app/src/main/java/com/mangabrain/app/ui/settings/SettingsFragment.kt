@@ -96,6 +96,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
     private val usernames = mutableMapOf<Account, String>()
     private var yamtrackTokenSet = false
     private var hardcoverTokenSet = false
+    private var tmdbKeySet = false
     private val statuses = mutableMapOf<Account, ListStatus>()
     private var statusesLoaded = false
     private var settingsLoaded = false
@@ -830,6 +831,49 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             })
         }
         card(body).addView(row)
+
+        buildTmdbKey(body)
+    }
+
+    /**
+     * The TMDB key Films and TV are fetched with. Stored on the server, not
+     * this device: the worker does the fetching. Write-only, like the
+     * tracker tokens - the reply only says whether one is saved.
+     */
+    private fun buildTmdbKey(body: LinearLayout) {
+        label(body, R.string.section_tmdb)
+        val fields = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dp(14), 0, dp(14), dp(16)) }
+        }
+        body.addView(fields)
+        val key = field(fields, R.string.tmdb_api_key,
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        key.hint = getString(if (tmdbKeySet) R.string.saved else R.string.tmdb_api_key_hint)
+        fields.addView(text(12f, R.color.dim).apply {
+            text = getString(R.string.tmdb_attribution)
+            setPadding(dp(4), dp(6), dp(4), dp(12))
+        })
+        fields.addView(pill(getString(R.string.save)).apply {
+            setOnClickListener {
+                val value = key.text.toString().trim()
+                if (value.isEmpty()) {
+                    toast(getString(R.string.needs_token))
+                    return@setOnClickListener
+                }
+                val api = api() ?: return@setOnClickListener
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        readUsernames(api.saveSettings(AppSettingsIn(tmdb_api_key = value)))
+                        key.setText("")
+                        key.hint = getString(R.string.saved)
+                        toast(getString(R.string.saved))
+                    } catch (e: Exception) {
+                        toast(message(e))
+                    }
+                }
+            }
+        })
     }
 
     /**
@@ -1096,6 +1140,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         usernames[Account.YAMTRACK] = settings.yamtrack_url.orEmpty()
         yamtrackTokenSet = settings.yamtrack_token_set == true
         hardcoverTokenSet = settings.hardcover_token_set == true
+        tmdbKeySet = settings.tmdb_api_key_set == true
     }
 
     private fun connected(a: Account): Boolean =

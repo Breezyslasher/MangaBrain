@@ -1,9 +1,9 @@
 """Single-user application settings, editable from the web UI.
 
 Stores tracker account details (AniList/MAL/Kitsu usernames, Yamtrack
-endpoint and token, Hardcover token) in the database so they survive
+endpoint and token, Hardcover token, TMDB key) in the database so they survive
 browser changes; environment variables remain as fallback for anything not
-set here. The Yamtrack and Hardcover tokens are write-only through the
+set here. The Yamtrack, Hardcover and TMDB secrets are write-only through the
 API: responses only say whether one is configured.
 """
 
@@ -26,6 +26,7 @@ SETTING_KEYS = (
     "yamtrack_url",
     "yamtrack_token",
     "hardcover_token",
+    "tmdb_api_key",
 )
 
 UPSERT_SQL = """
@@ -122,6 +123,7 @@ def _to_out(stored: dict[str, str], media: list[str]) -> AppSettingsOut:
         yamtrack_url=stored.get("yamtrack_url") or settings.yamtrack_url,
         yamtrack_token_set=bool(stored.get("yamtrack_token") or settings.yamtrack_token),
         hardcover_token_set=bool(stored.get("hardcover_token") or settings.hardcover_token),
+        tmdb_api_key_set=bool(stored.get("tmdb_api_key") or settings.tmdb_api_key),
         enabled_media=media,
     )
 

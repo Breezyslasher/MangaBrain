@@ -134,6 +134,7 @@ data class AppSettingsOut(
     val yamtrack_url: String? = null,
     val yamtrack_token_set: Boolean? = null,
     val hardcover_token_set: Boolean? = null,
+    val tmdb_api_key_set: Boolean? = null,
     val enabled_media: List<String>? = null
 )
 
@@ -144,6 +145,7 @@ data class AppSettingsIn(
     val yamtrack_url: String? = null,
     val yamtrack_token: String? = null,
     val hardcover_token: String? = null,
+    val tmdb_api_key: String? = null,
     // Null is omitted from the body, so saving accounts leaves the media
     // selection alone. Switching a medium on can start a download.
     val enabled_media: List<String>? = null

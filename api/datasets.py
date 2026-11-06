@@ -60,6 +60,24 @@ DATASETS: tuple[Dataset, ...] = (
         download_hint="About 3.5 GB to download and 6 GB on disk.",
         installable=True,
     ),
+    Dataset(
+        key="tmdb",
+        label="Films and TV",
+        description=(
+            "From TMDB, fetched with your own API key (Settings > Server): about 600,000"
+            " films and shows with a real overview, Japanese animation left to the anime"
+            " tab. TMDB's terms rule out publishing it, so this install fetches it itself"
+            " and refreshes it nightly. This product uses the TMDB API but is not"
+            " endorsed or certified by TMDB."
+        ),
+        media=("movie", "tv"),
+        source="tmdb",
+        download_hint=(
+            "About 1.4 million TMDB requests, roughly ten hours, then embedding on this"
+            " machine. Needs a free TMDB API key."
+        ),
+        installable=True,
+    ),
 )
 
 BY_KEY = {d.key: d for d in DATASETS}

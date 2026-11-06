@@ -222,6 +222,7 @@ class AppSettingsIn(BaseModel):
     yamtrack_url: str | None = None
     yamtrack_token: str | None = None
     hardcover_token: str | None = None
+    tmdb_api_key: str | None = None
     # The media tabs to show. Switching on a medium whose dataset is not
     # installed requests the install (api.datasets); switching one off only
     # hides the tab and deletes nothing.
@@ -236,6 +237,7 @@ class AppSettingsOut(BaseModel):
     # The token itself is never returned, only whether one is configured.
     yamtrack_token_set: bool = False
     hardcover_token_set: bool = False
+    tmdb_api_key_set: bool = False
     # Never empty. Until someone chooses, every medium whose data is
     # present - so an install without books does not show an empty tab.
     enabled_media: list[str] = []

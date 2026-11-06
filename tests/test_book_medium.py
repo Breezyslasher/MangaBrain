@@ -42,7 +42,7 @@ def test_the_id_column_is_not_widened():
 def test_the_vocabularies_admit_books_for_new_and_existing_databases():
     """The inline CHECK only reaches a fresh database; an existing one
     keeps the constraint it was built with until it is re-stated."""
-    assert "CHECK (media_type IN ('ANIME', 'MANGA', 'BOOK'))" in SCHEMA
+    assert "CHECK (media_type IN ('ANIME', 'MANGA', 'BOOK', 'MOVIE', 'TV'))" in SCHEMA
     assert SCHEMA.count("'BOOK'") >= 2, "inline for new databases, re-stated for existing ones"
     assert SCHEMA.count("'book'") >= 2
     assert "DROP CONSTRAINT IF EXISTS media_medium_check" in SCHEMA

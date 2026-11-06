@@ -79,7 +79,7 @@ async def static_no_cache(request, call_next):
 # Per-medium deep links, matching Anibrain's structure: each serves the SPA
 # with that tab preselected (the JS reads the path). Registered as routes, so
 # they win over the catch-all static mount.
-MEDIUM_PATHS = ("/anime", "/manga", "/light-novel", "/one-shot")
+MEDIUM_PATHS = ("/anime", "/manga", "/light-novel", "/one-shot", "/books", "/movies", "/tv")
 
 # Everything under these prefixes is the JSON API; anything else is a static
 # SPA asset. /healthz stays open for liveness probes and uptime monitors.
