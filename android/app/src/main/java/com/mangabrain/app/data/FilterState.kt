@@ -240,7 +240,7 @@ object FilterState {
         "manga" -> listOf("MANGA")
         "light_novel" -> listOf("NOVEL")
         "one_shot" -> listOf("ONE_SHOT")
-        "tv" -> listOf("SCRIPTED", "ANIMATION", "REALITY", "DOCUMENTARY", "TALK_SHOW", "GAME_SHOW", "NEWS", "SPORTS", "VARIETY", "AWARD_SHOW", "PANEL_SHOW")
+        "tv" -> listOf("SCRIPTED", "MINISERIES", "ANIMATION", "REALITY", "DOCUMENTARY", "TALK_SHOW", "GAME_SHOW", "NEWS", "SPORTS", "VARIETY", "AWARD_SHOW", "PANEL_SHOW")
         else -> emptyList()
     }
 

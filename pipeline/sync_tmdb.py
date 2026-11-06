@@ -1,12 +1,25 @@
-"""Films from TMDB (https://www.themoviedb.org).
+"""Films from TMDB (https://www.themoviedb.org), and the TV shows TVmaze
+lacks.
 
-TV shows come from TVmaze instead (pipeline.sync_tvmaze), whose CC BY-SA
-licence allows what this engine does with the data. TMDB's API terms
-(1.C, last updated 20 Oct 2023) forbid using TMDB content "in connection
-with, including for training, a machine learning (ML) or artificial
-intelligence (AI) based Application" and making "derivatives" of it,
-which an embedding-based recommender plausibly is. Do not switch this on
-for an install without TMDB's written permission for the use.
+TV's first source is TVmaze (pipeline.sync_tvmaze), whose CC BY-SA licence
+plainly allows what this engine does with the data. TMDB is its second:
+a show is kept from TMDB only when no TVmaze show matches it by IMDb id,
+TheTVDB id, or title, premiere year and country together. The survey put
+TVmaze at about 51,000 usable shows and TMDB at about 80,000, so TMDB
+adds at most some 30,000, fewer where the two overlap.
+
+On TMDB's terms, read 6 Nov 2026 (API terms last updated 20 Oct 2023):
+1.C forbids using TMDB content "in connection with, including for
+training, a machine learning (ML) or artificial intelligence (AI) based
+Application" and making "derivatives" of it. TMDB staff have answered
+on its forum that a non-commercial similarity feature is not what that
+clause is meant to carve out, and that semantic search is not training
+AI. This module is built to stay inside that reading: each install
+fetches with its own key, nothing is published or shared, nothing is
+trained, embeddings are only compared for similarity, data is refreshed
+inside the six-month cache limit, and TMDB is credited. The staff
+answers are guidance, not a written agreement; an operator who wants
+certainty should ask TMDB about their own install.
 
 Fetched by each install with its own API key and kept in its own
 database - never published as a dataset. That is the shape TMDB's terms
@@ -16,10 +29,11 @@ medium; the worker fetches it, and refreshes it on a rolling schedule.
 
 Three passes:
 
-  full     every id in TMDB's daily film id export (adult and video
-           entries dropped), each fetched with its keywords. Resumable:
-           progress is kept in sync_state. About 1.2 million requests,
-           nine hours or so at the rate below.
+  full     every id in TMDB's daily film and TV id exports (adult and
+           video entries dropped), each fetched with its keywords and
+           external ids. Resumable: progress is kept in sync_state per
+           type. About 1.4 million requests, ten hours or so at the rate
+           below.
   changes  the ids TMDB reports changed since the last pass (its /changes
            feeds), re-fetched. Run nightly.
   refresh  rows older than REFRESH_DAYS re-fetched, oldest first, a slice
@@ -27,7 +41,7 @@ Three passes:
 
 What is kept (measured by pipeline.survey_screen, 6 Nov 2026): a title
 needs an overview of at least MIN_OVERVIEW characters, which about 43% of
-films have. Japanese animation is dropped: the anime
+films and 36% of shows have. Japanese animation is dropped: the anime
 catalogue already holds it, from AniList, with far better tags.
 
 What is stored maps onto the media table the anime rows use: overview as
@@ -80,6 +94,7 @@ CHUNK = 400
 # (TMDB type, path in the API, export file prefix, media_type, medium)
 KINDS = {
     "movie": ("movie", "movie", "MOVIE", "movie"),
+    "tv": ("tv", "tv_series", "TV", "tv"),
 }
 
 # TMDB status words onto the catalogue's AniList-derived vocabulary, so the
@@ -191,11 +206,18 @@ def row_for(kind: str, data: dict) -> dict | None:
     overview = clean(data.get("overview"))
     if len(overview) < MIN_OVERVIEW or is_japanese_animation(data):
         return None
-    title = clean(data.get("title"))
-    original = clean(data.get("original_title"))
-    released = data.get("release_date")
-    fmt = "MOVIE"
-    episodes = None
+    if kind == "movie":
+        title = clean(data.get("title"))
+        original = clean(data.get("original_title"))
+        released = data.get("release_date")
+        fmt = "MOVIE"
+        episodes = None
+    else:
+        title = clean(data.get("name"))
+        original = clean(data.get("original_name"))
+        released = data.get("first_air_date")
+        fmt = (clean(data.get("type")) or "Scripted").upper().replace(" ", "_")
+        episodes = data.get("number_of_episodes")
     if not title:
         return None
     keywords = data.get("keywords") or {}
@@ -209,6 +231,12 @@ def row_for(kind: str, data: dict) -> dict | None:
         c.get("iso_3166_1") for c in data.get("production_countries") or []
     ]
     poster = data.get("poster_path")
+    ids = data.get("external_ids") or {}
+    external_ids = {}
+    if ids.get("imdb_id"):
+        external_ids["imdb"] = str(ids["imdb_id"])
+    if ids.get("tvdb_id"):
+        external_ids["tvdb"] = str(ids["tvdb_id"])
     media_type, medium = KINDS[kind][2], KINDS[kind][3]
     return {
         "source": SOURCE,
@@ -228,6 +256,7 @@ def row_for(kind: str, data: dict) -> dict | None:
         "cover_medium": f"{IMAGES}/w342{poster}" if poster else None,
         "cover_large": f"{IMAGES}/w780{poster}" if poster else None,
         "synonyms": [original] if original and original != title else [],
+        "external_ids": external_ids,
     }
 
 
@@ -241,7 +270,8 @@ UPDATE_SQL = """
         genres = %(genres)s, tags = %(tags)s, format = %(format)s, episodes = %(episodes)s,
         country_of_origin = %(country)s, start_year = %(start_year)s, status = %(status)s,
         cover_image_medium = %(cover_medium)s, cover_image_large = %(cover_large)s,
-        synonyms = %(synonyms)s, is_adult = FALSE, synced_at = now()
+        synonyms = %(synonyms)s, external_ids = %(external_ids)s, is_adult = FALSE,
+        synced_at = now()
     WHERE source = %(source)s AND source_id = %(source_id)s
 """
 
@@ -253,12 +283,12 @@ INSERT_SQL = """
         id, source, source_id, media_type, medium,
         title_romaji, title_english, title_native, description, description_clean,
         genres, tags, format, episodes, country_of_origin, start_year, status,
-        cover_image_medium, cover_image_large, synonyms, is_adult, synced_at
+        cover_image_medium, cover_image_large, synonyms, external_ids, is_adult, synced_at
     ) VALUES (
         nextval('media_external_id_seq'), %(source)s, %(source_id)s, %(media_type)s, %(medium)s,
         %(title)s, %(title)s, %(title_native)s, %(description)s, %(description)s,
         %(genres)s, %(tags)s, %(format)s, %(episodes)s, %(country)s, %(start_year)s, %(status)s,
-        %(cover_medium)s, %(cover_large)s, %(synonyms)s, FALSE, now()
+        %(cover_medium)s, %(cover_large)s, %(synonyms)s, %(external_ids)s, FALSE, now()
     )
     ON CONFLICT (source, source_id) DO NOTHING
 """
@@ -266,14 +296,44 @@ INSERT_SQL = """
 DELETE_SQL = "DELETE FROM media WHERE source = %s AND source_id = %s"
 
 
+# A TMDB show that TVmaze already holds: same IMDb or TheTVDB id, or the
+# same title, premiere year and country. TVmaze is TV's first source.
+TVMAZE_HAS_SQL = """
+    SELECT 1 FROM media v
+    WHERE v.source = 'tvmaze' AND (
+        (%(imdb)s::text IS NOT NULL AND v.external_ids->>'imdb' = %(imdb)s)
+        OR (%(tvdb)s::text IS NOT NULL AND v.external_ids->>'tvdb' = %(tvdb)s)
+        OR (lower(v.title_english) = lower(%(title)s)
+            AND v.start_year IS NOT DISTINCT FROM %(start_year)s::int
+            AND v.country_of_origin IS NOT DISTINCT FROM %(country)s::text)
+    )
+    LIMIT 1
+"""
+
+
+def tvmaze_has(conn: psycopg.Connection, row: dict) -> bool:
+    ids = row.get("external_ids") or {}
+    params = {
+        "imdb": ids.get("imdb"),
+        "tvdb": ids.get("tvdb"),
+        "title": row["title"],
+        "start_year": row["start_year"],
+        "country": row["country"],
+    }
+    return conn.execute(TVMAZE_HAS_SQL, params).fetchone() is not None
+
+
 def store(conn: psycopg.Connection, kind: str, tmdb_id: int, row: dict | None) -> str:
-    """Write one title; returns 'kept', 'dropped' or 'removed'."""
+    """Write one title; returns 'kept', 'dropped', 'removed' or 'duplicate'."""
+    if row is not None and kind == "tv" and tvmaze_has(conn, row):
+        conn.execute(DELETE_SQL, (SOURCE, f"{kind}/{tmdb_id}"))
+        return "duplicate"
     if row is None:
         # A title that no longer qualifies (overview removed, marked adult,
         # deleted) must not linger: drop any row it had.
         deleted = conn.execute(DELETE_SQL, (SOURCE, f"{kind}/{tmdb_id}")).rowcount
         return "removed" if deleted else "dropped"
-    params = {**row, "tags": Jsonb(row["tags"])}
+    params = {**row, "tags": Jsonb(row["tags"]), "external_ids": Jsonb(row["external_ids"])}
     if conn.execute(UPDATE_SQL, params).rowcount == 0:
         conn.execute(INSERT_SQL, params)
     return "kept"
@@ -284,7 +344,8 @@ def fetch(client: TmdbClient, kind: str, tmdb_id: int) -> dict | None:
     path = KINDS[kind][0]
     try:
         data = client.get(
-            f"/{path}/{tmdb_id}", {"append_to_response": "keywords", "language": "en-US"}
+            f"/{path}/{tmdb_id}",
+            {"append_to_response": "keywords,external_ids", "language": "en-US"},
         )
     except Gone:
         return None
@@ -356,7 +417,7 @@ def export_ids(kind: str) -> tuple[str, list[int]]:
 def full(
     conn: psycopg.Connection,
     client: TmdbClient,
-    kinds: Iterable[str] = ("movie",),
+    kinds: Iterable[str] = ("movie", "tv"),
     progress: Callable[[dict], None] | None = None,
 ) -> dict[str, int]:
     """Every exported id, once, resumable. Ids are processed in ascending

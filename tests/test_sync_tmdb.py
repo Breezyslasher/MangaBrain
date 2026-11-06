@@ -138,5 +138,70 @@ def test_the_tmdb_key_is_write_only():
     assert "tmdb_api_key" not in AppSettingsOut.model_fields
 
 
-def test_tmdb_no_longer_fetches_tv():
-    assert set(sync_tmdb.KINDS) == {"movie"}
+def show(**over):
+    data = {
+        "id": 1399,
+        "name": "Show",
+        "original_name": "Show",
+        "overview": LONG,
+        "genres": [{"name": "Drama"}],
+        "keywords": {"results": [{"name": "dragon"}]},
+        "external_ids": {"imdb_id": "tt0944947", "tvdb_id": 121361},
+        "first_air_date": "2011-04-17",
+        "status": "Returning Series",
+        "type": "Miniseries",
+        "number_of_episodes": 8,
+        "origin_country": ["GB"],
+    }
+    data.update(over)
+    return data
+
+
+def test_a_show_maps_with_its_type_episodes_and_external_ids():
+    row = sync_tmdb.row_for("tv", show())
+    assert (row["media_type"], row["medium"], row["format"]) == ("TV", "tv", "MINISERIES")
+    assert row["episodes"] == 8 and row["status"] == "RELEASING"
+    assert row["tags"][0]["name"] == "dragon"
+    assert row["external_ids"] == {"imdb": "tt0944947", "tvdb": "121361"}
+
+
+class DedupeConn(FakeConn):
+    """FakeConn whose TVmaze lookup answers a fixed yes or no."""
+
+    def __init__(self, existing, tvmaze_has_it):
+        super().__init__(existing)
+        self.tvmaze_has_it = tvmaze_has_it
+
+    def execute(self, sql, params=None):
+        if "v.source = 'tvmaze'" in sql:
+            answer = (1,) if self.tvmaze_has_it else None
+            self.calls.append("lookup")
+
+            class Result:
+                def fetchone(self):
+                    return answer
+
+            return Result()
+        return super().execute(sql, params)
+
+
+def test_a_show_tvmaze_already_has_is_not_kept_from_tmdb():
+    row = sync_tmdb.row_for("tv", show())
+    conn = DedupeConn({"tv/1399"}, tvmaze_has_it=True)
+    assert sync_tmdb.store(conn, "tv", 1399, row) == "duplicate"
+    assert conn.calls == ["lookup", "delete"], "an existing TMDB copy is removed"
+    conn = DedupeConn(set(), tvmaze_has_it=False)
+    assert sync_tmdb.store(conn, "tv", 1399, row) == "kept"
+
+
+def test_films_are_never_checked_against_tvmaze():
+    conn = DedupeConn(set(), tvmaze_has_it=True)
+    assert sync_tmdb.store(conn, "movie", 550, sync_tmdb.row_for("movie", movie())) == "kept"
+    assert "lookup" not in conn.calls
+
+
+def test_a_tvmaze_read_removes_tmdb_shows_it_now_covers():
+    from pipeline import sync_tvmaze
+
+    assert "t.source = 'tmdb' AND t.medium = 'tv'" in sync_tvmaze.DEDUPE_SQL
+    assert "dedupe(conn)" in inspect.getsource(sync_tvmaze.sync)

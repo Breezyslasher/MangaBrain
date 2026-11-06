@@ -19,6 +19,7 @@ def show(**over):
         "network": {"country": {"code": "US"}},
         "image": {"medium": "m.jpg", "original": "o.jpg"},
         "summary": SUMMARY,
+        "externals": {"imdb": "tt0944947", "thetvdb": 121361, "tvrage": 24493},
         "rating": {"average": 8.9},
         "weight": 99,
     }
@@ -34,6 +35,7 @@ def test_a_show_maps_onto_the_media_row():
     assert row["start_year"] == 2011 and row["country"] == "US"
     assert "<" not in row["description"] and "&amp;" not in row["description"]
     assert row["cover_large"] == "o.jpg"
+    assert row["external_ids"] == {"imdb": "tt0944947", "tvdb": "121361"}
 
 
 def test_web_channel_country_counts_when_there_is_no_network():

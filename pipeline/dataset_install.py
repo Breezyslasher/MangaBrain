@@ -96,7 +96,7 @@ def install_tmdb(request: dict, report: Callable[[dict], None]) -> str:
         count = conn.execute(
             "SELECT count(*) FROM media WHERE source = %s", (sync_tmdb.SOURCE,)
         ).fetchone()[0]
-    return f"Fetched {count:,} films from TMDB ({tally.get('kept', 0):,} this pass)."
+    return f"Fetched {count:,} films and shows from TMDB ({tally.get('kept', 0):,} this pass)."
 
 
 def install_tvmaze(request: dict, report: Callable[[dict], None]) -> str:
