@@ -79,3 +79,54 @@ def test_the_nightly_pass_reads_tvmaze():
 
     nightly = (Path(__file__).resolve().parent.parent / "pipeline/nightly.py").read_text()
     assert "tvmaze_nightly()" in nightly
+
+
+def test_tv_and_films_are_embedded_before_books():
+    """In plain id order the ~965,000 books, which take ids before TV and
+    films, held both up for days on a NAS."""
+    from pipeline import embed
+
+    order = embed.SOURCE_ORDER
+    assert order.index("tvmaze") < order.index("openlibrary")
+    assert order.index("tmdb") < order.index("openlibrary")
+    assert order[0] == "anilist"
+
+
+class EmbedConn:
+    """Answers SELECT_MISSING_SQL per source from a fixed backlog."""
+
+    def __init__(self, backlog: dict[str, list[int]]):
+        self.backlog = backlog
+        self.asked: list[str] = []
+
+    def execute(self, sql, params):
+        conn = self
+
+        class Result:
+            def fetchall(self):
+                if "NOT (m.source = ANY" in sql:
+                    conn.asked.append("other")
+                    return [(i,) for i in conn.backlog.get("other", [])]
+                source = params[1]
+                conn.asked.append(source)
+                return [(i,) for i in conn.backlog.get(source, [])]
+
+        return Result()
+
+
+def test_the_next_batch_comes_from_the_first_source_with_work_left():
+    from pipeline import embed
+
+    conn = EmbedConn({"tvmaze": [7], "openlibrary": [1]})
+    assert embed.next_batch(conn, "m", 256, None) == [(7,)]
+    assert conn.asked == ["anilist", "tvmaze"]
+    conn = EmbedConn({"other": [9]})
+    assert embed.next_batch(conn, "m", 256, None) == [(9,)]
+
+
+def test_a_source_option_limits_the_pass():
+    from pipeline import embed
+
+    conn = EmbedConn({"tvmaze": [7], "openlibrary": [1]})
+    assert embed.next_batch(conn, "m", 256, ("openlibrary",)) == [(1,)]
+    assert "tvmaze" not in conn.asked

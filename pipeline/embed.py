@@ -11,6 +11,11 @@ rows with --prune-stale.
 Usage:
     python -m pipeline.embed
     python -m pipeline.embed --prune-stale   # embed the rest, then drop old versions
+    python -m pipeline.embed --source tvmaze --source tmdb   # TV and films only
+
+Catalogues are embedded in SOURCE_ORDER: AniList, then TV (TVmaze), then
+films and TMDB's extra shows, then books, so a new medium does not wait
+days behind the books.
 """
 
 import argparse
@@ -33,15 +38,57 @@ MAX_TAGS = 15
 # --encode-batch-size on beefier machines.
 ENCODE_BATCH_SIZE = 16
 
+# Which catalogues are embedded first. Smallest and most used first, so a
+# new medium is usable in hours rather than queued behind a large one: on
+# a NAS embedding ~3 books a second, the ~965,000-book catalogue is days of
+# work, and in plain id order it held up TV and films (which take ids
+# after the books) until it finished. Sources not named here go last.
+SOURCE_ORDER = ("anilist", "tvmaze", "tmdb", "openlibrary")
+
 SELECT_MISSING_SQL = """
     SELECT m.id, m.title_romaji, m.title_english, m.description_clean, m.genres, m.tags
     FROM media m
     LEFT JOIN embeddings e
         ON e.media_id = m.id AND e.embed_model = %s
-    WHERE e.media_id IS NULL
+    WHERE e.media_id IS NULL AND m.source = %s
     ORDER BY m.id
     LIMIT %s
 """
+
+# Anything from a source SOURCE_ORDER does not name, after all of those.
+SELECT_MISSING_OTHER_SQL = """
+    SELECT m.id, m.title_romaji, m.title_english, m.description_clean, m.genres, m.tags
+    FROM media m
+    LEFT JOIN embeddings e
+        ON e.media_id = m.id AND e.embed_model = %s
+    WHERE e.media_id IS NULL AND NOT (m.source = ANY(%s))
+    ORDER BY m.id
+    LIMIT %s
+"""
+
+
+def next_batch(
+    conn: psycopg.Connection, stored_id: str, batch_size: int, sources: tuple[str, ...] | None
+) -> list:
+    """The next rows to embed: the first source in SOURCE_ORDER with any
+    left, then any other source. `sources` limits the pass to those."""
+    for source in SOURCE_ORDER:
+        if sources is not None and source not in sources:
+            continue
+        rows = conn.execute(SELECT_MISSING_SQL, (stored_id, source, batch_size)).fetchall()
+        if rows:
+            return rows
+    if sources is not None:
+        others = tuple(s for s in sources if s not in SOURCE_ORDER)
+        for source in others:
+            rows = conn.execute(SELECT_MISSING_SQL, (stored_id, source, batch_size)).fetchall()
+            if rows:
+                return rows
+        return []
+    return conn.execute(
+        SELECT_MISSING_OTHER_SQL, (stored_id, list(SOURCE_ORDER), batch_size)
+    ).fetchall()
+
 
 UPSERT_SQL = """
     INSERT INTO embeddings (media_id, embed_model, embedding, updated_at)
@@ -60,7 +107,7 @@ PENDING_COUNT_SQL = """
     FROM media m
     LEFT JOIN embeddings e
         ON e.media_id = m.id AND e.embed_model = %s
-    WHERE e.media_id IS NULL
+    WHERE e.media_id IS NULL AND (%s::text[] IS NULL OR m.source = ANY(%s::text[]))
 """
 
 # The whole catalog, so progress is reported against the migration rather
@@ -158,8 +205,10 @@ def embed_missing(
     model_name: str | None = None,
     encode_batch_size: int = ENCODE_BATCH_SIZE,
     max_seconds: float | None = None,
+    sources: tuple[str, ...] | None = None,
 ) -> int:
-    """Embed every row missing a current-version embedding.
+    """Embed every row missing a current-version embedding, catalogue by
+    catalogue in SOURCE_ORDER (or only `sources`, when given).
 
     max_seconds stops the pass between batches once that much time has
     gone, leaving the rest for the next run. The CI jobs need it: a step
@@ -182,7 +231,8 @@ def embed_missing(
     total = 0
     with psycopg.connect(settings.database_url) as conn:
         register_vector(conn)
-        pending = conn.execute(PENDING_COUNT_SQL, (stored_id,)).fetchone()[0]
+        only = list(sources) if sources is not None else None
+        pending = conn.execute(PENDING_COUNT_SQL, (stored_id, only, only)).fetchone()[0]
         catalog_total = conn.execute(CATALOG_COUNT_SQL).fetchone()[0]
         already = catalog_total - pending
         print(
@@ -199,7 +249,7 @@ def embed_missing(
                     flush=True,
                 )
                 break
-            rows = conn.execute(SELECT_MISSING_SQL, (stored_id, batch_size)).fetchall()
+            rows = next_batch(conn, stored_id, batch_size, sources)
             if not rows:
                 break
             texts = [embed_text(row[1], row[2], row[3], row[4], row[5]) for row in rows]
@@ -242,6 +292,14 @@ def main() -> None:
         help="stop between batches after this long; the rest waits for the next run",
     )
     parser.add_argument(
+        "--source",
+        action="append",
+        help=(
+            "embed only this catalogue (anilist, tvmaze, tmdb, openlibrary); repeat for"
+            " several. Default: all of them, in that order."
+        ),
+    )
+    parser.add_argument(
         "--prune-stale",
         action="store_true",
         help="after embedding completes, delete rows of other embedding versions",
@@ -252,10 +310,11 @@ def main() -> None:
         model_name=args.model,
         encode_batch_size=args.encode_batch_size,
         max_seconds=args.max_seconds,
+        sources=tuple(args.source) if args.source else None,
     )
     # Pruning needs a complete new version, and a budgeted stop is by
     # definition not one, so a timed pass never prunes.
-    if args.prune_stale and args.max_seconds is None:
+    if args.prune_stale and args.max_seconds is None and not args.source:
         prune_stale(args.model)
 
 

@@ -180,3 +180,18 @@ def test_the_filter_badge_counts_only_what_is_sent():
     ).read_text()
     badge = state[state.index("val activeCount") : state.index("fun filterParams")]
     assert "supports(control)" in badge
+
+
+def test_the_media_check_constraints_are_not_rebuilt_on_every_start():
+    """The schema runs on every API start as one transaction. Dropping and
+    re-adding these constraints each time held an exclusive lock and
+    scanned every row; behind a busy worker that stalled startup into a
+    502. They are re-stated only when the stored definition is out of
+    date, and NOT VALID, so even then no existing row is scanned."""
+    block = SCHEMA[SCHEMA.index("DO $$", SCHEMA.index("is missing a value, and NOT VALID")) :]
+    block = block[: block.index("END $$;")]
+    assert block.count("pg_get_constraintdef(oid) LIKE") == 2
+    assert block.count(") NOT VALID;") == 2
+    assert block.index("IF NOT EXISTS") < block.index(
+        "DROP CONSTRAINT IF EXISTS media_media_type_check"
+    )

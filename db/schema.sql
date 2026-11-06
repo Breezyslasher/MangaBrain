@@ -275,17 +275,40 @@ CREATE INDEX IF NOT EXISTS idx_media_ext_tvdb ON media ((external_ids->>'tvdb'))
 
 -- The CHECK constraints are inline in CREATE TABLE, which only helps a
 -- fresh database; an existing one keeps the constraint it was built
--- with. Re-stating them validates against existing rows without
--- rewriting the table.
+-- with, so they are re-stated here - but only when the stored definition
+-- is missing a value, and NOT VALID.
+--
+-- Both halves matter. This script runs on every API and worker start, as
+-- one transaction, and the old version dropped and re-added both
+-- constraints every time: an ACCESS EXCLUSIVE lock on media plus a scan
+-- of every row (1.6 million with books), held to the end of the script.
+-- Behind a worker mid-import or mid-embed that stalled API startup until
+-- Cloudflare answered 502 (6 Nov 2026, adding MOVIE and TV). Now it is a
+-- catalogue lookup on a normal start, and on a vocabulary change a brief
+-- lock with no scan: NOT VALID skips checking existing rows, every one of
+-- which was written under the narrower rule, and still checks every new
+-- row.
 DO $$
 BEGIN
-    ALTER TABLE media DROP CONSTRAINT IF EXISTS media_media_type_check;
-    ALTER TABLE media ADD CONSTRAINT media_media_type_check
-        CHECK (media_type IN ('ANIME', 'MANGA', 'BOOK', 'MOVIE', 'TV'));
-    ALTER TABLE media DROP CONSTRAINT IF EXISTS media_medium_check;
-    ALTER TABLE media ADD CONSTRAINT media_medium_check
-        CHECK (medium IN ('anime', 'manga', 'manhwa', 'manhua', 'light_novel',
-                          'one_shot', 'book', 'movie', 'tv'));
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'media'::regclass AND conname = 'media_media_type_check'
+          AND pg_get_constraintdef(oid) LIKE '%''TV''%'
+    ) THEN
+        ALTER TABLE media DROP CONSTRAINT IF EXISTS media_media_type_check;
+        ALTER TABLE media ADD CONSTRAINT media_media_type_check
+            CHECK (media_type IN ('ANIME', 'MANGA', 'BOOK', 'MOVIE', 'TV')) NOT VALID;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'media'::regclass AND conname = 'media_medium_check'
+          AND pg_get_constraintdef(oid) LIKE '%''tv''%'
+    ) THEN
+        ALTER TABLE media DROP CONSTRAINT IF EXISTS media_medium_check;
+        ALTER TABLE media ADD CONSTRAINT media_medium_check
+            CHECK (medium IN ('anime', 'manga', 'manhwa', 'manhua', 'light_novel',
+                              'one_shot', 'book', 'movie', 'tv')) NOT VALID;
+    END IF;
 END $$;
 
 -- Cached MAL user lists pulled via Jikan. Everything on either list is
