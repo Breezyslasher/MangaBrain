@@ -81,6 +81,7 @@ def to_out(conn, dataset: Dataset) -> DatasetOut:
         if install
         else None,
         release_available=release_available(dataset) if dataset.installable else None,
+        update_label=dataset.update_label,
     )
 
 

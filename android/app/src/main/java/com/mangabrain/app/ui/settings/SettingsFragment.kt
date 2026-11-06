@@ -1010,7 +1010,10 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             if (dataset.installable && !busy && (install?.state == "failed" || dataset.installed)) {
                 card.addView(divider())
                 card.addView(text(14f, R.color.accent_text).apply {
-                    text = getString(if (install?.state == "failed") R.string.media_retry else R.string.media_update)
+                    // The server names what installing again does: a new
+                    // release for books, a fresh fetch for TV and films.
+                    text = if (install?.state == "failed") getString(R.string.media_retry)
+                        else dataset.update_label?.ifBlank { null } ?: getString(R.string.media_update)
                     gravity = Gravity.CENTER_VERTICAL
                     minHeight = dp(52)
                     setPadding(dp(16), 0, dp(16), 0)

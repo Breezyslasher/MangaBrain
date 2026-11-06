@@ -194,9 +194,10 @@ def current_model_id() -> str:
 class PartWriter(io.RawIOBase):
     """Bytes in, a sequence of capped part files out, hashed as they go."""
 
-    def __init__(self, out_dir: Path, part_bytes: int = PART_BYTES):
+    def __init__(self, out_dir: Path, part_bytes: int = PART_BYTES, prefix: str = PART_PREFIX):
         self.out_dir = out_dir
         self.part_bytes = part_bytes
+        self.prefix = prefix
         self.parts: list[dict] = []
         self._fh = None
         self._hash = None
@@ -207,7 +208,7 @@ class PartWriter(io.RawIOBase):
 
     def _open_next(self) -> None:
         self._close_current()
-        name = f"{PART_PREFIX}{len(self.parts) + 1:02d}"
+        name = f"{self.prefix}{len(self.parts) + 1:02d}"
         self._fh = (self.out_dir / name).open("wb")
         self._hash = hashlib.sha256()
         self._written = 0
@@ -305,8 +306,15 @@ def export(out_dir: Path, state_path: Path | None = None, part_bytes: int = PART
 # Load
 
 
-def find_release_manifest(repo: str = DEFAULT_REPO) -> str | None:
+def find_release_manifest(
+    repo: str = DEFAULT_REPO,
+    tag_prefix: str = RELEASE_TAG_PREFIX,
+    manifest_name: str = MANIFEST_NAME,
+) -> str | None:
     """The manifest URL of the newest books release, or None.
+
+    tag_prefix and manifest_name let the TV dataset (pipeline.tv_dataset),
+    which publishes in the same format, find its own releases.
 
     Books releases are never marked latest - that marker belongs to the
     anime dataset, whose stable download URL follows it - so the newest
@@ -327,11 +335,11 @@ def find_release_manifest(repo: str = DEFAULT_REPO) -> str | None:
         follow_redirects=True,
     )
     resp.raise_for_status()
-    releases = [r for r in resp.json() if str(r.get("tag_name", "")).startswith(RELEASE_TAG_PREFIX)]
+    releases = [r for r in resp.json() if str(r.get("tag_name", "")).startswith(tag_prefix)]
     releases.sort(key=lambda r: r.get("created_at") or "", reverse=True)
     for release in releases:
         for asset in release.get("assets") or []:
-            if asset.get("name") == MANIFEST_NAME:
+            if asset.get("name") == manifest_name:
                 return asset["browser_download_url"]
     return None
 
@@ -391,7 +399,7 @@ def iter_payload(manifest: dict, base: str | Path, progress=None):
                 f"{part['name']} does not match its manifest"
                 f" ({size:,} bytes, expected {part['bytes']:,}); nothing was loaded"
             )
-        print(f"[books] verified {part['name']} ({size / 1e9:.2f} GB)", flush=True)
+        print(f"[dataset] verified {part['name']} ({size / 1e9:.2f} GB)", flush=True)
     tail = inflate.flush()
     if tail:
         yield tail

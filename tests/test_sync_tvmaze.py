@@ -150,3 +150,18 @@ def test_both_clients_show_fetch_progress():
         '"phase": "fetching", "bytes": 0, "total": total'
         in (root / "pipeline/sync_tmdb.py").read_text()
     )
+
+
+def test_installing_again_is_labelled_for_what_it_does():
+    """TV and films have no published release, so their cards must not
+    offer "Update from the newest release"."""
+    import inspect
+
+    from api.datasets import BY_KEY
+    from pipeline.dataset_install import INSTALLERS
+
+    assert "release" in BY_KEY["books"].update_label
+    assert "release" not in BY_KEY["tvmaze"].update_label
+    assert "release" not in BY_KEY["tmdb"].update_label
+    # A completed TMDB install asked again runs the changes feed.
+    assert "sync_tmdb.changes(conn, client)" in inspect.getsource(INSTALLERS["tmdb"])

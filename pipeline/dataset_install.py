@@ -85,6 +85,11 @@ def install_tmdb(request: dict, report: Callable[[dict], None]) -> str:
         client = sync_tmdb.TmdbClient(key)
         try:
             tally = sync_tmdb.full(conn, client, progress=report)
+            # Asked for again after the full pass is done ("Check TMDB for
+            # changes now"): the full pass skips completed kinds, so run the
+            # changes feed the nightly pass would.
+            if not tally:
+                tally = sync_tmdb.changes(conn, client)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401:
                 raise RuntimeError(
@@ -96,19 +101,55 @@ def install_tmdb(request: dict, report: Callable[[dict], None]) -> str:
         count = conn.execute(
             "SELECT count(*) FROM media WHERE source = %s", (sync_tmdb.SOURCE,)
         ).fetchone()[0]
-    return f"Fetched {count:,} films and shows from TMDB ({tally.get('kept', 0):,} this pass)."
+    return f"{count:,} films and shows from TMDB ({tally.get('kept', 0):,} this pass)."
 
 
 def install_tvmaze(request: dict, report: Callable[[dict], None]) -> str:
-    """TV: the whole TVmaze index, a few minutes. No key, no release - a
-    full read is cheap enough that the worker repeats it nightly."""
-    from pipeline import sync_tvmaze
+    """TV: the newest published TV release first, if there is one this
+    database has not loaded - it carries the embeddings, hours of NAS work
+    - then a full TVmaze read to top it up, a few minutes. With no release
+    yet, or GitHub unreachable, the read alone does the job."""
+    from pipeline import sync_tvmaze, tv_dataset
+    from pipeline.sync_anilist import get_state
 
+    loaded = ""
+    try:
+        url = tv_dataset.find_release()
+    except httpx.HTTPError:
+        url = None
+    if url is not None:
+        with _connect() as conn:
+            done = (get_state(conn, tv_dataset.LOADED_RELEASE_KEY) or {}).get("manifest")
+        if done != url:
+            result = tv_dataset.load(url, progress=report)
+            loaded = f" Loaded {result['embeddings']:,} embeddings from the published release."
     tally = sync_tvmaze.sync(progress=report)
-    return f"Fetched {tally['kept']:,} TV shows from TVmaze ({tally['read']:,} read)."
+    return f"Fetched {tally['kept']:,} TV shows from TVmaze ({tally['read']:,} read).{loaded}"
+
+
+def install_anilist(request: dict, report: Callable[[dict], None]) -> str:
+    """Anime and manga: merge the newest weekly release's merge-format copy.
+
+    Never the pg_dump snapshot beside it, which replaces whole tables and
+    would delete every book, TV show and film. Titles this install synced
+    more recently are kept; the nightly AniList sync carries on as usual.
+    """
+    from pipeline import anilist_dataset
+
+    url = anilist_dataset.find_release()
+    if url is None:
+        raise NotYet(
+            "The newest anime release does not carry the merge format yet; checking again hourly."
+        )
+    result = anilist_dataset.load(url, progress=report)
+    return (
+        f"Loaded {result['staged']:,} titles ({result['inserted']:,} new,"
+        f" {result['updated']:,} updated, {result['embeddings']:,} embeddings)."
+    )
 
 
 INSTALLERS: dict[str, Callable[[dict, Callable[[dict], None]], str]] = {
+    "anilist": install_anilist,
     "books": install_books,
     "tmdb": install_tmdb,
     "tvmaze": install_tvmaze,

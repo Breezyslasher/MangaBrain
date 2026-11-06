@@ -274,6 +274,8 @@ class DatasetOut(BaseModel):
     # Whether there is anything to install yet. None when it cannot be
     # known (GitHub unreachable) or does not apply.
     release_available: bool | None = None
+    # The settings page's label for installing again (api.datasets).
+    update_label: str = ""
 
 
 class DatasetsOut(BaseModel):
