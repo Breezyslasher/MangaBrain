@@ -69,10 +69,10 @@
     <string name="account_kitsu">Kitsu</string>
     <string name="account_yamtrack">Yamtrack</string>
     <string name="account_hardcover">Hardcover</string>
-    <string name="section_tmdb">Films and TV (TMDB)</string>
+    <string name="section_tmdb">Films (TMDB)</string>
     <string name="tmdb_api_key">TMDB API key</string>
     <string name="tmdb_api_key_hint">v3 key or read access token from themoviedb.org</string>
-    <string name="tmdb_attribution">Saved on the server, which fetches films and TV with it. This product uses the TMDB API but is not endorsed or certified by TMDB.</string>
+    <string name="tmdb_attribution">Saved on the server, which fetches films with it. This product uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB. TV shows come from TVmaze and need no key.</string>
     <string name="hint_hardcover_token">Token from hardcover.app, Settings, API</string>
     <string name="needs_token">Paste your API token first</string>
     <string name="hardcover_token_saved">Token saved</string>

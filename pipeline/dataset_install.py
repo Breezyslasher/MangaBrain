@@ -96,12 +96,22 @@ def install_tmdb(request: dict, report: Callable[[dict], None]) -> str:
         count = conn.execute(
             "SELECT count(*) FROM media WHERE source = %s", (sync_tmdb.SOURCE,)
         ).fetchone()[0]
-    return f"Fetched {count:,} films and shows from TMDB ({tally.get('kept', 0):,} this pass)."
+    return f"Fetched {count:,} films from TMDB ({tally.get('kept', 0):,} this pass)."
+
+
+def install_tvmaze(request: dict, report: Callable[[dict], None]) -> str:
+    """TV: the whole TVmaze index, a few minutes. No key, no release - a
+    full read is cheap enough that the worker repeats it nightly."""
+    from pipeline import sync_tvmaze
+
+    tally = sync_tvmaze.sync(progress=report)
+    return f"Fetched {tally['kept']:,} TV shows from TVmaze ({tally['read']:,} read)."
 
 
 INSTALLERS: dict[str, Callable[[dict, Callable[[dict], None]], str]] = {
     "books": install_books,
     "tmdb": install_tmdb,
+    "tvmaze": install_tvmaze,
 }
 
 
