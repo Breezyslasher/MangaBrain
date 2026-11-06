@@ -136,3 +136,36 @@ def test_the_grid_counts_subjects_not_merely_their_presence():
     needs the number."""
     source = SURVEY.read_text()
     assert "len(subjects) >= tags" in source
+
+
+def test_a_dropped_connection_does_not_discard_the_count():
+    """Measured: Open Library closed the connection 1,258,174,288 bytes
+    into a 4,078,855,962-byte dump, 54 minutes in. The exception came
+    out of the loop and the run reported nothing but progress lines - a
+    partial count over twelve million rows thrown away because it was
+    not a complete one."""
+    source = SURVEY.read_text()
+    assert 'counts["truncated"]' in source
+    assert "reporting what was counted" in source
+    assert "PARTIAL" in source
+
+
+def test_the_download_resumes_from_where_it_stopped():
+    """A 4 GB file off a nonprofit's servers will not always arrive in
+    one connection, and restarting from zero costs the whole run."""
+    source = SURVEY.read_text()
+    body = source[source.index("def download_chunks(") :]
+    body = body[: body.index("\ndef ", 1)]
+    assert 'f"bytes={offset}-"' in body
+    assert "Range" in body
+
+
+def test_resuming_is_refused_when_the_server_ignores_range():
+    """A 200 to a Range request means the whole file again. Feeding
+    that to a decompressor positioned mid-stream would not fail loudly;
+    it would produce a wrong count."""
+    source = SURVEY.read_text()
+    body = source[source.index("def download_chunks(") :]
+    body = body[: body.index("\ndef ", 1)]
+    assert "resp.status_code != 206" in body
+    assert "cannot resume" in body

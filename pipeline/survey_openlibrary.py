@@ -89,6 +89,46 @@ def description_of(work: dict) -> str:
     return str(value or "")
 
 
+def download_chunks(url: str, max_attempts: int = 8):
+    """Raw bytes of the dump, continuing across dropped connections.
+
+    Measured: Open Library closed the connection 1,258,174,288 bytes
+    into a 4,078,855,962-byte file, 54 minutes in, and the whole survey
+    was lost with it. A Range request resumes from the last byte
+    received, and because the caller keeps one decompressor across the
+    whole generator the gzip stream never notices the seam.
+
+    If the server ignores Range and answers 200, resuming would feed
+    the file twice into a decompressor expecting the middle of it, so
+    that is refused rather than silently corrupting the count.
+    """
+    offset = 0
+    attempts = 0
+    while True:
+        headers = {"Range": f"bytes={offset}-"} if offset else {}
+        try:
+            with httpx.stream(
+                "GET", url, headers=headers, timeout=120.0, follow_redirects=True
+            ) as resp:
+                resp.raise_for_status()
+                if offset and resp.status_code != 206:
+                    print(f"  server ignored Range (HTTP {resp.status_code}); cannot resume")
+                    return
+                for chunk in resp.iter_raw():
+                    offset += len(chunk)
+                    yield chunk
+                return
+        except httpx.HTTPError as exc:
+            attempts += 1
+            if attempts > max_attempts:
+                print(f"  giving up at {offset:,} bytes after {attempts} attempts: {exc}")
+                return
+            print(
+                f"  connection lost at {offset:,} bytes; resuming (attempt {attempts})",
+                flush=True,
+            )
+
+
 def survey(limit: int | None, min_description: int) -> dict:
     counts = {"rows": 0, "parsed": 0, "with_description": 0, "with_subjects": 0, "usable": 0}
     lengths: list[int] = []
@@ -96,9 +136,8 @@ def survey(limit: int | None, min_description: int) -> dict:
     grid = dict.fromkeys(THRESHOLDS, 0)
     started = time.monotonic()
 
-    with httpx.stream("GET", DUMP_URL, timeout=120.0, follow_redirects=True) as resp:
-        resp.raise_for_status()
-        reader = io.BufferedReader(ChunkReader(resp.iter_raw()), buffer_size=1 << 20)
+    reader = io.BufferedReader(ChunkReader(download_chunks(DUMP_URL)), buffer_size=1 << 20)
+    try:
         with gzip.GzipFile(fileobj=reader, mode="rb") as stream:
             for raw in stream:
                 counts["rows"] += 1
@@ -133,6 +172,14 @@ def survey(limit: int | None, min_description: int) -> dict:
                         f"  {rate:,.0f} rows/s",
                         flush=True,
                     )
+    except (OSError, EOFError, httpx.HTTPError) as exc:
+        # Report what was counted. The first full attempt spent 54
+        # minutes and printed nothing but progress lines because the
+        # dropped connection raised out of the loop: a partial count
+        # over twelve million rows is a measurement, and throwing it
+        # away to re-raise is not.
+        counts["truncated"] = f"{type(exc).__name__}: {exc}"
+        print(f"\n  stream ended early ({type(exc).__name__}); reporting what was counted")
 
     counts["median_length"] = int(statistics.median(lengths)) if lengths else 0
     counts["median_subjects"] = int(statistics.median(subject_counts)) if subject_counts else 0
@@ -165,6 +212,9 @@ def main() -> None:
     print(f"median description   {counts['median_length']:>12,} chars")
     print(f"median subjects      {counts['median_subjects']:>12,}")
     print(f"elapsed              {counts['seconds']:>12,} s")
+    if counts.get("truncated"):
+        print(f"\nPARTIAL: {counts['truncated']}")
+        print("Shares above are of the rows that were read, not of the whole dump.")
     grid = counts.get("grid") or {}
     if grid:
         print("\nwhat each floor would keep, of the rows read:")
