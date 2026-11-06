@@ -11,12 +11,14 @@ the results for "unreliable narrator".
 from pathlib import Path
 
 SURVEY = Path(__file__).resolve().parent.parent / "pipeline" / "survey_openlibrary.py"
+# The dump reader is shared with the importer, so it lives beside both.
+READER = Path(__file__).resolve().parent.parent / "pipeline" / "openlibrary.py"
 
 
 def test_a_description_can_be_a_string_or_a_wrapped_value():
     """Open Library stores it both ways, and reading only one shape
     would undercount the usable catalogue."""
-    from pipeline.survey_openlibrary import description_of
+    from pipeline.openlibrary import description_of
 
     assert description_of({"description": "plain"}) == "plain"
     assert description_of({"description": {"value": "wrapped"}}) == "wrapped"
@@ -26,8 +28,8 @@ def test_a_description_can_be_a_string_or_a_wrapped_value():
 
 def test_the_floor_matches_the_source_probe():
     """Two tools measuring the same thing must not use two thresholds."""
+    from pipeline.openlibrary import MIN_DESCRIPTION
     from pipeline.probe_media_sources import MIN_SYNOPSIS
-    from pipeline.survey_openlibrary import MIN_DESCRIPTION
 
     assert MIN_DESCRIPTION == MIN_SYNOPSIS
 
@@ -43,7 +45,7 @@ def test_both_signals_are_required_for_usable():
 def test_the_dump_is_streamed_rather_than_downloaded():
     """It is tens of gigabytes; a NAS should not need to land it on disk
     to answer how many rows are worth keeping."""
-    source = SURVEY.read_text()
+    source = READER.read_text()
     assert "httpx.stream(" in source
     assert "gzip.GzipFile(" in source
 
@@ -51,7 +53,7 @@ def test_the_dump_is_streamed_rather_than_downloaded():
 def test_the_search_api_is_not_used_for_bulk():
     """Open Library asks bulk users to take the dumps, and at tens of
     millions of works paginating would be dishonest as well as slow."""
-    source = SURVEY.read_text()
+    source = READER.read_text()
     assert "search.json" not in source
     assert "ol_dump_works" in source
 
@@ -74,7 +76,7 @@ def test_a_chunked_stream_reads_as_a_file():
     import gzip
     import io
 
-    from pipeline.survey_openlibrary import ChunkReader
+    from pipeline.openlibrary import ChunkReader
 
     payload = b"".join(f"line {n}\n".encode() for n in range(500))
     compressed = gzip.compress(payload)
@@ -92,7 +94,7 @@ def test_the_adapter_yields_lines_in_order():
     import gzip
     import io
 
-    from pipeline.survey_openlibrary import ChunkReader
+    from pipeline.openlibrary import ChunkReader
 
     payload = b"first\tsecond\n" + b"third\tfourth\n"
     chunks = [gzip.compress(payload)[i : i + 3] for i in range(0, len(gzip.compress(payload)), 3)]
@@ -102,6 +104,75 @@ def test_the_adapter_yields_lines_in_order():
 
 
 def test_an_empty_stream_ends_rather_than_hangs():
-    from pipeline.survey_openlibrary import ChunkReader
+    from pipeline.openlibrary import ChunkReader
 
     assert ChunkReader([]).readinto(bytearray(8)) == 0
+
+
+def test_one_pass_answers_every_threshold():
+    """A full survey is ~2.6 hours, so re-running it per candidate floor
+    is not a way to choose one.
+
+    200 characters was picked to exclude taglines, not to select good
+    records, and at 2.32% of a ~40M-work dump the difference is between
+    roughly 930,000 books and a few hundred thousand - which decides
+    embedding hours, how many release assets it takes to ship, and what
+    competes for a place in the results.
+    """
+    from pipeline.survey_openlibrary import THRESHOLDS
+
+    assert (200, 1) in THRESHOLDS, "the current floor must stay comparable"
+    assert len({chars for chars, _ in THRESHOLDS}) >= 3, "several description floors"
+    assert len({tags for _, tags in THRESHOLDS}) >= 2, "and more than one subject floor"
+
+
+def test_each_threshold_reports_its_embedding_cost():
+    """The count alone does not say what it would cost to act on."""
+    source = SURVEY.read_text()
+    assert "h to embed" in source
+    assert "165_000" in source, "scaled from the rate this project actually measured"
+
+
+def test_the_grid_counts_subjects_not_merely_their_presence():
+    """The usable count asks only whether subjects exist; a floor of 3
+    needs the number."""
+    source = SURVEY.read_text()
+    assert "len(subjects) >= tags" in source
+
+
+def test_a_dropped_connection_does_not_discard_the_count():
+    """Measured: Open Library closed the connection 1,258,174,288 bytes
+    into a 4,078,855,962-byte dump, 54 minutes in. The exception came
+    out of the loop and the run reported nothing but progress lines - a
+    partial count over twelve million rows thrown away because it was
+    not a complete one."""
+    # The reader stops rather than raising, and records that it did.
+    reader = READER.read_text()
+    assert 'status["truncated"]' in reader
+    assert "stream ended early" in reader
+    # And the summary says so, rather than printing a partial count as
+    # though it were a whole one.
+    source = SURVEY.read_text()
+    assert 'counts.get("truncated")' in source
+    assert "PARTIAL" in source
+
+
+def test_the_download_resumes_from_where_it_stopped():
+    """A 4 GB file off a nonprofit's servers will not always arrive in
+    one connection, and restarting from zero costs the whole run."""
+    source = READER.read_text()
+    body = source[source.index("def download_chunks(") :]
+    body = body[: body.index("\ndef ", 1)]
+    assert 'f"bytes={offset}-"' in body
+    assert "Range" in body
+
+
+def test_resuming_is_refused_when_the_server_ignores_range():
+    """A 200 to a Range request means the whole file again. Feeding
+    that to a decompressor positioned mid-stream would not fail loudly;
+    it would produce a wrong count."""
+    source = READER.read_text()
+    body = source[source.index("def download_chunks(") :]
+    body = body[: body.index("\ndef ", 1)]
+    assert "resp.status_code != 206" in body
+    assert "cannot resume" in body
