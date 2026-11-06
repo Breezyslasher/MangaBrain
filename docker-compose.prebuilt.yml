@@ -69,8 +69,14 @@ services:
       SEED_SNAPSHOT_URL: https://github.com/Breezyslasher/MangaBrain/releases/latest/download/mangabrain-dataset.dump
     volumes:
       - hf_cache:/root/.cache/huggingface
+      # The Open Library dump, 4 GB, kept between runs. Named rather
+      # than a bind mount so it survives the container being recreated,
+      # which is what kills a `docker exec` import. Without it every
+      # restart re-downloads the dump at ~388 KB/s.
+      - dump_cache:/root/.cache/mangabrain
     restart: unless-stopped
 
 volumes:
   db_data:
   hf_cache:
+  dump_cache:
