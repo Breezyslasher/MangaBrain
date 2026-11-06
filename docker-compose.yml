@@ -37,6 +37,12 @@ services:
       # with a message saying so. Jikan's user-list endpoints were
       # discontinued in 2022, so there is no credential-free route.
       MAL_CLIENT_ID: ${MANGABRAIN_MAL_CLIENT_ID:-}
+      # Optional list and catalogue credentials (see .env.example). The
+      # settings pages can store each of these instead, which wins.
+      YAMTRACK_URL: ${YAMTRACK_URL:-}
+      YAMTRACK_TOKEN: ${YAMTRACK_TOKEN:-}
+      HARDCOVER_TOKEN: ${HARDCOVER_TOKEN:-}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
     ports:
       - "8009:8000"
     restart: unless-stopped
@@ -61,6 +67,12 @@ services:
       DATABASE_URL: postgresql://mangabrain:${MANGABRAIN_DB_PASSWORD:-mangabrain}@db:5432/mangabrain
       SYNC_INTERVAL_HOURS: "24"
       EMBED_THREADS: ${MANGABRAIN_EMBED_THREADS:-0}
+      # Optional list and catalogue credentials (see .env.example). The
+      # settings pages can store each of these instead, which wins.
+      YAMTRACK_URL: ${YAMTRACK_URL:-}
+      YAMTRACK_TOKEN: ${YAMTRACK_TOKEN:-}
+      HARDCOVER_TOKEN: ${HARDCOVER_TOKEN:-}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
     volumes:
       - hf_cache:/root/.cache/huggingface
       # The Open Library dump, 4 GB, kept between runs. Named rather
