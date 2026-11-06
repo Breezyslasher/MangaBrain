@@ -7,10 +7,14 @@ remain as fallback for anything not set here. The Yamtrack token is write-only
 through the API: responses only say whether one is configured.
 """
 
-from fastapi import APIRouter
+import json
+
+from fastapi import APIRouter, HTTPException
 
 from api.config import settings
+from api.datasets import dataset_for_medium, read_install, request_install
 from api.db import get_pool
+from api.media_groups import MEDIUM_GROUPS
 from api.models import AppSettingsIn, AppSettingsOut
 
 router = APIRouter()
@@ -46,29 +50,96 @@ def effective_yamtrack_config() -> tuple[str, str]:
     return url, token
 
 
-def _to_out(stored: dict[str, str]) -> AppSettingsOut:
+# Stored apart from SETTING_KEYS: a list, not a string, and a value the
+# server acts on - switching a medium on can start a download.
+ENABLED_MEDIA_KEY = "enabled_media"
+
+
+def stored_enabled_media(conn) -> list[str] | None:
+    row = conn.execute(
+        "SELECT value FROM app_settings WHERE key = %s", (ENABLED_MEDIA_KEY,)
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        chosen = json.loads(row["value"])
+    except (TypeError, ValueError):
+        return None
+    # A medium the server no longer has is dropped rather than shown.
+    return [g for g in MEDIUM_GROUPS if g in chosen] or None
+
+
+def enabled_media(conn) -> list[str]:
+    """What the reader chose, or until they choose, every medium with data.
+
+    Not every medium: an install without books would show an empty Books
+    tab, and the first save that included it would start a 3.5 GB
+    download nobody asked for.
+    """
+    chosen = stored_enabled_media(conn)
+    if chosen is not None:
+        return chosen
+    from api.routers.datasets import installed_keys
+
+    present = installed_keys(conn)
+    return [g for g in MEDIUM_GROUPS if (d := dataset_for_medium(g)) and d.key in present]
+
+
+def _save_enabled_media(conn, wanted: list[str]) -> None:
+    unknown = sorted(set(wanted) - set(MEDIUM_GROUPS))
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"unknown media: {', '.join(unknown)}")
+    if not wanted:
+        raise HTTPException(status_code=422, detail="at least one medium must stay on")
+    from api.routers.datasets import installed_keys
+
+    before = set(enabled_media(conn))
+    present = installed_keys(conn)
+    conn.execute(UPSERT_SQL, (ENABLED_MEDIA_KEY, json.dumps(wanted)))
+    # Only what was just switched on. A medium left on is not a new
+    # request, so re-saving the page never starts a download; and an
+    # install already under way is left alone by request_install.
+    for group in set(wanted) - before:
+        dataset = dataset_for_medium(group)
+        if dataset is None or not dataset.installable or dataset.key in present:
+            continue
+        current = read_install(conn, dataset.key)
+        if current is None or current.get("state") in ("done", "failed"):
+            request_install(conn, dataset.key)
+
+
+def _to_out(stored: dict[str, str], media: list[str]) -> AppSettingsOut:
     return AppSettingsOut(
         anilist_username=stored.get("anilist_username", ""),
         mal_username=stored.get("mal_username", ""),
         kitsu_username=stored.get("kitsu_username", ""),
         yamtrack_url=stored.get("yamtrack_url") or settings.yamtrack_url,
         yamtrack_token_set=bool(stored.get("yamtrack_token") or settings.yamtrack_token),
+        enabled_media=media,
     )
+
+
+def current_enabled_media() -> list[str]:
+    with get_pool().connection() as conn:
+        return enabled_media(conn)
 
 
 @router.get("/settings", response_model=AppSettingsOut)
 def get_settings() -> AppSettingsOut:
-    return _to_out(read_settings())
+    return _to_out(read_settings(), current_enabled_media())
 
 
 @router.put("/settings", response_model=AppSettingsOut)
 def update_settings(body: AppSettingsIn) -> AppSettingsOut:
-    updates = {key: value.strip() for key, value in body.model_dump().items() if value is not None}
-    if updates:
-        with get_pool().connection() as conn:
-            for key, value in updates.items():
-                if value:
-                    conn.execute(UPSERT_SQL, (key, value))
-                else:
-                    conn.execute("DELETE FROM app_settings WHERE key = %s", (key,))
-    return _to_out(read_settings())
+    fields = body.model_dump(exclude={"enabled_media"})
+    updates = {key: value.strip() for key, value in fields.items() if value is not None}
+    with get_pool().connection() as conn:
+        if body.enabled_media is not None:
+            _save_enabled_media(conn, list(dict.fromkeys(body.enabled_media)))
+        for key, value in updates.items():
+            if value:
+                conn.execute(UPSERT_SQL, (key, value))
+            else:
+                conn.execute("DELETE FROM app_settings WHERE key = %s", (key,))
+        media = enabled_media(conn)
+    return _to_out(read_settings(), media)

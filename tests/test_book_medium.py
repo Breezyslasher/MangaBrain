@@ -79,10 +79,10 @@ def test_both_clients_offer_books():
     assert '"/books": "book"' in app, "deep link, like the other media"
     assert "one_shot|book" in app, "and the recommendation hash route"
 
-    fragment = (
-        root / "android/app/src/main/java/com/mangabrain/app/ui/discover/DiscoverFragment.kt"
-    ).read_text()
-    assert '"book" to "Books"' in fragment
+    # The tab labels live in FilterState, shared by the Discover tabs and
+    # the settings screen.
+    state = (root / "android/app/src/main/java/com/mangabrain/app/data/FilterState.kt").read_text()
+    assert '"book" to "Books"' in state
 
 
 def test_books_offer_no_format_filter():

@@ -155,6 +155,27 @@ def _dub_pass(client: RateLimitedClient, conn: psycopg.Connection) -> None:
         )
 
 
+# How often the sleep between passes looks for an install request. One
+# minute, so switching a medium on in the settings page starts within a
+# minute rather than at the next pass up to a day away; the check is one
+# small SELECT.
+INSTALL_POLL_SECONDS = 60.0
+
+
+def sleep_watching_installs(delay: float, run_queued, poll: float = INSTALL_POLL_SECONDS) -> None:
+    """Sleep `delay` seconds, running any install requested meanwhile.
+
+    An install that runs for an hour pushes the next pass back by the
+    hour. That is the right trade: the pass is incremental and loses
+    nothing by waiting, and the alternative is two long jobs competing
+    for the same CPU on a NAS.
+    """
+    deadline = time.monotonic() + delay
+    while (left := deadline - time.monotonic()) > 0:
+        time.sleep(min(poll, left))
+        run_queued()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Nightly incremental sync + embed")
     parser.add_argument("--once", action="store_true", help="run a single pass and exit")
@@ -163,7 +184,7 @@ def main() -> None:
     from api.db import ensure_schema
 
     ensure_schema()
-    from pipeline import book_dataset
+    from pipeline import dataset_install
     from pipeline.restore import catalog_is_empty
 
     # Decided before any seed runs, since the AniList seed is what makes
@@ -178,18 +199,20 @@ def main() -> None:
             traceback.print_exc()
             print("[nightly] snapshot seed failed; continuing with a normal sync")
     # After the AniList seed, never before: that restore runs pg_restore
-    # --clean over sync_state, where this flag lives, and over media.
+    # --clean over sync_state, where install requests live, and over media.
+    #
+    # Fresh installs only. An existing install that upgrades must not
+    # start a 3.5 GB download nobody asked for; it switches Books on in the
+    # settings page, which makes the same request.
+    dataset_install.recover_interrupted()
     if fresh and settings.seed_books:
-        book_dataset.mark_seed_pending()
+        dataset_install.request("books", fresh=True)
     client = RateLimitedClient(min_interval=settings.anilist_min_interval)
     interval = settings.sync_interval_hours * 3600
     while True:
         succeeded = True
-        # Each pass, until it lands: the first books release may not exist
-        # yet when an install is made, and a download may fail. Best-effort
-        # and never raises, so it cannot cost the pass its AniList sync.
-        if settings.seed_books:
-            book_dataset.maybe_seed()
+        # Never raises, so an install cannot cost the pass its AniList sync.
+        dataset_install.run_queued()
         try:
             run_once(client)
         except Exception:
@@ -199,7 +222,7 @@ def main() -> None:
             break
         delay = interval if succeeded else min(FAILURE_RETRY_SECONDS, interval)
         print(f"[nightly] sleeping {delay / 3600:.1f}h until next pass")
-        time.sleep(delay)
+        sleep_watching_installs(delay, dataset_install.run_queued)
 
 
 if __name__ == "__main__":

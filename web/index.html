@@ -20,7 +20,37 @@
       <button data-medium="one_shot">One-Shots</button>
       <button data-medium="book">Books</button>
     </nav>
+    <button id="settingsBtn" class="secondary header-settings" type="button">Settings</button>
   </header>
+
+  <!-- One page for what is set once rather than per search: which media
+       this install holds, and the tracker accounts. Media come from GET
+       /datasets, so a medium added on the server appears here without a
+       client change. Sync buttons and exclude toggles stay in the panel,
+       because they are used per search. -->
+  <dialog id="settingsDialog" aria-labelledby="settingsTitle">
+    <div class="settings-head">
+      <h2 id="settingsTitle">Settings</h2>
+      <button id="settingsClose" class="secondary" type="button">Close</button>
+    </div>
+    <section class="panel-block">
+      <h2>Media</h2>
+      <div class="chips-hint">Choose which tabs to show. Switching on a medium that is not
+        downloaded yet downloads it in the background; switching one off only hides the tab.</div>
+      <div id="mediaSettings" class="media-settings">Loading...</div>
+      <div id="mediaStatus" class="chips-hint" role="status"></div>
+    </section>
+    <section class="panel-block">
+      <h2>Accounts</h2>
+      <label>AniList username <input type="text" id="alUser" placeholder="AniList username"></label>
+      <label>MAL username <input type="text" id="malUser" placeholder="MAL username"></label>
+      <label>Kitsu username <input type="text" id="kitsuUser" placeholder="Kitsu username or id"></label>
+      <label>Yamtrack URL <input type="text" id="ytUrl" placeholder="http://host:port"></label>
+      <label>Yamtrack token <input type="password" id="ytToken" placeholder="from Yamtrack profile"></label>
+      <button id="acctSave" class="secondary">Save accounts</button>
+      <div id="acctStatus" class="chips-hint"></div>
+    </section>
+  </dialog>
 
   <main>
     <aside id="panel">
@@ -132,14 +162,8 @@
       </section>
 
       <section class="panel-block">
-        <h2>Accounts</h2>
-        <label>AniList username <input type="text" id="alUser" placeholder="AniList username"></label>
-        <label>MAL username <input type="text" id="malUser" placeholder="MAL username"></label>
-        <label>Kitsu username <input type="text" id="kitsuUser" placeholder="Kitsu username or id"></label>
-        <label>Yamtrack URL <input type="text" id="ytUrl" placeholder="http://host:port"></label>
-        <label>Yamtrack token <input type="password" id="ytToken" placeholder="from Yamtrack profile"></label>
-        <button id="acctSave" class="secondary">Save accounts</button>
-        <div id="acctStatus" class="chips-hint"></div>
+        <h2>Lists</h2>
+        <div class="chips-hint">Usernames and the Yamtrack link are in <a href="#" id="openSettingsLink">Settings</a>.</div>
         <div class="row">
           <button id="alRefresh" class="secondary">Sync AniList</button>
           <button id="malRefresh" class="secondary">Sync MAL</button>

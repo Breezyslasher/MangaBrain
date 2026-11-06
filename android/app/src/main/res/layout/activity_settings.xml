@@ -69,5 +69,33 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:textColor="@color/muted" />
+
+        <!-- Which media this server holds. Built from GET /datasets, so a
+             medium added on the server appears here without an app update. -->
+        <TextView
+            style="@style/SectionLabel"
+            android:layout_marginTop="28dp"
+            android:text="@string/media" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/media_help"
+            android:textColor="@color/muted"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:id="@+id/mediaContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/mediaStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/muted" />
     </LinearLayout>
 </ScrollView>

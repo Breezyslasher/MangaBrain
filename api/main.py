@@ -18,6 +18,7 @@ from api.db import close_pool, ensure_schema, get_pool
 from api.routers import (
     anilist,
     app_settings,
+    datasets,
     describe,
     dub,
     exclusions,
@@ -92,6 +93,9 @@ API_PREFIXES = (
     "/yamtrack",
     "/kitsu",
     "/settings",
+    # Installing a dataset starts a multi-gigabyte download on the server;
+    # it is the last endpoint that should be reachable without the token.
+    "/datasets",
     "/tags",
     "/describe",
     # /dub was missing, so dub coverage and the language list answered
@@ -175,6 +179,7 @@ app.include_router(exclusions.router)
 app.include_router(yamtrack.router)
 app.include_router(kitsu.router)
 app.include_router(app_settings.router)
+app.include_router(datasets.router)
 app.include_router(dub.router)
 app.include_router(describe.router)
 

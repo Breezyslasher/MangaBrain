@@ -127,7 +127,8 @@ data class AppSettingsOut(
     val mal_username: String? = null,
     val kitsu_username: String? = null,
     val yamtrack_url: String? = null,
-    val yamtrack_token_set: Boolean? = null
+    val yamtrack_token_set: Boolean? = null,
+    val enabled_media: List<String>? = null
 )
 
 data class AppSettingsIn(
@@ -135,7 +136,41 @@ data class AppSettingsIn(
     val mal_username: String? = null,
     val kitsu_username: String? = null,
     val yamtrack_url: String? = null,
-    val yamtrack_token: String? = null
+    val yamtrack_token: String? = null,
+    // Null is omitted from the body, so saving accounts leaves the media
+    // selection alone. Switching a medium on can start a download.
+    val enabled_media: List<String>? = null
+)
+
+/** Where a dataset install stands, as the server's worker last reported it. */
+data class DatasetInstallOut(
+    val state: String,
+    val phase: String? = null,
+    // Long: the books release is over 3 GB, past what an Int holds.
+    val bytes: Long? = null,
+    val total: Long? = null,
+    val message: String? = null,
+    val updated_at: String? = null,
+    val next_try: String? = null
+)
+
+/** One dataset the server can hold, and the media tabs it fills. */
+data class DatasetOut(
+    val key: String,
+    val label: String,
+    val description: String,
+    val media: List<String>,
+    val download_hint: String? = null,
+    val installable: Boolean,
+    val installed: Boolean,
+    val items: Int,
+    val embedded: Int,
+    val install: DatasetInstallOut? = null,
+    val release_available: Boolean? = null
+)
+
+data class DatasetsOut(
+    val datasets: List<DatasetOut>
 )
 
 data class UserListStatus(

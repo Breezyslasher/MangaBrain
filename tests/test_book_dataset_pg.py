@@ -355,16 +355,123 @@ def test_a_seed_load_builds_the_vector_indexes_afterwards(two_dbs, tmp_path):
     assert set(bd.VECTOR_INDEXES) <= names
 
 
-def test_the_seed_flag_round_trips_through_sync_state(two_dbs):
+@pytest.fixture
+def settings_db(two_dbs):
+    """One database with schema, a dict-row connection, and fresh caches."""
+    import psycopg
+    from psycopg.rows import dict_row
+
+    import api.routers.datasets as ds_router
     from api.db import ensure_schema
-    from pipeline import book_dataset as bd
 
     urls, use = two_dbs
     use(urls[0])
     ensure_schema()
-    assert bd.seed_pending() is False
-    bd.mark_seed_pending()
-    bd.mark_seed_pending()  # idempotent
-    assert bd.seed_pending() is True
-    bd.clear_seed_pending()
-    assert bd.seed_pending() is False
+    ds_router.forget_counts()
+    with psycopg.connect(urls[0], row_factory=dict_row, autocommit=True) as conn:
+        yield urls[0], conn
+    ds_router.forget_counts()
+
+
+def test_until_someone_chooses_only_media_with_data_are_on(settings_db):
+    """An install without books shows no empty Books tab."""
+    from api.routers.app_settings import enabled_media
+
+    url, conn = settings_db
+    assert enabled_media(conn) == ["anime", "manga", "light_novel", "one_shot"]
+
+
+def test_switching_books_on_requests_the_install_and_resaving_does_not(settings_db):
+    from api.datasets import read_install, write_install
+    from api.routers.app_settings import _save_enabled_media, enabled_media
+
+    url, conn = settings_db
+    _save_enabled_media(conn, ["anime", "book"])
+    assert enabled_media(conn) == ["anime", "book"]
+    assert read_install(conn, "books")["state"] == "queued"
+
+    # The worker finishes it; saving the same selection again must not
+    # start a second download.
+    write_install(conn, "books", {"state": "done", "message": "ok"})
+    _save_enabled_media(conn, ["anime", "book"])
+    assert read_install(conn, "books")["state"] == "done"
+
+    # Off and on again, with books still absent: a new request.
+    _save_enabled_media(conn, ["anime"])
+    _save_enabled_media(conn, ["anime", "book"])
+    assert read_install(conn, "books")["state"] == "queued"
+
+
+def test_switching_a_medium_off_deletes_nothing(settings_db):
+    from api.routers.app_settings import _save_enabled_media
+
+    url, conn = settings_db
+    seed_anime(url, 3, "Haibane Renmei", "m")
+    _save_enabled_media(conn, ["manga"])
+    assert conn.execute("SELECT count(*) AS n FROM media").fetchone()["n"] == 1
+
+
+def test_a_medium_whose_data_is_present_is_never_installed_again(settings_db):
+    from api.datasets import read_install
+    from api.routers.app_settings import _save_enabled_media
+
+    url, conn = settings_db
+    seed_books(url, [{"key": "/works/OL1W", "title": "Dune"}], {}, "m")
+    _save_enabled_media(conn, ["anime"])
+    _save_enabled_media(conn, ["anime", "book"])
+    assert read_install(conn, "books") is None
+
+
+def test_the_selection_is_validated(settings_db):
+    from fastapi import HTTPException
+
+    from api.routers.app_settings import _save_enabled_media
+
+    url, conn = settings_db
+    with pytest.raises(HTTPException) as unknown:
+        _save_enabled_media(conn, ["anime", "podcasts"])
+    assert unknown.value.status_code == 422
+    with pytest.raises(HTTPException) as empty:
+        _save_enabled_media(conn, [])
+    assert empty.value.status_code == 422
+
+
+def test_the_datasets_listing_reports_what_is_present(settings_db, monkeypatch):
+    import api.routers.datasets as ds_router
+
+    url, conn = settings_db
+    monkeypatch.setattr(ds_router, "release_available", lambda d: True if d.installable else None)
+    seed_books(url, [{"key": "/works/OL1W", "title": "Dune"}], {"/works/OL1W": vec(0.1)}, "x")
+    ds_router.forget_counts()
+    out = {d.key: d for d in (ds_router.to_out(conn, d) for d in ds_router.DATASETS)}
+    assert out["anilist"].installed and not out["anilist"].installable
+    assert out["books"].installed and out["books"].items == 1
+    assert out["books"].release_available is True
+
+
+def test_the_worker_carries_a_request_through_real_sync_state(settings_db, monkeypatch):
+    import pipeline.dataset_install as di
+    from api.datasets import read_install, request_install
+
+    url, conn = settings_db
+    request_install(conn, "books")
+    request_install(conn, "books")  # idempotent while under way
+
+    def installer(request, report):
+        report({"phase": "downloading", "bytes": 1, "total": 2})
+        return "Installed 1 book."
+
+    monkeypatch.setattr(di, "INSTALLERS", {"books": installer})
+    assert di.run_queued() == 1
+    state = read_install(conn, "books")
+    assert state["state"] == "done" and state["message"] == "Installed 1 book."
+
+
+def test_an_install_left_running_by_a_dead_worker_is_requeued(settings_db):
+    import pipeline.dataset_install as di
+    from api.datasets import read_install, write_install
+
+    url, conn = settings_db
+    write_install(conn, "books", {"state": "running", "phase": "downloading"})
+    di.recover_interrupted()
+    assert read_install(conn, "books")["state"] == "queued"
