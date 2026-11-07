@@ -7,7 +7,6 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import coil.load
 import com.mangabrain.app.R
 import com.mangabrain.app.data.api.MediaOut
 
@@ -66,7 +65,7 @@ class GridAdapter(
                 badge.text = label
             }
             val url = media.coverUrl
-            if (url.isNullOrBlank()) cover.setImageDrawable(null) else cover.load(url)
+            cover.showCover(url)
             itemView.setOnClickListener { onClick(media) }
             add.setOnClickListener { onAddToMix(media) }
         }

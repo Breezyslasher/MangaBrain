@@ -236,3 +236,34 @@ def test_the_plural_fallback_runs_after_the_bisac_shape():
     assert genre_for("fiction, historical, general") == "Historical"
     assert genre_for("fiction, general") == "Fiction"
     assert genre_for("fiction, mystery & detective, general") == "Mystery"
+
+
+FIVE_SUBJECTS = ["Dogs", "Reincarnation", "Fiction", "Human-animal relationships", "Pets"]
+
+
+def test_a_short_description_counts_with_five_real_subjects():
+    # "A Dog's Purpose": 190 characters and 41 subjects, once dropped.
+    work = {**WORK, "description": "D" * 190, "subjects": FIVE_SUBJECTS}
+    assert row_for(work, 200) is not None
+    assert row_for({**work, "description": "D" * 80}, 200) is not None
+
+
+def test_a_short_description_with_few_subjects_is_still_dropped():
+    work = {**WORK, "description": "D" * 190, "subjects": FIVE_SUBJECTS[:4]}
+    assert row_for(work, 200) is None
+
+
+def test_noise_headings_do_not_make_up_the_five():
+    noisy = FIVE_SUBJECTS[:4] + ["Large type books", "Accessible book", "In library"]
+    assert row_for({**WORK, "description": "D" * 190, "subjects": noisy}, 200) is None
+
+
+def test_a_tagline_is_dropped_whatever_the_subjects():
+    assert row_for({**WORK, "description": "D" * 79, "subjects": FIVE_SUBJECTS * 4}, 200) is None
+
+
+def test_the_long_description_rule_is_unchanged():
+    # One subject, even a noise heading, was enough with 200+ characters;
+    # the new rule only adds books.
+    assert row_for({**WORK, "subjects": ["Large type books"]}, 200) is not None
+    assert row_for({**WORK, "subjects": ["Foxes"]}, 200) is not None
