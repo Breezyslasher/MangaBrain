@@ -18,7 +18,6 @@ many people watched a title. Sorting a browse list by member count would put
 popularity back into the one place this project keeps it out of.
 """
 
-import time
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -27,6 +26,7 @@ from api.db import MEDIA_COLS, get_pool, media_from_row
 from api.filters import build_filters
 from api.media_groups import ALL_MEDIUMS, MEDIUM_GROUPS, MediumGroup
 from api.models import (
+    GenresResponse,
     MediaOut,
     ResolveMatch,
     ResolveRequest,
@@ -34,6 +34,7 @@ from api.models import (
     SearchResponse,
     TagsResponse,
 )
+from api.vocabulary import vocabulary
 
 router = APIRouter()
 
@@ -109,16 +110,6 @@ RANK_SQL = """GREATEST(
 # not popularity: the project bars popularity from ranking, and a browse list
 # ordered by member count would reintroduce it where it is least visible.
 BROWSE_ORDER = "m.start_year DESC NULLS LAST, m.id DESC"
-
-TAGS_SQL = """
-    SELECT DISTINCT t->>'name' AS name
-    FROM media m, jsonb_array_elements(m.tags) t
-    WHERE t->>'name' IS NOT NULL
-    ORDER BY name
-"""
-
-_TAGS_TTL_SECONDS = 24 * 3600
-_tags_cache: tuple[float, list[str]] | None = None
 
 
 @router.get("/search", response_model=SearchResponse)
@@ -206,16 +197,16 @@ def search(
 
 
 @router.get("/tags", response_model=TagsResponse)
-def tags() -> TagsResponse:
-    """The distinct tag vocabulary (~800 names), cached in-process: the scan
-    over every row's tags is too heavy to run per keystroke."""
-    global _tags_cache
-    now = time.monotonic()
-    if _tags_cache is None or now - _tags_cache[0] > _TAGS_TTL_SECONDS:
-        with get_pool().connection() as conn:
-            names = [row["name"] for row in conn.execute(TAGS_SQL).fetchall()]
-        _tags_cache = (now, names)
-    return TagsResponse(tags=_tags_cache[1])
+def tags(medium: MediumGroup | None = None) -> TagsResponse:
+    """The tag vocabulary of one medium group, for autocomplete. Without a
+    medium, the whole catalogue's (what older clients ask for)."""
+    return TagsResponse(tags=vocabulary("tags", medium))
+
+
+@router.get("/genres", response_model=GenresResponse)
+def genres(medium: MediumGroup | None = None) -> GenresResponse:
+    """The genres one medium group's titles carry, for the genre chips."""
+    return GenresResponse(genres=vocabulary("genres", medium))
 
 
 # Lowercase, then drop ASCII punctuation and whitespace while keeping every

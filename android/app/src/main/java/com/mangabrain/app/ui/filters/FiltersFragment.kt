@@ -49,7 +49,14 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
     // the life of the process. These flags make the fetch retry whenever the
     // tab is shown, until it actually succeeds.
     private var tagsLoaded = false
+    private var genresLoaded = false
     private var dubLoaded = false
+
+    // Genres and tags belong to a medium: TV names its genres "Legal" and
+    // "Medical", books "Biography". Both lists are fetched for the medium
+    // Discover is on, and again whenever it changes.
+    private var vocabularyMedium: String? = null
+    private var genres: List<String> = fallbackGenres(FilterState.medium)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         bindWeights(view)
@@ -85,9 +92,41 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
     }
 
     private fun loadRemoteVocabularies() {
+        val medium = FilterState.medium
+        if (vocabularyMedium != medium) {
+            vocabularyMedium = medium
+            tagsLoaded = false
+            genresLoaded = false
+            genres = fallbackGenres(medium)
+            view?.findViewById<ChipGroup>(R.id.genreChips)?.let { bindGenres(it) }
+        }
         val input = view?.findViewById<AutoCompleteTextView>(R.id.tagInput)
         if (!tagsLoaded && input != null) loadTagVocabulary(input)
+        if (!genresLoaded) loadGenres()
         if (!dubLoaded) loadDubLanguages()
+    }
+
+    private fun fallbackGenres(medium: String): List<String> =
+        if (medium == "anime" || medium == "manga") FilterState.GENRES else emptyList()
+
+    private fun loadGenres() {
+        val api = ServiceLocator.api(requireContext()) ?: return
+        val medium = FilterState.medium
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val list = api.genres(medium).genres
+                // The user may have switched medium while this was in flight.
+                if (medium != FilterState.medium) return@launch
+                genres = list
+                genresLoaded = true
+                // A genre this medium does not have would filter every
+                // result out, unseen, so it does not carry over.
+                FilterState.genreState.keys.retainAll(list.toSet())
+                view?.findViewById<ChipGroup>(R.id.genreChips)?.let { bindGenres(it) }
+            } catch (e: Exception) {
+                // Retried on the next visit; the fallback stays meanwhile.
+            }
+        }
     }
 
     private fun bindWeights(view: View) {
@@ -217,12 +256,12 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
 
     /**
      * Tri-state genre chips: neutral, require, exclude. The same cycle the
-     * web client uses, and the same vocabulary, so the two clients cannot
-     * offer different genre sets.
+     * web client uses, and the same per-medium vocabulary from the server,
+     * so the two clients cannot offer different genre sets.
      */
     private fun bindGenres(group: ChipGroup) {
         group.removeAllViews()
-        for (genre in FilterState.GENRES) {
+        for (genre in genres) {
             val chip = Chip(requireContext()).apply {
                 text = genre
                 isCheckable = false
@@ -336,9 +375,11 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
             tagStatus(getString(R.string.tags_need_server))
             return
         }
+        val medium = FilterState.medium
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val tags = api.tags().tags
+                val tags = api.tags(medium).tags
+                if (medium != FilterState.medium) return@launch
                 val adapter = TagSuggestionAdapter(requireContext())
                 adapter.setVocabulary(tags)
                 input.setAdapter(adapter)

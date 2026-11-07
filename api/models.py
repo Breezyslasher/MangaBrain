@@ -168,6 +168,10 @@ class TagsResponse(BaseModel):
     tags: list[str]
 
 
+class GenresResponse(BaseModel):
+    genres: list[str]
+
+
 # Kitsu ids are accepted on input only: they are resolved to the MAL or
 # AniList ids they map to before anything is stored, because that is what
 # the exclusion filter joins on.

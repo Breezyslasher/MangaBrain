@@ -105,8 +105,13 @@ interface MangaBrainApi {
         @Query("exclude_list") excludeList: List<String>? = null
     ): MediaOut
 
+    /** The tag vocabulary of one medium group (anime, book, tv...). */
     @GET("tags")
-    suspend fun tags(): TagsResponse
+    suspend fun tags(@Query("medium") medium: String? = null): TagsResponse
+
+    /** The genres one medium group's titles carry. */
+    @GET("genres")
+    suspend fun genres(@Query("medium") medium: String): GenresResponse
 
     @GET("dub/languages")
     suspend fun dubLanguages(@Query("min_titles") minTitles: Int): DubLanguagesOut

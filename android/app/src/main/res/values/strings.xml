@@ -46,7 +46,7 @@
     <string name="tags">Tags</string>
     <string name="tag_hint">e.g. Time Travel</string>
     <string name="tags_need_server">Tag suggestions need the server URL.</string>
-    <string name="tags_empty">The server returned no tags.</string>
+    <string name="tags_empty">This medium has no tags to suggest; its genres and descriptions carry it.</string>
     <string name="tags_failed">Tag suggestions unavailable: %1$s. Typing an exact tag still works.</string>
     <string name="require">Require</string>
     <string name="exclude">Exclude</string>

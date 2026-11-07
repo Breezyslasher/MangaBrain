@@ -213,3 +213,7 @@ data class DubLanguagesOut(
 data class TagsResponse(
     val tags: List<String> = emptyList()
 )
+
+data class GenresResponse(
+    val genres: List<String> = emptyList()
+)
