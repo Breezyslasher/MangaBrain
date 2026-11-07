@@ -20,6 +20,7 @@ on:
           - survey
           - terms
           - tmdb-check
+          - tmdb-titles
       sample:
         description: titles per source and type
         required: false
@@ -28,6 +29,10 @@ on:
         description: characters of synopsis a title must have to count
         required: false
         default: "200"
+      titles:
+        description: "tmdb-titles: kind/id refs, space separated (movie/68721); empty = a set of famous films"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -100,6 +105,17 @@ jobs:
         run: |
           pip install "psycopg[binary]>=3.1" "pydantic-settings>=2.3"
           python -m pipeline.check_tmdb
+
+      # Whether the import keeps particular titles, and why: overview
+      # length and keyword count against both rules.
+      - name: Check TMDB titles
+        if: ${{ inputs.mode == 'tmdb-titles' }}
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TITLES: ${{ inputs.titles }}
+        run: |
+          pip install "psycopg[binary]>=3.1" "pydantic-settings>=2.3"
+          python -m pipeline.check_tmdb --titles $TITLES
 
       - name: Survey TV and film sources
         if: ${{ inputs.mode == 'survey' || inputs.mode == '' }}

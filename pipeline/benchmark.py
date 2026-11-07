@@ -257,6 +257,105 @@ def run_bench(
         )
 
 
+# What the import rules let through, as description lengths: the old floor
+# (200 characters), a typical short overview (130) and the new rule's floor
+# (80, allowed only with five or more tags). "none" is a title with no
+# description at all, embedded from its title, genres and tags.
+DESCRIPTION_VARIANTS = [
+    ("full", None, True),
+    ("200 chars", 200, True),
+    ("130 chars", 130, True),
+    ("80 chars", 80, True),
+    ("80 chars, no tags", 80, False),
+    ("none", 0, True),
+]
+# The new rule passes if, on titles with 5+ tags, an 80-character
+# description keeps at least this share of a 200-character one's r@10.
+RULE_PASS_SHARE = 0.9
+RULE_TAGS = 5
+
+
+def variant_text(row: dict, chars: int | None, tags: bool) -> str:
+    description = row["description_clean"] or ""
+    if chars is not None:
+        description = description[:chars]
+    return embed_text(
+        row["title_romaji"],
+        row["title_english"],
+        description or None,
+        row["genres"],
+        row["tags"] if tags else [],
+    )
+
+
+def run_description_bench(
+    pairs_file: str, model_name: str, negatives: int, encode_batch_size: int
+) -> bool:
+    """Does matching survive the short descriptions the import rules allow?
+
+    Every title in the pool - seeds, targets and negatives - is cut to the
+    same length, and recall@10 is measured on all pairs and on the pairs
+    whose seed and target both carry RULE_TAGS+ tags (the titles the new
+    rule admits). Returns whether the rule passes."""
+    from sentence_transformers import SentenceTransformer
+
+    pairs = json.loads(Path(pairs_file).read_text())
+    with psycopg.connect(settings.database_url, row_factory=dict_row) as conn:
+        kept, by_id, franchises, neg_rows = load_world(conn, pairs, negatives)
+    pool_rows = list(by_id.values()) + list(neg_rows)
+    index_of = {row["id"]: i for i, row in enumerate(pool_rows)}
+
+    def tagged(media_id: int) -> bool:
+        return len(by_id[media_id]["tags"] or []) >= RULE_TAGS
+
+    rich = [p for p in kept if tagged(p["media_id"]) and tagged(p["rec_id"])]
+    print(f"[benchmark] {len(rich)} of {len(kept)} pairs have {RULE_TAGS}+ tags on both sides")
+    model = SentenceTransformer(model_name)
+    results: dict[str, tuple[dict, dict]] = {}
+    for label, chars, tags in DESCRIPTION_VARIANTS:
+        texts = [variant_text(row, chars, tags) for row in pool_rows]
+        vectors = np.asarray(
+            model.encode(texts, batch_size=encode_batch_size, normalize_embeddings=True)
+        )
+
+        def ranks(subset: list[dict], vectors: np.ndarray = vectors) -> list[int]:
+            out = []
+            for p in subset:
+                seed, target = p["media_id"], p["rec_id"]
+                scores = vectors @ vectors[index_of[seed]]
+                excluded = {
+                    index_of[i] for i in ({seed} | franchises.get(seed, set())) if i in index_of
+                }
+                rank = rank_of_target(scores, index_of[target], excluded)
+                if rank is not None:
+                    out.append(rank)
+            return out
+
+        every, rich_m = summarize(ranks(kept)), summarize(ranks(rich))
+        results[label] = (every, rich_m)
+        print(
+            f"[benchmark] RESULT {label}: all r@10={every['recall@10']:.3f}"
+            f" r@50={every['recall@50']:.3f} | {RULE_TAGS}+ tags r@10={rich_m['recall@10']:.3f}"
+            f" r@50={rich_m['recall@50']:.3f}",
+            flush=True,
+        )
+    print(f"\n{'description':<20} {'all r@10':>9} {'all r@50':>9} {'tagged r@10':>12}")
+    for label, (every, rich_m) in results.items():
+        print(
+            f"{label:<20} {every['recall@10']:>9.3f} {every['recall@50']:>9.3f}"
+            f" {rich_m['recall@10']:>12.3f}"
+        )
+    floor = results["200 chars"][1]["recall@10"]
+    short = results["80 chars"][1]["recall@10"]
+    share = short / floor if floor else 0.0
+    passed = share >= RULE_PASS_SHARE
+    print(
+        f"\nrule check: on titles with {RULE_TAGS}+ tags, 80 characters keeps {share:.0%} of"
+        f" 200 characters' r@10 (needs {RULE_PASS_SHARE:.0%}): {'PASS' if passed else 'FAIL'}"
+    )
+    return passed
+
+
 def load_world(conn, pairs: list[dict], negatives: int):
     """Pairs that survive filtering, plus the pool they are ranked in.
 
@@ -423,7 +522,21 @@ def main() -> None:
         help="semantic,tags,genres - the API's defaults",
     )
 
+    desc = sub.add_parser(
+        "descriptions", help="does matching survive the short descriptions the rules allow?"
+    )
+    desc.add_argument("--pairs-file", default="benchmark_pairs.json")
+    desc.add_argument("--model", default=settings.embed_model)
+    desc.add_argument("--negatives", type=int, default=2000)
+    desc.add_argument("--encode-batch-size", type=int, default=32)
+
     args = parser.parse_args()
+    if args.command == "descriptions":
+        if not run_description_bench(
+            args.pairs_file, args.model, args.negatives, args.encode_batch_size
+        ):
+            raise SystemExit(1)
+        return
     if args.command == "fetch":
         fetch_pairs(args.out, args.pairs, args.min_rating)
     elif args.command == "score":

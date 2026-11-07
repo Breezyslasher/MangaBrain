@@ -33,10 +33,10 @@ def test_tv_keywords_come_back_under_results():
 
 def test_summary_counts_usable_and_drops_anime_from_the_estimate():
     rows = [
-        {"synopsis": 300, "genres": 2, "keywords": 5, "anime": False, "genres": 1},
+        {"synopsis": 300, "genres": 2, "keywords": 5, "anime": False},
         {"synopsis": 300, "genres": 2, "keywords": 1, "anime": True},
-        {"synopsis": 50, "genres": 1, "keywords": 0, "anime": False, "genres": 1},
-        {"synopsis": 0, "genres": 0, "keywords": 0, "anime": False, "genres": 1},
+        {"synopsis": 50, "genres": 1, "keywords": 0, "anime": False},
+        {"synopsis": 0, "genres": 0, "keywords": 0, "anime": False},
     ]
     out = survey.summarise(rows, 1000, 200)
     assert out["usable_pct"] == 50.0

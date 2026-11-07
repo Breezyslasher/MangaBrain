@@ -37,6 +37,7 @@ on:
         options:
           - models
           - score
+          - descriptions
       weights:
         description: 'score mode: semantic,tags,genres - the API defaults'
         required: false
@@ -110,8 +111,17 @@ jobs:
             --negatives "${{ inputs.negatives || '2000' }}" \
             --weights "${{ inputs.weights || '0.5,0.3,0.2' }}"
 
+      # Do the import rules' short descriptions still match? Every title
+      # cut to 200, 130 and 80 characters, and to none; fails (exit 1) if
+      # 80 characters with 5+ tags loses more than a tenth of 200's r@10.
+      - name: Check the short-description rule
+        if: inputs.mode == 'descriptions'
+        run: |
+          python -m pipeline.benchmark descriptions --pairs-file pairs.json \
+            --negatives "${{ inputs.negatives || '2000' }}"
+
       - name: Run benchmark
-        if: inputs.mode != 'score'
+        if: inputs.mode != 'score' && inputs.mode != 'descriptions'
         env:
           # Optional: lets gated models (e.g. google/embeddinggemma-300m)
           # download. Unset is fine for the default list.
