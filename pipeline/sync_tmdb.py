@@ -52,6 +52,7 @@ popularity, vote average and vote count are never read: nothing here
 may rank by fame, and a filter on any of them would be one.
 
     python -m pipeline.sync_tmdb full          # resumable
+    python -m pipeline.sync_tmdb full --missing   # re-check skipped ids
     python -m pipeline.sync_tmdb changes
     python -m pipeline.sync_tmdb refresh --limit 6000
     python -m pipeline.sync_tmdb tvmaze-keywords --limit 100000
@@ -82,6 +83,13 @@ EXPORTS = "https://files.tmdb.org/p/exports"
 IMAGES = "https://image.tmdb.org/t/p"
 
 MIN_OVERVIEW = 200
+# A shorter overview still ranks when TMDB gives enough keywords: the
+# embedded text leads with genres and tags, and tag similarity has plenty
+# to compare. TMDB's overviews are terse - Iron Man's is about 130
+# characters - so the 200-character rule alone dropped famous films. The
+# same rule books use (pipeline.openlibrary).
+SHORT_OVERVIEW = 80
+SHORT_OVERVIEW_KEYWORDS = 5
 MAX_DESCRIPTION = 4000
 KEYWORD_RANK = 50
 REFRESH_DAYS = 150
@@ -200,12 +208,19 @@ def is_japanese_animation(data: dict) -> bool:
     return "Animation" in genres and ("JP" in origin or data.get("original_language") == "ja")
 
 
+def rankable(overview_chars: int, keywords: int) -> bool:
+    if overview_chars >= MIN_OVERVIEW:
+        return True
+    return overview_chars >= SHORT_OVERVIEW and keywords >= SHORT_OVERVIEW_KEYWORDS
+
+
 def row_for(kind: str, data: dict) -> dict | None:
     """A media row, or None when the title cannot be ranked or is kept out."""
     if data.get("adult") or data.get("video"):
         return None
     overview = clean(data.get("overview"))
-    if len(overview) < MIN_OVERVIEW or is_japanese_animation(data):
+    tags = keyword_tags(data.get("keywords") or {})
+    if not rankable(len(overview), len(tags)) or is_japanese_animation(data):
         return None
     if kind == "movie":
         title = clean(data.get("title"))
@@ -221,13 +236,6 @@ def row_for(kind: str, data: dict) -> dict | None:
         episodes = data.get("number_of_episodes")
     if not title:
         return None
-    keywords = data.get("keywords") or {}
-    keywords = keywords.get("keywords") or keywords.get("results") or []
-    tags = []
-    for keyword in keywords:
-        name = clean(keyword.get("name"))
-        if name and name.lower() not in {t["name"].lower() for t in tags}:
-            tags.append({"name": name, "rank": KEYWORD_RANK, "is_adult": False})
     origin = list(data.get("origin_country") or []) or [
         c.get("iso_3166_1") for c in data.get("production_countries") or []
     ]
@@ -420,8 +428,14 @@ def full(
     client: TmdbClient,
     kinds: Iterable[str] = ("movie", "tv"),
     progress: Callable[[dict], None] | None = None,
+    missing: bool = False,
 ) -> dict[str, int]:
-    """Every exported id, once, resumable. Ids are processed in ascending
+    """Every exported id, once, resumable.
+
+    With `missing`, a pass over only the ids this database does not hold -
+    the ones an earlier pass skipped - started afresh even when the full
+    pass is complete. For a rule that now keeps more than it did; the
+    titles already held are kept current by changes and refresh. Ids are processed in ascending
     order and the last one done is recorded, so a restart picks up after
     it even when a newer export has been published meanwhile. After the
     first complete pass, the changes feed keeps titles current and new
@@ -430,8 +444,23 @@ def full(
     plans = []
     for kind in kinds:
         version, ids = export_ids(kind)
-        state = get_state(conn, STATE_FULL.format(kind=kind))
-        if state.get("complete"):
+        key = STATE_FULL.format(kind=kind)
+        state = get_state(conn, key)
+        if missing:
+            if not state.get("missing"):
+                # A new re-check: from the start, and say so for a resume.
+                state = {"export": version, "after": 0, "complete": False, "missing": True}
+                set_state(conn, key, state)
+                conn.commit()
+            held = {
+                int(r[0].partition("/")[2])
+                for r in conn.execute(
+                    "SELECT source_id FROM media WHERE source = %s AND source_id LIKE %s",
+                    (SOURCE, f"{kind}/%"),
+                ).fetchall()
+            }
+            ids = [i for i in ids if i not in held]
+        elif state.get("complete"):
             continue
         after = state.get("after", 0)
         plans.append((kind, version, [i for i in ids if i > after]))
@@ -447,7 +476,11 @@ def full(
         for start in range(0, len(todo), CHUNK):
             chunk = todo[start : start + CHUNK]
             process(conn, client, kind, chunk, tally)
-            set_state(conn, key, {"export": version, "after": chunk[-1], "complete": False})
+            set_state(
+                conn,
+                key,
+                {"export": version, "after": chunk[-1], "complete": False, "missing": missing},
+            )
             conn.commit()
             done += len(chunk)
             rate = done / max(time.monotonic() - started, 1e-9)
@@ -668,6 +701,11 @@ def main() -> None:
     parser.add_argument("mode", choices=["full", "changes", "refresh", "tvmaze-keywords"])
     parser.add_argument("--kind", choices=list(KINDS), action="append")
     parser.add_argument(
+        "--missing",
+        action="store_true",
+        help="full: re-check only the ids this database does not hold (after a rule change)",
+    )
+    parser.add_argument(
         "--limit", type=int, default=6000, help="rows per refresh or tvmaze-keywords pass"
     )
     args = parser.parse_args()
@@ -681,7 +719,7 @@ def main() -> None:
         client = TmdbClient(key)
         try:
             if args.mode == "full":
-                tally = full(conn, client, args.kind or list(KINDS))
+                tally = full(conn, client, args.kind or list(KINDS), missing=args.missing)
             elif args.mode == "changes":
                 tally = changes(conn, client)
             elif args.mode == "tvmaze-keywords":

@@ -48,6 +48,11 @@ TMDB_EXPORTS = "https://files.tmdb.org/p/exports"
 TVMAZE = "https://api.tvmaze.com"
 
 MIN_SYNOPSIS = 200
+# pipeline.sync_tmdb's second rule, repeated because the survey runs with
+# httpx alone and sync_tmdb needs the database stack; a test holds the
+# two together. A shorter overview counts with enough keywords.
+SHORT_OVERVIEW = 80
+SHORT_OVERVIEW_KEYWORDS = 5
 # TVmaze allows 20 calls per 10 seconds; TMDB about 50 a second.
 TVMAZE_INTERVAL = 0.6
 TMDB_INTERVAL = 0.05
@@ -68,6 +73,15 @@ def summarise(rows: list[dict], total: int, min_synopsis: int) -> dict:
     usable = [r for r in rows if r["synopsis"] >= min_synopsis]
     anime = sum(1 for r in rows if r["anime"])
     usable_not_anime = sum(1 for r in usable if not r["anime"])
+    # The import's rule: the floor above, or a short overview with enough
+    # keywords (only TMDB has keywords; TVmaze rows carry 0).
+    by_rule = [
+        r
+        for r in rows
+        if r["synopsis"] >= min_synopsis
+        or (r["synopsis"] >= SHORT_OVERVIEW and r["keywords"] >= SHORT_OVERVIEW_KEYWORDS)
+    ]
+    by_rule_not_anime = sum(1 for r in by_rule if not r["anime"])
     return {
         "sampled": n,
         "catalogue": total,
@@ -82,6 +96,8 @@ def summarise(rows: list[dict], total: int, min_synopsis: int) -> dict:
         ),
         "japanese_animation_pct": _pct(anime, n),
         "usable_estimate": round(total * usable_not_anime / n) if n else 0,
+        "rule_usable_pct": _pct(len(by_rule), n),
+        "rule_estimate": round(total * by_rule_not_anime / n) if n else 0,
     }
 
 
@@ -255,6 +271,12 @@ def report(results: dict, min_synopsis: int) -> None:
                 )
             print(f"  Japanese animation          {r['japanese_animation_pct']}%")
             print(f"  usable, not anime, about    {r['usable_estimate']:,} titles")
+            if source == "TMDB":
+                print(
+                    f"  with the short-overview rule {r['rule_usable_pct']}%, about"
+                    f" {r['rule_estimate']:,} titles"
+                    f" (+{r['rule_estimate'] - r['usable_estimate']:,})"
+                )
 
 
 def main() -> None:

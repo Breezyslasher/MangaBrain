@@ -55,12 +55,14 @@ HAYSTACK_SQL = (
 IGNORED_PUNCTUATION = "'\u2019\u2018\u02bc`\u00b4.,:;!?\"\u201c\u201d-\u2010\u2013\u2014()/"
 _STRIP = str.maketrans("", "", IGNORED_PUNCTUATION)
 
-# Once per row, not once per query word.
+# Once per row, not once per query word. Spaces go too, on the title side
+# only: a query word never holds one, so "iron" still finds "Iron Man" and
+# "ironman" now does as well, as "spiderman" finds "Spider-Man".
 NORMALISED_SQL = (
     f"CROSS JOIN LATERAL (SELECT translate({HAYSTACK_SQL}, "
     + "'"
     + IGNORED_PUNCTUATION.replace("'", "''")
-    + "', '') AS hay) h"
+    + " ', '') AS hay) h"
 )
 
 MAX_QUERY_WORDS = 8
