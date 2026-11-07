@@ -98,18 +98,22 @@ class EmbedConn:
     def __init__(self, backlog: dict[str, list[int]]):
         self.backlog = backlog
         self.asked: list[str] = []
+        self.after: list[int] = []
 
     def execute(self, sql, params):
         conn = self
 
         class Result:
             def fetchall(self):
+                after, limit = params[2], params[3]
+                conn.after.append(after)
                 if "NOT (m.source = ANY" in sql:
                     conn.asked.append("other")
-                    return [(i,) for i in conn.backlog.get("other", [])]
-                source = params[1]
-                conn.asked.append(source)
-                return [(i,) for i in conn.backlog.get(source, [])]
+                    ids = conn.backlog.get("other", [])
+                else:
+                    conn.asked.append(params[1])
+                    ids = conn.backlog.get(params[1], [])
+                return [(i,) for i in ids if i > after][:limit]
 
         return Result()
 
@@ -122,6 +126,31 @@ def test_the_next_batch_comes_from_the_first_source_with_work_left():
     assert conn.asked == ["anilist", "tvmaze"]
     conn = EmbedConn({"other": [9]})
     assert embed.next_batch(conn, "m", 256, None) == [(9,)]
+
+
+def test_each_batch_starts_after_the_last_one():
+    # Keyset: never back to the lowest id, where every row already done
+    # would be stepped over again.
+    from pipeline import embed
+
+    conn = EmbedConn({"tmdb": [10, 11, 12, 13, 14]})
+    position: dict = {}
+    assert embed.next_batch(conn, "m", 2, None, position) == [(10,), (11,)]
+    assert embed.next_batch(conn, "m", 2, None, position) == [(12,), (13,)]
+    assert conn.after[-1] == 11
+    assert embed.next_batch(conn, "m", 2, None, position) == [(14,)]
+    assert embed.next_batch(conn, "m", 2, None, position) == []
+
+
+def test_a_source_found_empty_is_not_asked_again():
+    from pipeline import embed
+
+    conn = EmbedConn({"tmdb": [10, 11, 12]})
+    position: dict = {}
+    embed.next_batch(conn, "m", 1, None, position)
+    conn.asked.clear()
+    embed.next_batch(conn, "m", 1, None, position)
+    assert conn.asked == ["tmdb"], "anilist and tvmaze were done; not scanned again"
 
 
 def test_a_source_option_limits_the_pass():
