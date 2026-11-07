@@ -35,6 +35,6 @@ def test_the_title_side_drops_the_same_characters():
     from api.routers.search import IGNORED_PUNCTUATION, NORMALISED_SQL
 
     assert "translate(" in NORMALISED_SQL
-    assert IGNORED_PUNCTUATION.replace("'", "''") in NORMALISED_SQL
+    assert IGNORED_PUNCTUATION.replace("'", "''") + " '" in NORMALISED_SQL, "spaces too"
     for ch in "'’‘-":
         assert ch in IGNORED_PUNCTUATION

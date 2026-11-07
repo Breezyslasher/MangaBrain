@@ -15,6 +15,7 @@ TITLES = {
     2: "JoJo’s Bizarre Adventure",
     3: "Spider-Man: Homecoming",
     4: "Purpose Driven Life",
+    5: "Iron Man",
 }
 
 
@@ -76,3 +77,9 @@ def test_a_curly_apostrophe_in_the_title_is_found_with_a_straight_one(db):
 def test_hyphens_and_colons_are_ignored(db):
     assert found("spiderman homecoming") == [3]
     assert found("spider man") == [3]
+
+
+def test_words_run_together_still_find_the_title(db):
+    assert found("ironman") == [5]
+    assert found("iron man") == [5]
+    assert found("adogspurpose") == [1]

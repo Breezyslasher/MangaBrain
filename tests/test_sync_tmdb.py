@@ -46,6 +46,19 @@ def test_short_overviews_adult_and_japanese_animation_are_kept_out():
     assert sync_tmdb.row_for("movie", western) is not None
 
 
+def test_a_short_overview_counts_with_five_keywords():
+    # Iron Man's TMDB overview is about 130 characters.
+    five = {"keywords": [{"name": f"k{i}"} for i in range(5)]}
+    short = "S" * 130
+    assert sync_tmdb.row_for("movie", movie(overview=short, keywords=five)) is not None
+    four = {"keywords": five["keywords"][:4]}
+    assert sync_tmdb.row_for("movie", movie(overview=short, keywords=four)) is None
+    assert sync_tmdb.row_for("movie", movie(overview="S" * 79, keywords=five)) is None
+    # TV's keywords reply is shaped {"results": [...]}.
+    tv = movie(overview=short, keywords={"results": five["keywords"]}, name="Show")
+    assert sync_tmdb.row_for("tv", tv) is not None
+
+
 def test_no_popularity_vote_or_rating_is_read_or_stored():
     row = sync_tmdb.row_for("movie", movie())
     assert not {"popularity", "vote_average", "vote_count", "average_score"} & set(row)
