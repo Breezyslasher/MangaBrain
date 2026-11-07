@@ -41,6 +41,30 @@ DUMP_CACHE = Path(
 # this a description is a tagline, not something to embed.
 MIN_DESCRIPTION = 200
 
+# A shorter description still ranks when the book has enough real
+# subjects (noise headings such as "Large type books" not counted): the
+# embedding text puts genres and tags before the description, so such a
+# book has a real vector, and tag similarity has plenty to compare. "A
+# Dog's Purpose" was the case that showed it - 41 subjects and a
+# 190-character blurb, dropped. Below SHORT_DESCRIPTION it is a tagline
+# whatever the subjects say.
+SHORT_DESCRIPTION = 80
+SHORT_DESCRIPTION_SUBJECTS = 5
+
+
+def rankable(
+    description_chars: int, subjects: int, real_subjects: int, min_description: int
+) -> bool:
+    """Whether a work has enough content to import. The long-description
+    rule is the original one, unchanged: any subject at all."""
+    if description_chars >= min_description:
+        return subjects >= 1
+    return (
+        description_chars >= min(SHORT_DESCRIPTION, min_description)
+        and real_subjects >= SHORT_DESCRIPTION_SUBJECTS
+    )
+
+
 # 200 characters was chosen to exclude taglines, not to select good
 # records, and the difference matters: at 2.32% of a ~40M-work dump the
 # catalogue is around 930,000 books, which is 5.6x the anime and manga

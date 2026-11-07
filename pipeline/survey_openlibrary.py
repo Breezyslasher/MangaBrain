@@ -68,7 +68,20 @@ THRESHOLDS = [
 
 
 def survey(limit: int | None, min_description: int) -> dict:
-    counts = {"rows": 0, "parsed": 0, "with_description": 0, "with_subjects": 0, "usable": 0}
+    from pipeline.sync_openlibrary import clean_description, row_for
+
+    counts = {
+        "rows": 0,
+        "parsed": 0,
+        "with_description": 0,
+        "with_subjects": 0,
+        "usable": 0,
+        # The import's own rule, run on each work: what it kept under the
+        # 200-character floor alone, and what it keeps now that a short
+        # description with enough real subjects also counts.
+        "import_long_only": 0,
+        "import_now": 0,
+    }
     lengths: list[int] = []
     subject_counts: list[int] = []
     grid = dict.fromkeys(THRESHOLDS, 0)
@@ -87,6 +100,14 @@ def survey(limit: int | None, min_description: int) -> dict:
             counts["usable"] += 1
             lengths.append(len(description))
             subject_counts.append(len(subjects))
+        if row_for(work, min_description) is not None:
+            counts["import_now"] += 1
+            if (
+                work.get("key")
+                and str(work.get("title") or "").strip()
+                and len(clean_description(description)) >= min_description
+            ):
+                counts["import_long_only"] += 1
         for chars, tags in THRESHOLDS:
             if len(description) >= chars and len(subjects) >= tags:
                 grid[(chars, tags)] += 1
@@ -141,6 +162,12 @@ def main() -> None:
                 f"  {chars:>5}+ chars, {tags}+ subjects   {kept:>10,}"
                 f"  ({share:.2%})   ~{hours:.1f}h to embed"
             )
+
+    before, now = counts["import_long_only"], counts["import_now"]
+    print(f"\nimported under the {args.min_description}-character floor alone  {before:>10,}")
+    print(f"imported with short descriptions plus 5+ subjects too  {now:>10,}")
+    if before:
+        print(f"  {now - before:+,} books ({(now - before) / before:+.1%})")
 
     if counts["usable"]:
         # The anime catalogue took roughly 70 minutes of CI to embed at

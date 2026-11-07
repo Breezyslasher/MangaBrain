@@ -38,7 +38,13 @@ import re
 import time
 from pathlib import Path
 
-from pipeline.openlibrary import DUMP_CACHE, MIN_DESCRIPTION, description_of, iter_works
+from pipeline.openlibrary import (
+    DUMP_CACHE,
+    MIN_DESCRIPTION,
+    description_of,
+    iter_works,
+    rankable,
+)
 
 SOURCE = "openlibrary"
 
@@ -387,7 +393,8 @@ def row_for(work: dict, min_description: int) -> dict | None:
     title = str(work.get("title") or "").strip()
     description = clean_description(description_of(work))
     subjects = [str(s).strip() for s in (work.get("subjects") or []) if str(s).strip()]
-    if not key or not title or len(description) < min_description or not subjects:
+    real = sum(1 for s in subjects if s.lower().strip(" .") not in NOISE_SUBJECTS)
+    if not key or not title or not rankable(len(description), len(subjects), real, min_description):
         return None
 
     genres: list[str] = []
