@@ -13,6 +13,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from api import vocabulary
 from api.config import settings
 from api.db import close_pool, ensure_schema, get_pool
 from api.routers import (
@@ -37,6 +38,9 @@ from api.routers import (
 async def lifespan(_app: FastAPI):
     ensure_schema()
     get_pool()
+    # Counting a million books' tags outlasts a client's timeout; have the
+    # filter vocabularies ready before anyone opens Filters.
+    vocabulary.warm()
     yield
     close_pool()
 
@@ -99,6 +103,7 @@ API_PREFIXES = (
     # it is the last endpoint that should be reachable without the token.
     "/datasets",
     "/tags",
+    "/genres",
     "/describe",
     # /dub was missing, so dub coverage and the language list answered
     # unauthenticated on a server with AUTH_TOKEN set, and skipped the

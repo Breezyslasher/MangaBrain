@@ -10,7 +10,8 @@ const state = {
   shown: 0,
   genreState: {}, // name -> "inc" | "exc"
   tagState: {}, // name -> "inc" | "exc"
-  tagVocabulary: [], // full tag list, for the suggestion dropdown
+  tagVocabulary: [], // this medium's tags, for the suggestion dropdown
+  genres: null, // this medium's genres, from /genres; null until loaded
   tagSuggestIndex: -1, // keyboard-highlighted suggestion
   titleLang: localStorage.getItem("mb_title_lang") || "english",
   shownSeedIds: "", // seeds currently on screen, so a re-rank does not scroll
@@ -79,6 +80,10 @@ const FORMATS = {
   ],
 };
 
+// AniList's genres: what the anime and manga tabs show until /genres
+// answers for the medium, or if it cannot be reached. Other media name
+// their genres differently (TVmaze "Legal", books "Biography") and show
+// only the server's list.
 const GENRES = [
   "Action",
   "Adventure",
@@ -192,8 +197,8 @@ function filterParams() {
     status: controlValue("status"),
     format: $("format").value,
     max_popularity: controlValue("maxPop"),
-    genre_in: GENRES.filter((g) => state.genreState[g] === "inc"),
-    genre_ex: GENRES.filter((g) => state.genreState[g] === "exc"),
+    genre_in: shownGenres().filter((g) => state.genreState[g] === "inc"),
+    genre_ex: shownGenres().filter((g) => state.genreState[g] === "exc"),
     tag_in: Object.keys(state.tagState).filter(
       (t) => state.tagState[t] === "inc",
     ),
@@ -1250,10 +1255,15 @@ function populateFormats() {
   }
 }
 
+function shownGenres() {
+  if (state.genres) return state.genres;
+  return state.medium === "anime" || state.medium === "manga" ? GENRES : [];
+}
+
 function renderGenreChips() {
   const wrap = $("genreChips");
   wrap.innerHTML = "";
-  for (const genre of GENRES) {
+  for (const genre of shownGenres()) {
     const chip = document.createElement("span");
     chip.className = "chip";
     const mode = state.genreState[genre];
@@ -1298,9 +1308,29 @@ function addTagFilter(mode) {
   rerunActive();
 }
 
-async function loadTagVocabulary() {
+// Genres and tags belong to a medium, so both are fetched for the one in
+// view and again whenever it changes. A reply for a medium the user has
+// since left is dropped.
+async function loadVocabularies() {
+  const medium = state.medium;
+  state.genres = null;
+  state.tagVocabulary = [];
+  renderGenreChips();
   try {
-    const data = await api("/tags");
+    const data = await api("/genres", { medium });
+    if (state.medium !== medium) return;
+    state.genres = data.genres || [];
+    // A genre this medium does not have would filter every result out.
+    for (const name of Object.keys(state.genreState)) {
+      if (!state.genres.includes(name)) delete state.genreState[name];
+    }
+    renderGenreChips();
+  } catch {
+    // The fallback list stays; the next medium change retries.
+  }
+  try {
+    const data = await api("/tags", { medium });
+    if (state.medium !== medium) return;
     state.tagVocabulary = data.tags || [];
   } catch {
     // Autocomplete is a convenience; typing exact tag names still works.
@@ -1446,6 +1476,7 @@ function setMedium(medium) {
   state.medium = medium;
   $("tabs").value = medium;
   populateFormats();
+  loadVocabularies();
 }
 
 function applyHash() {
@@ -1578,9 +1609,11 @@ renderGenreChips();
 bindEvents();
 {
   const pathMedium = PATH_TO_MEDIUM[location.pathname];
-  if (pathMedium) setMedium(pathMedium);
+  // setMedium loads the medium's vocabularies when it changes the medium;
+  // otherwise the default medium's are loaded here.
+  if (pathMedium && pathMedium !== state.medium) setMedium(pathMedium);
+  else loadVocabularies();
 }
-loadTagVocabulary();
 loadAccountSettings();
 applyHash();
 

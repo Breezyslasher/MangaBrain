@@ -312,6 +312,12 @@ object FilterState {
         genreState.clear(); tagState.clear()
     }
 
+    /**
+     * AniList's genres: what the anime and manga tabs show until the
+     * server's list for the medium arrives, or if it cannot be reached.
+     * Other media name their genres differently and get theirs from the
+     * server only.
+     */
     val GENRES = listOf(
         "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror",
         "Mahou Shoujo", "Mecha", "Music", "Mystery", "Psychological", "Romance",
