@@ -90,6 +90,9 @@ def install_tmdb(request: dict, report: Callable[[dict], None]) -> str:
             # changes feed the nightly pass would.
             if not tally:
                 tally = sync_tmdb.changes(conn, client)
+            # TMDB's keywords onto TVmaze's shows, which have none. Only the
+            # shows never looked up or due a refresh, so a repeat is quick.
+            keywords = sync_tmdb.tvmaze_keywords(conn, client, 100_000, progress=report)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401:
                 raise RuntimeError(
@@ -101,7 +104,10 @@ def install_tmdb(request: dict, report: Callable[[dict], None]) -> str:
         count = conn.execute(
             "SELECT count(*) FROM media WHERE source = %s", (sync_tmdb.SOURCE,)
         ).fetchone()[0]
-    return f"{count:,} films and shows from TMDB ({tally.get('kept', 0):,} this pass)."
+    return (
+        f"{count:,} films and shows from TMDB ({tally.get('kept', 0):,} this pass);"
+        f" keywords for {keywords['matched']:,} of {keywords['checked']:,} TVmaze shows checked."
+    )
 
 
 def install_tvmaze(request: dict, report: Callable[[dict], None]) -> str:

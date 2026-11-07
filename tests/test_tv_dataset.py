@@ -48,3 +48,12 @@ def test_the_workflow_publishes_under_cc_by_sa_and_keeps_the_latest_marker():
     assert "CC BY-SA" in workflow and "LICENSE-TVmaze.txt" in workflow
     assert "--latest=false" in workflow
     assert 'startswith("tv-")' in workflow
+
+
+def test_a_load_never_overwrites_tags():
+    # On an install, TVmaze rows' tags are TMDB's keywords; a release's
+    # empty tags must not wipe them.
+    from pipeline.tv_dataset import UPDATE_COLUMNS, UPDATE_SQL
+
+    assert "tags" not in UPDATE_COLUMNS
+    assert "tags = s.tags" not in UPDATE_SQL
