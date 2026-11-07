@@ -33,10 +33,10 @@ def test_tv_keywords_come_back_under_results():
 
 def test_summary_counts_usable_and_drops_anime_from_the_estimate():
     rows = [
-        {"synopsis": 300, "genres": 2, "keywords": 5, "anime": False},
+        {"synopsis": 300, "genres": 2, "keywords": 5, "anime": False, "genres": 1},
         {"synopsis": 300, "genres": 2, "keywords": 1, "anime": True},
-        {"synopsis": 50, "genres": 1, "keywords": 0, "anime": False},
-        {"synopsis": 0, "genres": 0, "keywords": 0, "anime": False},
+        {"synopsis": 50, "genres": 1, "keywords": 0, "anime": False, "genres": 1},
+        {"synopsis": 0, "genres": 0, "keywords": 0, "anime": False, "genres": 1},
     ]
     out = survey.summarise(rows, 1000, 200)
     assert out["usable_pct"] == 50.0
@@ -48,3 +48,19 @@ def test_no_popularity_field_is_read():
     source = inspect.getsource(survey.tmdb_row) + inspect.getsource(survey.survey_tvmaze)
     for field in ("popularity", "vote_count", "vote_average", "rating", "weight"):
         assert f'"{field}"' not in source, field
+
+
+def test_the_survey_measures_the_import_rule():
+    from pipeline import survey_screen, sync_tmdb
+
+    assert survey_screen.SHORT_OVERVIEW == sync_tmdb.SHORT_OVERVIEW
+    assert survey_screen.SHORT_OVERVIEW_KEYWORDS == sync_tmdb.SHORT_OVERVIEW_KEYWORDS
+    rows = [
+        {"synopsis": 300, "keywords": 0, "anime": False, "genres": 1},
+        {"synopsis": 130, "keywords": 6, "anime": False, "genres": 1},
+        {"synopsis": 130, "keywords": 2, "anime": False, "genres": 1},
+        {"synopsis": 40, "keywords": 9, "anime": False, "genres": 1},
+    ]
+    out = survey_screen.summarise(rows, 1000, 200)
+    assert out["usable_estimate"] == 250
+    assert out["rule_estimate"] == 500
