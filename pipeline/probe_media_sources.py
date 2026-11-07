@@ -325,6 +325,42 @@ def probe_wikidata(client: RateLimitedClient) -> Finding:
     return found
 
 
+TVMAZE = "https://api.tvmaze.com"
+# Shows across eras and countries: Game of Thrones, Breaking Bad, The
+# Office (US), Sherlock, Dark, Squid Game, The Simpsons, Friends.
+TVMAZE_SAMPLE = [82, 169, 526, 335, 17861, 43687, 83, 431]
+TAG_WORDS = ("tag", "keyword", "theme", "trope", "subject")
+
+
+def probe_tvmaze(raw: httpx.Client) -> Finding:
+    """Does TVmaze carry tags or keywords anywhere? Every field of a few
+    shows, the embeds, and the likely endpoints, printed as found."""
+    found = Finding("TVmaze", note="CC BY-SA, no key")
+    fields: set[str] = set()
+    for show_id in TVMAZE_SAMPLE:
+        # Whole bodies: fetch() keeps only the first 300 characters.
+        try:
+            resp = raw.get(f"{TVMAZE}/shows/{show_id}")
+        except httpx.HTTPError:
+            continue
+        if resp.status_code != 200:
+            continue
+        found.reachable = True
+        data = resp.json()
+        fields |= set(data)
+        found.sampled += 1
+        found.synopsis_lengths.append(len(text_of(data.get("summary"))))
+        found.tag_counts.append(len(data.get("genres") or []))
+    print(f"  TVmaze show fields: {sorted(fields)}", flush=True)
+    hits = sorted(f for f in fields if any(w in f.lower() for w in TAG_WORDS))
+    print(f"  fields named like tags or keywords: {hits or 'none'}", flush=True)
+    for path in ("/shows/82/tags", "/shows/82/keywords", "/shows/82?embed[]=tags"):
+        status, body = fetch(raw, f"{TVMAZE}{path}")
+        print(f"  {path}: HTTP {status} {body[:120]!r}", flush=True)
+    found.note = f"{found.note}; tag-like fields: {', '.join(hits) or 'none'}"
+    return found
+
+
 def run(domains: list[str]) -> None:
     # One retry, not five. This is reconnaissance: a source needing
     # several attempts has already told us what we came to find out, and
@@ -381,6 +417,7 @@ PROBES: dict[str, list[tuple]] = {
         gated("RAWG", "https://api.rawg.io/api/games", "free key, 20k/month"),
     ],
     "screen": [
+        ("TVmaze", lambda c, r: probe_tvmaze(r)),
         gated("TMDB", "https://api.themoviedb.org/3/movie/550", "free key, no review"),
         ("Wikidata (film)", lambda c, r: probe_wikidata(c)),
     ],
