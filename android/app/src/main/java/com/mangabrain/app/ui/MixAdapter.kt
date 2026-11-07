@@ -7,7 +7,6 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import coil.load
 import com.mangabrain.app.R
 import com.mangabrain.app.data.MixStore
 
@@ -40,7 +39,7 @@ class MixAdapter(
             title.text = entry.title
             meta.text = entry.meta
             val url = entry.cover
-            if (url.isNullOrBlank()) cover.setImageDrawable(null) else cover.load(url)
+            cover.showCover(url)
             remove.setOnClickListener { onRemove(entry.id) }
         }
     }

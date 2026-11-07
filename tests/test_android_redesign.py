@@ -231,3 +231,14 @@ def test_the_medium_is_a_dropdown_on_both_clients():
     web = ROOT.parents[3] / "web"
     assert '<select id="tabs"' in (web / "index.html").read_text()
     assert '$("tabs").addEventListener("change"' in (web / "app.js").read_text()
+
+
+def test_a_recycled_card_without_a_cover_cancels_the_previous_load():
+    # Otherwise the previous title's cover finishes loading into the card
+    # and shows under this title's name.
+    helper = (JAVA / "ui/CoverImage.kt").read_text()
+    assert "dispose()" in helper.split("isNullOrBlank()")[1].split("else")[0]
+    for path in ("ui/GridAdapter.kt", "ui/MixAdapter.kt", "ui/discover/DiscoverHeaderAdapter.kt"):
+        source = (JAVA / path).read_text()
+        assert "cover.showCover(url)" in source, path
+        assert "cover.load(" not in source, path

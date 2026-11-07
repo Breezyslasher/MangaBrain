@@ -9,7 +9,7 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import coil.load
+import com.mangabrain.app.ui.showCover
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.mangabrain.app.R
@@ -98,7 +98,7 @@ class DiscoverHeaderAdapter(
                 title.text = seed.displayTitle
                 meta.text = seed.displayMeta
                 val url = seed.coverUrl
-                if (url.isNullOrBlank()) cover.setImageDrawable(null) else cover.load(url)
+                cover.showCover(url)
                 addToMix.setOnClickListener { onAddToMix(seed) }
                 bindChips(seed)
                 bindDescription(seed.description)

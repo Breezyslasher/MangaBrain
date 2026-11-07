@@ -46,20 +46,40 @@ HAYSTACK_SQL = (
     " coalesce(m.title_native, '') || ' ' || array_to_string(m.synonyms, ' '))"
 )
 
+# Punctuation dropped from both the titles and the query before matching, so
+# a phone keyboard's curly apostrophe finds a title stored with a straight
+# one ("Dog’s" finds "Dog's"), and "dogs", "jojos" or "spiderman" find
+# "Dog's", "JoJo's" and "Spider-Man". Removed, not turned into spaces: words
+# match as substrings, so "spider man" still finds "spiderman".
+IGNORED_PUNCTUATION = "'\u2019\u2018\u02bc`\u00b4.,:;!?\"\u201c\u201d-\u2010\u2013\u2014()/"
+_STRIP = str.maketrans("", "", IGNORED_PUNCTUATION)
+
+# Once per row, not once per query word.
+NORMALISED_SQL = (
+    f"CROSS JOIN LATERAL (SELECT translate({HAYSTACK_SQL}, "
+    + "'"
+    + IGNORED_PUNCTUATION.replace("'", "''")
+    + "', '') AS hay) h"
+)
+
 MAX_QUERY_WORDS = 8
+
+
+def normalise(text: str) -> str:
+    return text.translate(_STRIP)
 
 
 def word_filter(q: str) -> tuple[str, dict[str, str]]:
     """AND-of-ILIKE clauses requiring every query word to appear somewhere in
-    the row's combined title text, in any order."""
-    words = [w for w in q.split() if w][:MAX_QUERY_WORDS]
+    the row's combined title text, in any order, punctuation ignored."""
+    words = [w for w in (normalise(w) for w in q.split()) if w][:MAX_QUERY_WORDS]
     if not words:
         return "TRUE", {}
     clauses = []
     params: dict[str, str] = {}
     for i, word in enumerate(words):
         key = f"word_{i}"
-        clauses.append(f"{HAYSTACK_SQL} ILIKE %({key})s")
+        clauses.append(f"h.hay ILIKE %({key})s")
         params[key] = f"%{word}%"
     return " AND ".join(clauses), params
 
@@ -71,6 +91,7 @@ SEARCH_SQL_TEMPLATE = """
     SELECT {cols},
            {rank_sql} AS match_rank
     FROM media m
+    {normalised_sql}
     WHERE m.medium = ANY(%(mediums)s)
       AND ({word_sql}){filter_sql}
     ORDER BY {order_sql}
@@ -164,6 +185,7 @@ def search(
         cols=MEDIA_COLS,
         rank_sql=RANK_SQL if q else "0",
         word_sql=word_sql,
+        normalised_sql=NORMALISED_SQL if word_params else "",
         filter_sql=filter_sql,
         order_sql="match_rank DESC, m.id" if q else BROWSE_ORDER,
     )
