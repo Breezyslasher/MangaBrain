@@ -88,9 +88,10 @@ def next_batch(
     left, then any other source. `sources` limits the pass to those.
 
     `position` carries a pass's place from batch to batch: per source, the
-    last id returned, or None once the source has nothing left. A pass
-    embeds every row it is handed, so nothing behind that id needs looking
-    at again. Rows another process adds behind it wait for the next pass.
+    last id returned, or None once the source has nothing left (a batch
+    shorter than asked for is its remainder). A pass embeds every row it is
+    handed, so nothing behind that id needs looking at again. Rows another
+    process adds or clears meanwhile wait for the next pass.
     """
     position = {} if position is None else position
 
@@ -99,7 +100,12 @@ def next_batch(
         if after is None:
             return []
         rows = conn.execute(sql, (stored_id, scope, after, batch_size)).fetchall()
-        position[key] = rows[-1][0] if rows else None
+        # A short batch is the source's remainder: it is done for this
+        # pass. Without this a pass chased a running AniList sync, which
+        # clears the embeddings of changed titles in id order just ahead
+        # of the cursor - batches of 6, 10, 14 rows, a minute apiece, and
+        # the 1.6 million rows behind them never reached.
+        position[key] = rows[-1][0] if len(rows) >= batch_size else None
         return rows
 
     for source in SOURCE_ORDER:
