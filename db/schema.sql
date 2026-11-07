@@ -273,6 +273,16 @@ CREATE INDEX IF NOT EXISTS idx_media_ext_imdb ON media ((external_ids->>'imdb'))
 CREATE INDEX IF NOT EXISTS idx_media_ext_tvdb ON media ((external_ids->>'tvdb'))
     WHERE external_ids ? 'tvdb';
 
+-- TMDB's keywords on TVmaze shows (pipeline.sync_tmdb tvmaze-keywords).
+-- TVmaze has no keywords, so a TVmaze show's tags are the keywords of the
+-- TMDB show it matches. Install-only, like everything from TMDB: these two
+-- columns are not among the TV dataset's, and its export refuses a
+-- database whose TVmaze rows carry tags. tmdb_match_id is the matched
+-- TMDB show (NULL when none matched); tmdb_keywords_at is when it was last
+-- looked up, kept inside TMDB's six-month cache limit.
+ALTER TABLE media ADD COLUMN IF NOT EXISTS tmdb_match_id INTEGER;
+ALTER TABLE media ADD COLUMN IF NOT EXISTS tmdb_keywords_at TIMESTAMPTZ;
+
 -- The CHECK constraints are inline in CREATE TABLE, which only helps a
 -- fresh database; an existing one keeps the constraint it was built
 -- with, so they are re-stated here - but only when the stored definition

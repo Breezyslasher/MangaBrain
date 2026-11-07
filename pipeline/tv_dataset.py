@@ -67,7 +67,10 @@ TV_COLUMNS = (
     "external_ids",
     "synced_at",
 )
-UPDATE_COLUMNS = tuple(c for c in TV_COLUMNS if c not in ("source", "source_id"))
+# Tags are not updated by a load: TVmaze has none, so on an install they
+# hold TMDB's keywords (pipeline.sync_tmdb tvmaze-keywords), and a release's
+# empty tags must not wipe them. A new show is inserted with the release's.
+UPDATE_COLUMNS = tuple(c for c in TV_COLUMNS if c not in ("source", "source_id", "tags"))
 
 
 def select_sql(model_literal: str, where: str) -> str:
@@ -118,6 +121,10 @@ EMBEDDINGS_SQL = """
     ON CONFLICT (media_id, embed_model) DO NOTHING
 """
 
+# TMDB's keywords on TVmaze rows: TMDB's terms forbid redistributing them,
+# and a CC BY-SA release must hold only what TVmaze provides.
+TMDB_TAGS_SQL = "SELECT count(*) FROM media WHERE source = 'tvmaze' AND tags <> '[]'::jsonb"
+
 COUNTS_SQL = """
     SELECT count(*), count(e.media_id) FROM media m
     LEFT JOIN embeddings e ON e.media_id = m.id AND e.embed_model = %(model)s
@@ -144,6 +151,15 @@ def export(out_dir: Path) -> dict:
         stale.unlink()
     model = current_model_id()
     with psycopg.connect(settings.database_url) as conn:
+        tagged = conn.execute(TMDB_TAGS_SQL).fetchone()[0]
+        if tagged:
+            # Their embeddings were computed with TMDB's keywords too, so
+            # blanking the tags would not be enough.
+            raise RuntimeError(
+                f"{tagged:,} TVmaze shows carry TMDB keywords on this database; a TV"
+                " release must be built from TVmaze alone (TMDB forbids redistribution)."
+                " Build it in CI, where no TMDB key is set."
+            )
         types = column_types(conn)
         rows, embedded = conn.execute(COUNTS_SQL, {"model": model}).fetchone()
         query = (

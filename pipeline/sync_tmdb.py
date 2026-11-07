@@ -54,6 +54,7 @@ may rank by fame, and a filter on any of them would be one.
     python -m pipeline.sync_tmdb full          # resumable
     python -m pipeline.sync_tmdb changes
     python -m pipeline.sync_tmdb refresh --limit 6000
+    python -m pipeline.sync_tmdb tvmaze-keywords --limit 100000
 
 Needs a TMDB API key (themoviedb.org > Settings > API): a v3 key or a v4
 read access token, from the settings page or TMDB_API_KEY.
@@ -518,6 +519,116 @@ def refresh(conn: psycopg.Connection, client: TmdbClient, limit: int) -> dict[st
     return tally
 
 
+# ------------------------------------------------------- TVmaze keywords
+
+# TVmaze has genres but no keywords, so its ~48,000 shows had empty tags
+# while TMDB's own shows carried keywords: a tag filter on the TV tab only
+# ever matched TMDB's third. This pass finds each TVmaze show on TMDB by
+# its IMDb id, else its TheTVDB id (TMDB's /find), and puts that show's
+# keywords in the TVmaze row's tags. No match by id, no keywords: a title
+# search would guess. Re-checked every REFRESH_DAYS like every other TMDB
+# row, which keeps the six-month cache limit.
+#
+# The keywords are TMDB's, so they stay on this install. The TV dataset
+# (pipeline.tv_dataset) publishes TVmaze's rows under CC BY-SA; its export
+# refuses a database whose TVmaze rows carry tags, and its load never
+# overwrites them.
+
+KEYWORDS_DUE_SQL = """
+    SELECT id, external_ids->>'imdb', external_ids->>'tvdb', tmdb_match_id, tags
+    FROM media
+    WHERE source = 'tvmaze'
+      AND (tmdb_keywords_at IS NULL
+           OR tmdb_keywords_at < now() - make_interval(days => %s))
+    ORDER BY tmdb_keywords_at NULLS FIRST, id
+    LIMIT %s
+"""
+
+KEYWORDS_SET_SQL = """
+    UPDATE media SET tags = %(tags)s, tmdb_match_id = %(match)s, tmdb_keywords_at = now()
+    WHERE id = %(id)s
+"""
+
+# Tags are part of the embedded text, so a show whose keywords changed is
+# embedded again by the next pass.
+STALE_EMBEDDING_SQL = "DELETE FROM embeddings WHERE media_id = %s"
+
+
+def find_tv(client: TmdbClient, imdb: str | None, tvdb: str | None) -> int | None:
+    """The TMDB TV id for these outside ids, or None."""
+    for value, source in ((imdb, "imdb_id"), (tvdb, "tvdb_id")):
+        if not value:
+            continue
+        try:
+            data = client.get(f"/find/{value}", {"external_source": source})
+        except Gone:
+            continue
+        results = data.get("tv_results") or []
+        if results and results[0].get("id"):
+            return int(results[0]["id"])
+    return None
+
+
+def keyword_tags(data: dict) -> list[dict]:
+    """TMDB's keywords reply as tags, in the shape row_for gives them."""
+    found = data.get("results") or data.get("keywords") or []
+    tags: list[dict] = []
+    for keyword in found:
+        name = clean(keyword.get("name"))
+        if name and name.lower() not in {t["name"].lower() for t in tags}:
+            tags.append({"name": name, "rank": KEYWORD_RANK, "is_adult": False})
+    return tags
+
+
+def lookup_keywords(client: TmdbClient, imdb, tvdb, known: int | None):
+    """(TMDB id, tags) for one TVmaze show; (None, []) when none matches."""
+    match = known or find_tv(client, imdb, tvdb)
+    if match is None:
+        return None, []
+    try:
+        return match, keyword_tags(client.get(f"/tv/{match}/keywords"))
+    except Gone:
+        # The remembered show was deleted or merged; look it up afresh.
+        if known is not None:
+            return lookup_keywords(client, imdb, tvdb, None)
+        return None, []
+
+
+def tvmaze_keywords(
+    conn: psycopg.Connection,
+    client: TmdbClient,
+    limit: int,
+    progress: Callable[[dict], None] | None = None,
+) -> dict[str, int]:
+    """Put TMDB's keywords on the TVmaze shows due a look. Returns counts."""
+    rows = conn.execute(KEYWORDS_DUE_SQL, (REFRESH_DAYS, limit)).fetchall()
+    tally = {"checked": 0, "matched": 0, "changed": 0}
+    started = time.monotonic()
+    for start in range(0, len(rows), CHUNK):
+        chunk = rows[start : start + CHUNK]
+        with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+            found = list(pool.map(lambda r: lookup_keywords(client, r[1], r[2], r[3]), chunk))
+        for (media_id, _imdb, _tvdb, _known, old), (match, tags) in zip(chunk, found, strict=True):
+            tally["checked"] += 1
+            if match is not None:
+                tally["matched"] += 1
+            if tags != (old or []):
+                tally["changed"] += 1
+                conn.execute(STALE_EMBEDDING_SQL, (media_id,))
+            conn.execute(KEYWORDS_SET_SQL, {"id": media_id, "match": match, "tags": Jsonb(tags)})
+        conn.commit()
+        done = tally["checked"]
+        rate = done / max(time.monotonic() - started, 1e-9)
+        print(
+            f"[tmdb] TVmaze keywords {done:,}/{len(rows):,}  matched {tally['matched']:,}"
+            f"  {rate:.0f}/s  ETA {(len(rows) - done) / max(rate, 1e-9) / 60:.0f}m",
+            flush=True,
+        )
+        if progress is not None:
+            progress({"phase": "fetching", "bytes": done, "total": len(rows)})
+    return tally
+
+
 def has_titles(conn: psycopg.Connection) -> bool:
     return (
         conn.execute("SELECT 1 FROM media WHERE source = %s LIMIT 1", (SOURCE,)).fetchone()
@@ -525,7 +636,7 @@ def has_titles(conn: psycopg.Connection) -> bool:
     )
 
 
-def nightly(refresh_limit: int = 6000) -> None:
+def nightly(refresh_limit: int = 6000, keywords_limit: int = 100_000) -> None:
     """The worker's pass for an install that holds TMDB titles. Never
     raises: a TMDB outage must not cost the AniList sync."""
     try:
@@ -540,6 +651,12 @@ def nightly(refresh_limit: int = 6000) -> None:
             try:
                 print(f"[tmdb] changes: {changes(conn, client)}", flush=True)
                 print(f"[tmdb] refresh: {refresh(conn, client, refresh_limit)}", flush=True)
+                # The first night does every TVmaze show (about 45 minutes);
+                # after that only new shows and ones due a refresh.
+                print(
+                    f"[tmdb] TVmaze keywords: {tvmaze_keywords(conn, client, keywords_limit)}",
+                    flush=True,
+                )
             finally:
                 client.close()
     except Exception as exc:  # noqa: BLE001
@@ -548,9 +665,11 @@ def nightly(refresh_limit: int = 6000) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync films and TV from TMDB")
-    parser.add_argument("mode", choices=["full", "changes", "refresh"])
+    parser.add_argument("mode", choices=["full", "changes", "refresh", "tvmaze-keywords"])
     parser.add_argument("--kind", choices=list(KINDS), action="append")
-    parser.add_argument("--limit", type=int, default=6000, help="rows per refresh pass")
+    parser.add_argument(
+        "--limit", type=int, default=6000, help="rows per refresh or tvmaze-keywords pass"
+    )
     args = parser.parse_args()
     from api.db import ensure_schema
 
@@ -565,6 +684,8 @@ def main() -> None:
                 tally = full(conn, client, args.kind or list(KINDS))
             elif args.mode == "changes":
                 tally = changes(conn, client)
+            elif args.mode == "tvmaze-keywords":
+                tally = tvmaze_keywords(conn, client, args.limit)
             else:
                 tally = refresh(conn, client, args.limit)
         finally:
