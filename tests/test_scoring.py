@@ -216,10 +216,27 @@ def test_the_ranking_function_itself_can_be_measured():
     assert '"undefined"' in body and '"zero"' in body
 
 
-def test_both_benchmark_modes_rank_over_the_same_world():
+def test_every_benchmark_mode_ranks_over_the_same_world():
     """A second arrangement of pairs and negatives would drift from the
-    first, and the two numbers would stop being comparable."""
+    first, and the numbers would stop being comparable: the model, score
+    and description benchmarks all load one world."""
     from pathlib import Path
 
     source = (Path(__file__).resolve().parent.parent / "pipeline" / "benchmark.py").read_text()
-    assert source.count("load_world(conn, pairs, negatives)") == 2
+    assert source.count("load_world(conn, pairs, negatives)") == 3
+
+
+def test_the_description_benchmark_cuts_text_as_the_rules_do():
+    from pipeline.benchmark import DESCRIPTION_VARIANTS, variant_text
+
+    row = {
+        "title_romaji": "T",
+        "title_english": None,
+        "description_clean": "D" * 500,
+        "genres": ["Drama"],
+        "tags": [{"name": "Lawyer", "rank": 90}],
+    }
+    assert "D" * 80 in variant_text(row, 80, True) and "D" * 81 not in variant_text(row, 80, True)
+    assert "Lawyer" not in variant_text(row, 80, False)
+    assert variant_text(row, 0, True).startswith("T"), "no description falls back to the title"
+    assert {label for label, _, _ in DESCRIPTION_VARIANTS} >= {"200 chars", "80 chars"}
