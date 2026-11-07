@@ -45,12 +45,18 @@ ENCODE_BATCH_SIZE = 16
 # after the books) until it finished. Sources not named here go last.
 SOURCE_ORDER = ("anilist", "tvmaze", "tmdb", "openlibrary")
 
+# Keyset: each batch starts after the last id the previous one returned for
+# its source. Without it every batch began at the lowest id and stepped
+# over every row already embedded - the anime catalogue, then each film
+# done so far - checking each against the embeddings index. That grew
+# with the pass: measured on a NAS through an SSH tunnel at 4.4 rows/s
+# with a GPU idle between batches.
 SELECT_MISSING_SQL = """
     SELECT m.id, m.title_romaji, m.title_english, m.description_clean, m.genres, m.tags
     FROM media m
     LEFT JOIN embeddings e
         ON e.media_id = m.id AND e.embed_model = %s
-    WHERE e.media_id IS NULL AND m.source = %s
+    WHERE e.media_id IS NULL AND m.source = %s AND m.id > %s
     ORDER BY m.id
     LIMIT %s
 """
@@ -61,33 +67,54 @@ SELECT_MISSING_OTHER_SQL = """
     FROM media m
     LEFT JOIN embeddings e
         ON e.media_id = m.id AND e.embed_model = %s
-    WHERE e.media_id IS NULL AND NOT (m.source = ANY(%s))
+    WHERE e.media_id IS NULL AND NOT (m.source = ANY(%s)) AND m.id > %s
     ORDER BY m.id
     LIMIT %s
 """
 
+# Below every id: media ids are positive.
+START = -1
+OTHER = "\0other"
+
 
 def next_batch(
-    conn: psycopg.Connection, stored_id: str, batch_size: int, sources: tuple[str, ...] | None
+    conn: psycopg.Connection,
+    stored_id: str,
+    batch_size: int,
+    sources: tuple[str, ...] | None,
+    position: dict[str, int | None] | None = None,
 ) -> list:
     """The next rows to embed: the first source in SOURCE_ORDER with any
-    left, then any other source. `sources` limits the pass to those."""
+    left, then any other source. `sources` limits the pass to those.
+
+    `position` carries a pass's place from batch to batch: per source, the
+    last id returned, or None once the source has nothing left. A pass
+    embeds every row it is handed, so nothing behind that id needs looking
+    at again. Rows another process adds behind it wait for the next pass.
+    """
+    position = {} if position is None else position
+
+    def take(key: str, sql: str, scope) -> list:
+        after = position.get(key, START)
+        if after is None:
+            return []
+        rows = conn.execute(sql, (stored_id, scope, after, batch_size)).fetchall()
+        position[key] = rows[-1][0] if rows else None
+        return rows
+
     for source in SOURCE_ORDER:
         if sources is not None and source not in sources:
             continue
-        rows = conn.execute(SELECT_MISSING_SQL, (stored_id, source, batch_size)).fetchall()
+        rows = take(source, SELECT_MISSING_SQL, source)
         if rows:
             return rows
     if sources is not None:
-        others = tuple(s for s in sources if s not in SOURCE_ORDER)
-        for source in others:
-            rows = conn.execute(SELECT_MISSING_SQL, (stored_id, source, batch_size)).fetchall()
+        for source in (s for s in sources if s not in SOURCE_ORDER):
+            rows = take(source, SELECT_MISSING_SQL, source)
             if rows:
                 return rows
         return []
-    return conn.execute(
-        SELECT_MISSING_OTHER_SQL, (stored_id, list(SOURCE_ORDER), batch_size)
-    ).fetchall()
+    return take(OTHER, SELECT_MISSING_OTHER_SQL, list(SOURCE_ORDER))
 
 
 UPSERT_SQL = """
@@ -241,6 +268,7 @@ def embed_missing(
             flush=True,
         )
         started = time.monotonic()
+        position: dict[str, int | None] = {}
         while True:
             if max_seconds is not None and time.monotonic() - started >= max_seconds:
                 print(
@@ -249,7 +277,7 @@ def embed_missing(
                     flush=True,
                 )
                 break
-            rows = next_batch(conn, stored_id, batch_size, sources)
+            rows = next_batch(conn, stored_id, batch_size, sources, position)
             if not rows:
                 break
             texts = [embed_text(row[1], row[2], row[3], row[4], row[5]) for row in rows]
