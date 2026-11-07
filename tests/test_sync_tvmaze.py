@@ -139,6 +139,7 @@ def test_each_batch_starts_after_the_last_one():
     assert embed.next_batch(conn, "m", 2, None, position) == [(12,), (13,)]
     assert conn.after[-1] == 11
     assert embed.next_batch(conn, "m", 2, None, position) == [(14,)]
+    assert position["tmdb"] is None
     assert embed.next_batch(conn, "m", 2, None, position) == []
 
 
@@ -151,6 +152,19 @@ def test_a_source_found_empty_is_not_asked_again():
     conn.asked.clear()
     embed.next_batch(conn, "m", 1, None, position)
     assert conn.asked == ["tmdb"], "anilist and tvmaze were done; not scanned again"
+
+
+def test_a_short_batch_finishes_the_source_for_the_pass():
+    # A running AniList sync clears embeddings just ahead of the cursor;
+    # the pass must take what is there and move on, not chase it.
+    from pipeline import embed
+
+    conn = EmbedConn({"anilist": [5, 6], "tmdb": list(range(100, 110))})
+    position: dict = {}
+    assert embed.next_batch(conn, "m", 4, None, position) == [(5,), (6,)]
+    conn.backlog["anilist"].append(7)  # cleared by the sync meanwhile
+    assert embed.next_batch(conn, "m", 4, None, position) == [(i,) for i in range(100, 104)]
+    assert position["anilist"] is None
 
 
 def test_a_source_option_limits_the_pass():
