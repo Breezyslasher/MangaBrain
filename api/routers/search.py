@@ -199,16 +199,17 @@ def search(
 
 
 @router.get("/tags", response_model=TagsResponse)
-def tags(medium: MediumGroup | None = None) -> TagsResponse:
+def tags(medium: MediumGroup | None = None, adult: bool = False) -> TagsResponse:
     """The tag vocabulary of one medium group, for autocomplete. Without a
-    medium, the whole catalogue's (what older clients ask for)."""
-    return TagsResponse(tags=vocabulary("tags", medium))
+    medium, the whole catalogue's (what older clients ask for). Adult tags
+    and tags only adult titles carry are listed only with `adult`."""
+    return TagsResponse(tags=vocabulary("tags", medium, adult=adult))
 
 
 @router.get("/genres", response_model=GenresResponse)
-def genres(medium: MediumGroup | None = None) -> GenresResponse:
+def genres(medium: MediumGroup | None = None, adult: bool = False) -> GenresResponse:
     """The genres one medium group's titles carry, for the genre chips."""
-    return GenresResponse(genres=vocabulary("genres", medium))
+    return GenresResponse(genres=vocabulary("genres", medium, adult=adult))
 
 
 # Lowercase, then drop ASCII punctuation and whitespace while keeping every

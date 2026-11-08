@@ -17,6 +17,8 @@ ROWS = [
     (3, "tv", ["Legal", "Drama"], [], False),
     (4, "book", ["Biography"], ["TI-83 (Calculator)", "Dogs"], False),
     (5, "book", ["Fiction"], ["Dogs"], False),
+    # A non-adult manga carrying one of AniList's adult tags.
+    (6, "manga", ["Romance"], ["Iyashikei", "!Ecchi Tag"], False),
 ]
 
 
@@ -46,7 +48,12 @@ def db(monkeypatch):
                     str(i),
                     medium,
                     genres,
-                    json.dumps([{"name": t, "rank": 50} for t in tags]),
+                    json.dumps(
+                        [
+                            {"name": t.lstrip("!"), "rank": 50, "is_adult": t.startswith("!")}
+                            for t in tags
+                        ]
+                    ),
                     adult,
                 ),
             )
@@ -75,6 +82,14 @@ def test_adult_titles_add_nothing(db):
     assert "Nudity" not in db.vocabulary("tags", None)
 
 
+def test_the_adult_toggle_lists_adult_titles_and_tags(db):
+    assert db.vocabulary("tags", "manga") == ["Iyashikei"]
+    assert db.vocabulary("tags", "manga", adult=True) == ["Ecchi Tag", "Iyashikei"]
+    assert "Nudity" in db.vocabulary("tags", "anime", adult=True)
+    assert "Hentai" in db.vocabulary("genres", "anime", adult=True)
+    assert "Hentai" not in db.vocabulary("genres", "anime"), "cached apart"
+
+
 def test_tags_are_capped_by_how_many_titles_share_them(db, monkeypatch):
     monkeypatch.setattr(db, "MAX_TAGS", 1)
     assert db.vocabulary("tags", "book") == ["Dogs"], "the shared word, not the one-off"
@@ -83,7 +98,7 @@ def test_tags_are_capped_by_how_many_titles_share_them(db, monkeypatch):
 def test_a_stale_list_is_served_while_it_refreshes(db, monkeypatch):
     first = db.vocabulary("genres", "tv")
     calls = []
-    monkeypatch.setattr(db, "compute", lambda kind, group: calls.append(1) or ["New"])
+    monkeypatch.setattr(db, "compute", lambda kind, group, adult=False: calls.append(1) or ["New"])
     assert db.vocabulary("genres", "tv", now=lambda: 10**12) == first
     import time
 
