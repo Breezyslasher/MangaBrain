@@ -223,7 +223,7 @@ def _web_dir() -> Path | None:
 # picker stuck on its two-option fallback while the API happily returned
 # twenty-five languages. Versioning the URL sidesteps the question entirely:
 # there is nothing to revalidate, because it is a different URL.
-VERSIONED_ASSETS = ("app.js", "style.css")
+VERSIONED_ASSETS = ("app.js", "style.css", "mobile.js", "mobile.css")
 
 
 def _asset_version(path) -> str:
