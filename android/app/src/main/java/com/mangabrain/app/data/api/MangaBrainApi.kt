@@ -107,11 +107,17 @@ interface MangaBrainApi {
 
     /** The tag vocabulary of one medium group (anime, book, tv...). */
     @GET("tags")
-    suspend fun tags(@Query("medium") medium: String? = null): TagsResponse
+    suspend fun tags(
+        @Query("medium") medium: String? = null,
+        @Query("adult") adult: Boolean = false
+    ): TagsResponse
 
     /** The genres one medium group's titles carry. */
     @GET("genres")
-    suspend fun genres(@Query("medium") medium: String): GenresResponse
+    suspend fun genres(
+        @Query("medium") medium: String,
+        @Query("adult") adult: Boolean = false
+    ): GenresResponse
 
     @GET("dub/languages")
     suspend fun dubLanguages(@Query("min_titles") minTitles: Int): DubLanguagesOut

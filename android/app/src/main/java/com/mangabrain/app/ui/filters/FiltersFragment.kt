@@ -91,10 +91,13 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
         if (!hidden) loadRemoteVocabularies()
     }
 
+    /** The lists depend on the medium and on the adult toggle. */
+    private fun vocabularyKey(): String = "${FilterState.medium}|${FilterState.adult}"
+
     private fun loadRemoteVocabularies() {
         val medium = FilterState.medium
-        if (vocabularyMedium != medium) {
-            vocabularyMedium = medium
+        if (vocabularyMedium != vocabularyKey()) {
+            vocabularyMedium = vocabularyKey()
             tagsLoaded = false
             genresLoaded = false
             genres = fallbackGenres(medium)
@@ -112,11 +115,12 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
     private fun loadGenres() {
         val api = ServiceLocator.api(requireContext()) ?: return
         val medium = FilterState.medium
+        val key = vocabularyKey()
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val list = api.genres(medium).genres
+                val list = api.genres(medium, FilterState.adult).genres
                 // The user may have switched medium while this was in flight.
-                if (medium != FilterState.medium) return@launch
+                if (key != vocabularyKey()) return@launch
                 genres = list
                 genresLoaded = true
                 // A genre this medium does not have would filter every
@@ -336,7 +340,11 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
         val toggles = listOf(
             Toggle(R.id.excludeFranchiseSwitch, { FilterState.excludeFranchise }, { FilterState.excludeFranchise = it }),
             Toggle(R.id.crossMediaSwitch, { FilterState.crossMedia }, { FilterState.crossMedia = it }),
-            Toggle(R.id.adultSwitch, { FilterState.adult }, { FilterState.adult = it })
+            // Adult titles and AniList's adult tags join the lists when on.
+            Toggle(R.id.adultSwitch, { FilterState.adult }, {
+                FilterState.adult = it
+                loadRemoteVocabularies()
+            })
         )
         for (toggle in toggles) {
             val control = view.findViewById<MaterialSwitch>(toggle.id)
@@ -376,10 +384,11 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
             return
         }
         val medium = FilterState.medium
+        val key = vocabularyKey()
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val tags = api.tags(medium).tags
-                if (medium != FilterState.medium) return@launch
+                val tags = api.tags(medium, FilterState.adult).tags
+                if (key != vocabularyKey()) return@launch
                 val adapter = TagSuggestionAdapter(requireContext())
                 adapter.setVocabulary(tags)
                 input.setAdapter(adapter)

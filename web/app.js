@@ -1321,12 +1321,15 @@ function addTagFilter(mode) {
 // since left is dropped.
 async function loadVocabularies() {
   const medium = state.medium;
+  // Adult titles and AniList's adult tags are listed only with the toggle on.
+  const adult = $("adult").checked ? "true" : "";
+  const current = () => state.medium === medium && ($("adult").checked ? "true" : "") === adult;
   state.genres = null;
   state.tagVocabulary = [];
   renderGenreChips();
   try {
-    const data = await api("/genres", { medium });
-    if (state.medium !== medium) return;
+    const data = await api("/genres", { medium, adult });
+    if (!current()) return;
     state.genres = data.genres || [];
     // A genre this medium does not have would filter every result out.
     for (const name of Object.keys(state.genreState)) {
@@ -1337,8 +1340,8 @@ async function loadVocabularies() {
     // The fallback list stays; the next medium change retries.
   }
   try {
-    const data = await api("/tags", { medium });
-    if (state.medium !== medium) return;
+    const data = await api("/tags", { medium, adult });
+    if (!current()) return;
     state.tagVocabulary = data.tags || [];
   } catch {
     // Autocomplete is a convenience; typing exact tag names still works.
@@ -1583,6 +1586,8 @@ function bindEvents() {
     renderTagSuggestions();
   });
   on("tagInput", "keydown", tagInputKeydown);
+  // The genre and tag lists include adult ones only with the toggle on.
+  on("adult", "change", loadVocabularies);
   on("tagInput", "blur", hideTagSuggestions);
   on("alRefresh", "click", refreshAnilist);
 

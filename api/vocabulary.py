@@ -34,7 +34,7 @@ MAX_TAGS = 3000
 GENRES_SQL = """
     SELECT DISTINCT g AS name
     FROM media m, unnest(m.genres) g
-    WHERE m.medium = ANY(%(mediums)s) AND m.is_adult IS NOT TRUE AND g <> ''
+    WHERE m.medium = ANY(%(mediums)s) AND (%(adult)s OR m.is_adult IS NOT TRUE) AND g <> ''
     ORDER BY name
 """
 
@@ -42,9 +42,9 @@ TAGS_SQL = """
     SELECT name FROM (
         SELECT t->>'name' AS name, count(*) AS titles
         FROM media m, jsonb_array_elements(m.tags) t
-        WHERE m.medium = ANY(%(mediums)s) AND m.is_adult IS NOT TRUE
+        WHERE m.medium = ANY(%(mediums)s) AND (%(adult)s OR m.is_adult IS NOT TRUE)
           AND coalesce(t->>'name', '') <> ''
-          AND coalesce(t->>'is_adult', 'false') <> 'true'
+          AND (%(adult)s OR coalesce(t->>'is_adult', 'false') <> 'true')
         GROUP BY 1
         ORDER BY titles DESC, name
         LIMIT %(limit)s
@@ -54,8 +54,8 @@ TAGS_SQL = """
 
 KINDS = {"genres": GENRES_SQL, "tags": TAGS_SQL}
 
-_cache: dict[tuple[str, str], tuple[float, list[str]]] = {}
-_locks: dict[tuple[str, str], threading.Lock] = {}
+_cache: dict[tuple[str, str, bool], tuple[float, list[str]]] = {}
+_locks: dict[tuple[str, str, bool], threading.Lock] = {}
 _locks_guard = threading.Lock()
 
 
@@ -63,22 +63,24 @@ def mediums_for(group: str | None) -> list[str]:
     return MEDIUM_GROUPS[group] if group else ALL_MEDIUMS
 
 
-def compute(kind: str, group: str | None) -> list[str]:
+def compute(kind: str, group: str | None, adult: bool = False) -> list[str]:
     with get_pool().connection() as conn:
         rows = conn.execute(
-            KINDS[kind], {"mediums": mediums_for(group), "limit": MAX_TAGS}
+            KINDS[kind], {"mediums": mediums_for(group), "limit": MAX_TAGS, "adult": adult}
         ).fetchall()
     return [row["name"] for row in rows]
 
 
-def _lock(key: tuple[str, str]) -> threading.Lock:
+def _lock(key: tuple[str, str, bool]) -> threading.Lock:
     with _locks_guard:
         return _locks.setdefault(key, threading.Lock())
 
 
-def _refresh(key: tuple[str, str], kind: str, group: str | None, lock: threading.Lock) -> None:
+def _refresh(
+    key: tuple[str, str, bool], kind: str, group: str | None, adult: bool, lock: threading.Lock
+) -> None:
     try:
-        _cache[key] = (time.monotonic(), compute(kind, group))
+        _cache[key] = (time.monotonic(), compute(kind, group, adult))
     except Exception:  # noqa: BLE001 - the stale list stays; the next call retries
         pass
     finally:
@@ -86,35 +88,44 @@ def _refresh(key: tuple[str, str], kind: str, group: str | None, lock: threading
 
 
 def vocabulary(
-    kind: str, group: str | None, now: Callable[[], float] = time.monotonic
+    kind: str,
+    group: str | None,
+    now: Callable[[], float] = time.monotonic,
+    adult: bool = False,
 ) -> list[str]:
-    """The cached list; computed here only when there is nothing to serve."""
-    key = (kind, group or "")
+    """The cached list; computed here only when there is nothing to serve.
+    With `adult`, adult titles and AniList's adult tags count too, so the
+    lists match what the adult toggle lets a search find."""
+    key = (kind, group or "", adult)
     entry = _cache.get(key)
     if entry is not None:
         lock = _lock(key)
         if now() - entry[0] > TTL and lock.acquire(blocking=False):
-            threading.Thread(target=_refresh, args=(key, kind, group, lock), daemon=True).start()
+            threading.Thread(
+                target=_refresh, args=(key, kind, group, adult, lock), daemon=True
+            ).start()
         return entry[1]
     # Nothing yet: wait for a warm-up already computing it, or compute it.
     with _lock(key):
         entry = _cache.get(key)
         if entry is None:
-            entry = (now(), compute(kind, group))
+            entry = (now(), compute(kind, group, adult))
             _cache[key] = entry
     return entry[1]
 
 
 def warm() -> None:
-    """Fill every medium's lists, genres first (cheap), in the background."""
+    """Fill every medium's lists, genres first (cheap), in the background;
+    the adult variants after the default ones."""
 
     def run() -> None:
-        for kind in ("genres", "tags"):
-            for group in MEDIUM_GROUPS:
-                try:
-                    vocabulary(kind, group)
-                except Exception:  # noqa: BLE001 - a request computes it instead
-                    pass
+        for adult in (False, True):
+            for kind in ("genres", "tags"):
+                for group in MEDIUM_GROUPS:
+                    try:
+                        vocabulary(kind, group, adult=adult)
+                    except Exception:  # noqa: BLE001 - a request computes it instead
+                        pass
 
     threading.Thread(target=run, name="vocabulary-warm", daemon=True).start()
 
