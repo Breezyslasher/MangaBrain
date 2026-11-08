@@ -19,6 +19,7 @@ import com.mangabrain.app.R
 import com.mangabrain.app.data.FilterState
 import com.mangabrain.app.data.ServiceLocator
 import com.mangabrain.app.ui.MainActivity
+import com.mangabrain.app.ui.centerContent
 import kotlinx.coroutines.launch
 
 /**
@@ -59,6 +60,7 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
     private var genres: List<String> = fallbackGenres(FilterState.medium)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        view.findViewById<View>(R.id.filtersBody).centerContent()
         bindWeights(view)
         bindTextFields(view)
         bindSpinners(view)

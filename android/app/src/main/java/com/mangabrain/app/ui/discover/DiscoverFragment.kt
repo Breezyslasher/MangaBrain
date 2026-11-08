@@ -16,6 +16,7 @@ import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.mangabrain.app.R
+import com.mangabrain.app.ui.WideScreen
 import com.mangabrain.app.data.FilterState
 import com.mangabrain.app.data.MixStore
 import com.mangabrain.app.data.ServiceLocator
@@ -86,7 +87,8 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
             }
         )
 
-        val columns = 3
+        // Three on a phone; more on a tablet or an unfolded foldable.
+        val columns = WideScreen.gridColumns(requireContext())
         val manager = GridLayoutManager(requireContext(), columns)
         manager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
             // The header is one row wide; everything after it is one cell.

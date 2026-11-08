@@ -25,6 +25,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.mangabrain.app.R
+import com.mangabrain.app.ui.centerContent
 import com.mangabrain.app.data.FilterState
 import com.mangabrain.app.data.Prefs
 import com.mangabrain.app.data.ServiceLocator
@@ -174,6 +175,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         val pageView = layoutInflater.inflate(R.layout.page_settings, root, false)
         root.addView(pageView)
         val body = pageView.findViewById<LinearLayout>(R.id.pageBody)
+        body.centerContent()
         val actions = pageView.findViewById<LinearLayout>(R.id.pageActions)
         val topbar = pageView.findViewById<View>(R.id.topbar)
         if (page == Page.HOME) {

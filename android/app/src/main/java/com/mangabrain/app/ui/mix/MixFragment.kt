@@ -11,12 +11,14 @@ import com.mangabrain.app.R
 import com.mangabrain.app.data.MixStore
 import com.mangabrain.app.ui.MainActivity
 import com.mangabrain.app.ui.MixAdapter
+import com.mangabrain.app.ui.centerContent
 
 class MixFragment : Fragment(R.layout.fragment_mix) {
 
     private lateinit var adapter: MixAdapter
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        (view as android.view.ViewGroup).getChildAt(0).centerContent()
         adapter = MixAdapter { id ->
             MixStore.remove(id)
             refresh()
