@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#12141a">
   <title>MangaBrain</title>
   <link rel="stylesheet" href="style.css">
+  <!-- Phones get the Android app's layout; the media query keeps this sheet
+       from applying at all on a wider screen, so the desktop is unchanged. -->
+  <link rel="stylesheet" href="mobile.css" media="(max-width: 700px)">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
@@ -222,5 +225,6 @@
   </main>
 
   <script src="app.js"></script>
+  <script src="mobile.js"></script>
 </body>
 </html>

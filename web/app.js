@@ -237,6 +237,8 @@ function filterParams() {
   const excludeLists = [];
   if (isChecked("kitsuExclude")) excludeLists.push("kitsu");
   if (isChecked("ytExclude")) excludeLists.push("yamtrack");
+  // Only the mobile layout offers Hardcover; the box is absent on desktop.
+  if (isChecked("hcExclude")) excludeLists.push("hardcover");
   if (excludeLists.length) params.exclude_list = excludeLists;
   if (isChecked("keepPlanned")) params.keep_planned = "true";
   return params;
@@ -819,7 +821,12 @@ function addToMix(media) {
     setStatus(`Seed mix is full (max ${MAX_MIX}).`);
     return;
   }
-  state.mix.push({ id: media.id, title: mediaTitle(media) });
+  state.mix.push({
+    id: media.id,
+    title: mediaTitle(media),
+    cover: media.cover_image_large || media.cover_image || "",
+    meta: mediaMeta(media),
+  });
   renderMix();
 }
 
@@ -1016,7 +1023,8 @@ async function renderMediaSettings() {
   }
   clearTimeout(settingsPoll);
   settingsPoll = null;
-  if (active && $("settingsDialog").open)
+  // The mobile layout shows the same list on its Media page, not the dialog.
+  if (active && ($("settingsDialog").open || window.mbMediaVisible))
     settingsPoll = setTimeout(renderMediaSettings, 4000);
 }
 
