@@ -245,8 +245,9 @@ jobs:
         run: |
           cat > notes.md <<'NOTES'
           Books from Open Library: every work with a description of at
-          least 200 characters and at least one subject, with genres,
-          subject tags and synopsis embeddings.
+          least 200 characters and at least one subject, or of at least
+          80 characters and five subjects, with genres, subject tags and
+          synopsis embeddings.
 
           This release is split into parts because GitHub caps a single
           asset at 2 GB. Do not download the parts by hand; load the
