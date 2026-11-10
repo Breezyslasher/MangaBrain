@@ -52,7 +52,25 @@ TAGS_SQL = """
     ORDER BY name
 """
 
-KINDS = {"genres": GENRES_SQL, "tags": TAGS_SQL}
+# One column's values per medium group, for the country, format and status
+# dropdowns, which used to be AniList's lists typed into both clients:
+# Japan, Korea, China and Taiwan on the Films tab, where TMDB holds every
+# country. Cheap enough to share the cache with the lists above.
+COLUMN_SQL = """
+    SELECT DISTINCT {column} AS name
+    FROM media m
+    WHERE m.medium = ANY(%(mediums)s) AND (%(adult)s OR m.is_adult IS NOT TRUE)
+      AND coalesce({column}, '') <> ''
+    ORDER BY name
+"""
+
+KINDS = {
+    "genres": GENRES_SQL,
+    "tags": TAGS_SQL,
+    "countries": COLUMN_SQL.format(column="m.country_of_origin"),
+    "formats": COLUMN_SQL.format(column="m.format"),
+    "statuses": COLUMN_SQL.format(column="m.status"),
+}
 
 _cache: dict[tuple[str, str, bool], tuple[float, list[str]]] = {}
 _locks: dict[tuple[str, str, bool], threading.Lock] = {}
@@ -120,7 +138,7 @@ def warm() -> None:
 
     def run() -> None:
         for adult in (False, True):
-            for kind in ("genres", "tags"):
+            for kind in ("genres", "countries", "formats", "statuses", "tags"):
                 for group in MEDIUM_GROUPS:
                     try:
                         vocabulary(kind, group, adult=adult)

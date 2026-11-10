@@ -86,15 +86,19 @@ def test_both_clients_offer_books():
 
 
 def test_books_offer_no_format_filter():
-    """Open Library has no format vocabulary - a work is a work. An
-    empty list leaves the control out; a missing entry would too, but
-    says nothing about why."""
+    """Open Library has no format vocabulary - a work is a work. The format
+    list comes from what a medium's titles carry, and a list of one or none
+    leaves the control out on both clients."""
     from pathlib import Path
 
-    app = (Path(__file__).resolve().parent.parent / "web" / "app.js").read_text()
-    formats = app[app.index("const FORMATS = {") :]
-    formats = formats[: formats.index("};")]
-    assert "book: []" in formats
+    root = Path(__file__).resolve().parent.parent
+    app = (root / "web" / "app.js").read_text()
+    assert "const FORMATS = {" not in app, "formats come from /facets"
+    assert 'facets.formats.length > 1 ? "" : "none"' in app
+    fragment = (
+        root / "android/app/src/main/java/com/mangabrain/app/ui/filters/FiltersFragment.kt"
+    ).read_text()
+    assert "val hasFormats = known.formats.size > 1" in fragment
 
 
 def test_every_api_medium_group_has_a_tab():
@@ -157,7 +161,7 @@ def test_a_suppressed_control_is_also_hidden():
 
     root = Path(__file__).resolve().parent.parent
     app = (root / "web" / "app.js").read_text()
-    assert 'supports(id) ? "" : "none"' in app, "web rows hidden from the support table"
+    assert 'supports(id) && !empty ? "" : "none"' in app, "web rows hidden from the support table"
     assert "function controlValue(" in app, "and the same table gates the value"
 
     fragment = (

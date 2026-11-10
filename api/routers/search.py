@@ -26,6 +26,7 @@ from api.db import MEDIA_COLS, get_pool, media_from_row
 from api.filters import build_filters
 from api.media_groups import ALL_MEDIUMS, MEDIUM_GROUPS, MediumGroup
 from api.models import (
+    FacetsResponse,
     GenresResponse,
     MediaOut,
     ResolveMatch,
@@ -210,6 +211,17 @@ def tags(medium: MediumGroup | None = None, adult: bool = False) -> TagsResponse
 def genres(medium: MediumGroup | None = None, adult: bool = False) -> GenresResponse:
     """The genres one medium group's titles carry, for the genre chips."""
     return GenresResponse(genres=vocabulary("genres", medium, adult=adult))
+
+
+@router.get("/facets", response_model=FacetsResponse)
+def facets(medium: MediumGroup | None = None, adult: bool = False) -> FacetsResponse:
+    """The country codes, formats and statuses one medium group's titles
+    carry, for the filter dropdowns. Clients name the countries."""
+    return FacetsResponse(
+        countries=vocabulary("countries", medium, adult=adult),
+        formats=vocabulary("formats", medium, adult=adult),
+        statuses=vocabulary("statuses", medium, adult=adult),
+    )
 
 
 # Lowercase, then drop ASCII punctuation and whitespace while keeping every

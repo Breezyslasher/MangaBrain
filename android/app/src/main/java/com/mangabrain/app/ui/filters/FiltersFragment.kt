@@ -18,6 +18,7 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.mangabrain.app.R
 import com.mangabrain.app.data.FilterState
 import com.mangabrain.app.data.ServiceLocator
+import com.mangabrain.app.data.api.FacetsResponse
 import com.mangabrain.app.ui.MainActivity
 import com.mangabrain.app.ui.centerContent
 import kotlinx.coroutines.launch
@@ -58,6 +59,12 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
     // Discover is on, and again whenever it changes.
     private var vocabularyMedium: String? = null
     private var genres: List<String> = fallbackGenres(FilterState.medium)
+
+    // The format, origin and status choices, from the server per medium.
+    // They used to be AniList's lists typed in here, so the Films tab
+    // offered Japan, Korea, China and Taiwan and nothing else.
+    private var facets: FacetsResponse? = null
+    private var facetsLoaded = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         view.findViewById<View>(R.id.filtersBody).centerContent()
@@ -102,14 +109,38 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
             vocabularyMedium = vocabularyKey()
             tagsLoaded = false
             genresLoaded = false
+            facetsLoaded = false
+            facets = null
+            view?.let { bindSpinners(it) }
             genres = fallbackGenres(medium)
             view?.findViewById<ChipGroup>(R.id.genreChips)?.let { bindGenres(it) }
         }
         val input = view?.findViewById<AutoCompleteTextView>(R.id.tagInput)
         if (!tagsLoaded && input != null) loadTagVocabulary(input)
         if (!genresLoaded) loadGenres()
+        if (!facetsLoaded) loadFacets()
         if (!dubLoaded) loadDubLanguages()
     }
+
+    private fun loadFacets() {
+        val api = ServiceLocator.api(requireContext()) ?: return
+        val medium = FilterState.medium
+        val key = vocabularyKey()
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val answer = api.facets(medium, FilterState.adult)
+                if (key != vocabularyKey()) return@launch
+                facets = answer
+                facetsLoaded = true
+                view?.let { bindSpinners(it) }
+            } catch (e: Exception) {
+                // Retried on the next visit; the pickers stay at "Any".
+            }
+        }
+    }
+
+    private fun countryName(code: String): String =
+        java.util.Locale("", code).getDisplayCountry(java.util.Locale.ENGLISH).ifBlank { code }
 
     private fun fallbackGenres(medium: String): List<String> =
         if (medium == "anime" || medium == "manga") FilterState.GENRES else emptyList()
@@ -185,24 +216,36 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
     }
 
     private fun bindSpinners(view: View) {
+        val known = facets ?: FacetsResponse()
+        // A choice the medium does not have would filter everything out.
+        // Only judged once the lists are in, so a saved choice is not
+        // cleared while they load.
+        if (facets != null) {
+            if (FilterState.format !in known.formats) FilterState.format = ""
+            if (FilterState.country !in known.countries) FilterState.country = ""
+            if (FilterState.status !in known.statuses) FilterState.status = ""
+        }
+
         bindSpinner(
             view.findViewById(R.id.formatSpinner),
-            listOf("" ) + FilterState.formatsForMedium(),
-            listOf(getString(R.string.any)) + FilterState.formatsForMedium().map { it.replace('_', ' ') },
+            listOf("") + known.formats,
+            listOf(getString(R.string.any)) + known.formats.map { it.replace('_', ' ') },
             FilterState.format
         ) { FilterState.format = it }
 
+        val countries = known.countries.sortedBy { countryName(it) }
         bindSpinner(
             view.findViewById(R.id.countrySpinner),
-            listOf("", "JP", "KR", "CN", "TW"),
-            listOf(getString(R.string.any), "Japan", "Korea", "China", "Taiwan"),
+            listOf("") + countries,
+            listOf(getString(R.string.any)) + countries.map { countryName(it) },
             FilterState.country
         ) { FilterState.country = it }
 
+        val statuses = known.statuses.sortedBy { FilterState.statusRank(it) }
         bindSpinner(
             view.findViewById(R.id.statusSpinner),
-            listOf("", "FINISHED", "RELEASING", "NOT_YET_RELEASED", "HIATUS", "CANCELLED"),
-            listOf(getString(R.string.any), "Finished", "Releasing", "Not yet released", "Hiatus", "Cancelled"),
+            listOf("") + statuses,
+            listOf(getString(R.string.any)) + statuses.map { FilterState.statusLabel(it) },
             FilterState.status
         ) { FilterState.status = it }
 
@@ -218,19 +261,20 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
         // change the result is the worse failure of the two: on the Books
         // tab, Origin and Status do not merely get ignored, they match no
         // book at all, so the grid empties with nothing to explain why.
-        fun rows(control: String, vararg ids: Int) {
-            val visible = if (FilterState.supports(control)) View.VISIBLE else View.GONE
+        fun rows(control: String, vararg ids: Int, choices: Int = 2) {
+            val live = FilterState.supports(control) && choices > 1
+            val visible = if (live) View.VISIBLE else View.GONE
             for (id in ids) view.findViewById<View>(id)?.visibility = visible
         }
         rows("dub_lang", R.id.dubLabel, R.id.dubSpinner)
         rows("min_score", R.id.minScore)
-        rows("country", R.id.originLabel, R.id.countrySpinner)
-        rows("status", R.id.statusLabel, R.id.statusSpinner)
+        rows("country", R.id.originLabel, R.id.countrySpinner, choices = known.countries.size)
+        rows("status", R.id.statusLabel, R.id.statusSpinner, choices = known.statuses.size)
         rows("max_popularity", R.id.popularityLabel, R.id.popularitySpinner)
         rows("length", R.id.lengthRow)
-        // Format has no table entry: the vocabulary itself is the answer, and
-        // for books it is empty, leaving a spinner whose only choice is "Any".
-        val hasFormats = FilterState.formatsForMedium().isNotEmpty()
+        // Format has no table entry: the vocabulary itself is the answer. One
+        // format (every film is a film) is no choice, so it is hidden too.
+        val hasFormats = known.formats.size > 1
         for (id in listOf(R.id.formatLabel, R.id.formatSpinner)) {
             view.findViewById<View>(id)?.visibility = if (hasFormats) View.VISIBLE else View.GONE
         }

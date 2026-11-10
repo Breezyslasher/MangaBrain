@@ -104,6 +104,7 @@ API_PREFIXES = (
     "/datasets",
     "/tags",
     "/genres",
+    "/facets",
     "/describe",
     # /dub was missing, so dub coverage and the language list answered
     # unauthenticated on a server with AUTH_TOKEN set, and skipped the

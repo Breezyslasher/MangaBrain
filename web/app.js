@@ -12,6 +12,7 @@ const state = {
   tagState: {}, // name -> "inc" | "exc"
   tagVocabulary: [], // this medium's tags, for the suggestion dropdown
   genres: null, // this medium's genres, from /genres; null until loaded
+  facets: null, // its countries, formats and statuses, from /facets
   tagSuggestIndex: -1, // keyboard-highlighted suggestion
   titleLang: localStorage.getItem("mb_title_lang") || "english",
   shownSeedIds: "", // seeds currently on screen, so a re-rank does not scroll
@@ -51,34 +52,66 @@ function controlValue(id) {
   return el.value;
 }
 
-const FORMATS = {
-  anime: ["TV", "TV_SHORT", "MOVIE", "OVA", "ONA", "SPECIAL", "MUSIC"],
-  manga: ["MANGA"],
-  light_novel: ["NOVEL"],
-  one_shot: ["ONE_SHOT"],
-  // Open Library has no format vocabulary - a work is a work - so the
-  // format filter has nothing to offer for books. An empty list leaves
-  // the control out rather than showing an empty dropdown.
-  book: [],
-  // Every film is a film, so there is nothing to choose between.
-  movie: [],
-  // TVmaze's show types, as pipeline/sync_tvmaze.py stores them, plus
-  // MINISERIES, which only TMDB (TV's second source) uses.
-  tv: [
-    "SCRIPTED",
-    "MINISERIES",
-    "ANIMATION",
-    "REALITY",
-    "DOCUMENTARY",
-    "TALK_SHOW",
-    "GAME_SHOW",
-    "NEWS",
-    "SPORTS",
-    "VARIETY",
-    "AWARD_SHOW",
-    "PANEL_SHOW",
-  ],
+// The format, country and status dropdowns are filled from /facets with
+// what each medium's titles actually carry. They used to be AniList's lists
+// typed in here, so the Films tab offered Japan, Korea, China and Taiwan
+// and nothing else. Only the words shown for each value live here.
+const STATUS_ORDER = ["FINISHED", "RELEASING", "NOT_YET_RELEASED", "HIATUS", "CANCELLED"];
+const PRINT_STATUS = {
+  FINISHED: "Finished",
+  RELEASING: "Publishing",
+  NOT_YET_RELEASED: "Not yet published",
+  HIATUS: "On hiatus",
+  CANCELLED: "Cancelled",
 };
+const STATUS_LABELS = {
+  anime: {
+    FINISHED: "Finished",
+    RELEASING: "Airing",
+    NOT_YET_RELEASED: "Not yet aired",
+    HIATUS: "On hiatus",
+    CANCELLED: "Cancelled",
+  },
+  manga: PRINT_STATUS,
+  light_novel: PRINT_STATUS,
+  one_shot: PRINT_STATUS,
+  book: PRINT_STATUS,
+  movie: {
+    FINISHED: "Released",
+    RELEASING: "Releasing",
+    NOT_YET_RELEASED: "Upcoming",
+    HIATUS: "On hold",
+    CANCELLED: "Cancelled",
+  },
+  // TVmaze's "To Be Determined" is stored as HIATUS.
+  tv: {
+    FINISHED: "Ended",
+    RELEASING: "Airing",
+    NOT_YET_RELEASED: "In development",
+    HIATUS: "To be determined",
+    CANCELLED: "Cancelled",
+  },
+};
+
+function statusLabel(status) {
+  const labels = STATUS_LABELS[state.medium] || STATUS_LABELS.anime;
+  return labels[status] || status.replaceAll("_", " ").toLowerCase();
+}
+
+let regionNames = null;
+try {
+  regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+} catch {
+  // An old browser shows the codes instead.
+}
+
+function countryName(code) {
+  try {
+    return (regionNames && regionNames.of(code)) || code;
+  } catch {
+    return code;
+  }
+}
 
 // AniList's genres: what the anime and manga tabs show until /genres
 // answers for the medium, or if it cannot be reached. Other media name
@@ -426,15 +459,16 @@ async function loadDubCoverage() {
   }
 }
 
-function anilistUrl(media) {
-  const kind = media.medium === "anime" ? "anime" : "manga";
-  return `https://anilist.co/${kind}/${media.id}`;
-}
-
-function malUrl(media) {
-  if (!media.id_mal) return null;
-  const kind = media.medium === "anime" ? "anime" : "manga";
-  return `https://myanimelist.net/${kind}/${media.id_mal}`;
+// A page about the title on the site its data came from: AniList and
+// MyAnimeList for anime and manga, TMDB, TVmaze or Open Library for the
+// rest. The server builds them from the row's source and that source's id.
+function externalLink(link) {
+  const a = document.createElement("a");
+  a.href = link.url;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = link.label;
+  return a;
 }
 
 function card(media, badgeText, onClick, components) {
@@ -485,16 +519,15 @@ function card(media, badgeText, onClick, components) {
   const meta = document.createElement("div");
   meta.className = "meta";
   meta.textContent = mediaMeta(media);
-  const link = document.createElement("a");
-  link.className = "ext";
-  link.href = anilistUrl(media);
-  link.target = "_blank";
-  link.rel = "noopener";
-  link.textContent = "AniList";
-  link.addEventListener("click", (e) => e.stopPropagation());
   info.appendChild(title);
   info.appendChild(meta);
-  info.appendChild(link);
+  const first = (media.links || [])[0];
+  if (first) {
+    const link = externalLink(first);
+    link.className = "ext";
+    link.addEventListener("click", (e) => e.stopPropagation());
+    info.appendChild(link);
+  }
   el.appendChild(info);
   el.addEventListener("click", onClick);
   return el;
@@ -673,21 +706,7 @@ function renderSeedCard(seed) {
   }
   const links = document.createElement("div");
   links.className = "ext-links";
-  const al = document.createElement("a");
-  al.href = anilistUrl(seed);
-  al.target = "_blank";
-  al.rel = "noopener";
-  al.textContent = "AniList";
-  links.appendChild(al);
-  const mal = malUrl(seed);
-  if (mal) {
-    const ml = document.createElement("a");
-    ml.href = mal;
-    ml.target = "_blank";
-    ml.rel = "noopener";
-    ml.textContent = "MyAnimeList";
-    links.appendChild(ml);
-  }
+  for (const link of seed.links || []) links.appendChild(externalLink(link));
   const desc = document.createElement("p");
   desc.textContent = seed.description || "";
   body.appendChild(h3);
@@ -1233,16 +1252,38 @@ async function refreshMal() {
   }
 }
 
-function populateFormats() {
-  const select = $("format");
+// Refills one dropdown, keeping the choice when the new list still has it.
+function fillSelect(id, values, label) {
+  const select = $(id);
+  if (!select) return;
+  // While the lists load, the choice is remembered rather than dropped, so
+  // flipping the adult toggle does not clear a chosen country.
+  const previous = select.value || select.dataset.want || "";
+  if (state.facets) delete select.dataset.want;
+  else select.dataset.want = previous;
   select.innerHTML = '<option value="">Any</option>';
-  for (const fmt of FORMATS[state.medium] || []) {
+  for (const value of values) {
     const opt = document.createElement("option");
-    opt.value = fmt;
-    opt.textContent = fmt.replaceAll("_", " ");
+    opt.value = value;
+    opt.textContent = label(value);
     select.appendChild(opt);
   }
-  $("formatWrap").style.display = state.medium === "anime" ? "" : "none";
+  select.value = values.includes(previous) ? previous : "";
+}
+
+function populateFormats() {
+  const facets = state.facets || { countries: [], formats: [], statuses: [] };
+  fillSelect("format", facets.formats, (f) => f.replaceAll("_", " "));
+  const countries = [...facets.countries].sort((a, b) =>
+    countryName(a).localeCompare(countryName(b)),
+  );
+  fillSelect("country", countries, countryName);
+  const statuses = [...facets.statuses].sort(
+    (a, b) => STATUS_ORDER.indexOf(a) - STATUS_ORDER.indexOf(b),
+  );
+  fillSelect("status", statuses, statusLabel);
+  // One format to choose from (every film is a film) is no choice.
+  $("formatWrap").style.display = facets.formats.length > 1 ? "" : "none";
   // Each of these sits in its own <label>, which is the row to hide.
   for (const id of [
     "minScore",
@@ -1253,7 +1294,9 @@ function populateFormats() {
     "maxLen",
   ]) {
     const row = $(id) && $(id).closest("label");
-    if (row) row.style.display = supports(id) ? "" : "none";
+    const empty =
+      (id === "country" || id === "status") && (!state.facets || $(id).options.length < 3);
+    if (row) row.style.display = supports(id) && !empty ? "" : "none";
   }
   // Print media has no dub, so the toggle is hidden rather than ignored.
   $("dubbedRow").style.display = state.medium === "anime" ? "" : "none";
@@ -1326,7 +1369,17 @@ async function loadVocabularies() {
   const current = () => state.medium === medium && ($("adult").checked ? "true" : "") === adult;
   state.genres = null;
   state.tagVocabulary = [];
+  state.facets = null;
   renderGenreChips();
+  populateFormats();
+  try {
+    const data = await api("/facets", { medium, adult });
+    if (!current()) return;
+    state.facets = data;
+    populateFormats();
+  } catch {
+    // The dropdowns stay at "Any"; the next medium change retries.
+  }
   try {
     const data = await api("/genres", { medium, adult });
     if (!current()) return;
