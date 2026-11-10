@@ -9,6 +9,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from api.config import settings
+from api.links import links_for
 from api.models import MediaOut
 
 _pool: ConnectionPool | None = None
@@ -109,7 +110,7 @@ MEDIA_COLS = """
     m.status, m.average_score, m.cover_image_medium, m.cover_image_large,
     m.is_adult, m.synonyms, m.popularity, m.favourites,
     m.english_va_count, m.dub_groups, m.english_dub_inferred, m.dub_languages,
-    m.measured_dub_languages, m.mal_dub_languages
+    m.measured_dub_languages, m.mal_dub_languages, m.source, m.source_id
 """
 
 # Full rows for an already-decided set of ids.
@@ -167,6 +168,7 @@ def media_from_row(row: dict[str, Any]) -> MediaOut:
         measured_dub_languages=row.get("measured_dub_languages") or [],
         mal_dub_languages=row.get("mal_dub_languages") or [],
         dub_source=_dub_source(row),
+        links=links_for(row),
     )
 
 

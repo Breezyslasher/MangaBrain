@@ -164,7 +164,7 @@
     <string name="summary_waiting">%1$s waiting</string>
     <string name="summary_installing">%1$s installing</string>
     <string name="titles_english">Titles in English</string>
-    <string name="titles_romaji">Titles in Romaji</string>
+    <string name="titles_romaji">Romaji or original titles</string>
     <string name="token_saved">Access token saved</string>
     <string name="token_none">No access token</string>
     <string name="server_not_set">Server not set up</string>
@@ -201,7 +201,7 @@
     <string name="ratings_hint">Higher-rated titles seed more often</string>
     <string name="title_language">Title language</string>
     <string name="english">English</string>
-    <string name="romaji">Romaji</string>
+    <string name="romaji">Romaji / original</string>
     <string name="title_language_hint">English is used when a title has one</string>
     <string name="token_on_device">Saved on this device</string>
     <string name="token_not_saved">Not saved</string>

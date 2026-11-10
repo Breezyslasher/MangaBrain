@@ -13,6 +13,12 @@ package com.mangabrain.app.data.api
  * response that omits a field parses rather than throwing - which matters
  * because MediaOut has 26 optional fields out of 28.
  */
+/** A page about a title: AniList, MyAnimeList, TMDB, TVmaze or Open Library. */
+data class Link(
+    val label: String,
+    val url: String
+)
+
 data class MediaOut(
     val id: Int,
     val medium: String,
@@ -42,7 +48,9 @@ data class MediaOut(
     val dub_languages: List<String> = emptyList(),
     val measured_dub_languages: List<String> = emptyList(),
     val mal_dub_languages: List<String> = emptyList(),
-    val dub_source: String? = null
+    val dub_source: String? = null,
+    /** Pages about this title on the sites its data came from. */
+    val links: List<Link> = emptyList()
 ) {
     /** Same precedence the web client uses for its "English when available". */
     /** English when available, unless Settings › Display asks for Romaji. */
@@ -216,4 +224,11 @@ data class TagsResponse(
 
 data class GenresResponse(
     val genres: List<String> = emptyList()
+)
+
+/** What one medium's titles carry, for the format, origin and status pickers. */
+data class FacetsResponse(
+    val countries: List<String> = emptyList(),
+    val formats: List<String> = emptyList(),
+    val statuses: List<String> = emptyList()
 )

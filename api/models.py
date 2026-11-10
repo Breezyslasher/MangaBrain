@@ -6,6 +6,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class Link(BaseModel):
+    """A page about this title on the site its data came from."""
+
+    label: str
+    url: str
+
+
 class MediaOut(BaseModel):
     id: int
     id_mal: int | None = None
@@ -59,6 +66,11 @@ class MediaOut(BaseModel):
     # is dubbed and this one inherited the flag, None when unknown. A client
     # showing a dub badge can qualify it.
     dub_source: str | None = None
+    # Where to read about this title: AniList (and MAL) for anime and
+    # manga, TMDB, TVmaze or Open Library for the rest. Built from the
+    # row's source and that source's own id; the catalogue id of a film,
+    # show or book is MangaBrain's, not AniList's.
+    links: list[Link] = []
 
 
 class ScoreComponents(BaseModel):
@@ -170,6 +182,14 @@ class TagsResponse(BaseModel):
 
 class GenresResponse(BaseModel):
     genres: list[str]
+
+
+class FacetsResponse(BaseModel):
+    """The country codes, formats and statuses one medium's titles carry."""
+
+    countries: list[str]
+    formats: list[str]
+    statuses: list[str]
 
 
 # Kitsu ids are accepted on input only: they are resolved to the MAL or

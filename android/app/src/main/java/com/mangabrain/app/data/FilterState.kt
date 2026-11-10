@@ -234,14 +234,26 @@ object FilterState {
     fun searchParams(limit: Int = 60): Map<String, String> =
         filterParams() + mapOf("medium" to medium, "limit" to limit.toString())
 
-    /** Mirrors the web client's medium -> format vocabulary. */
-    fun formatsForMedium(): List<String> = when (medium) {
-        "anime" -> listOf("TV", "TV_SHORT", "MOVIE", "OVA", "ONA", "SPECIAL", "MUSIC")
-        "manga" -> listOf("MANGA")
-        "light_novel" -> listOf("NOVEL")
-        "one_shot" -> listOf("ONE_SHOT")
-        "tv" -> listOf("SCRIPTED", "MINISERIES", "ANIMATION", "REALITY", "DOCUMENTARY", "TALK_SHOW", "GAME_SHOW", "NEWS", "SPORTS", "VARIETY", "AWARD_SHOW", "PANEL_SHOW")
-        else -> emptyList()
+    private val STATUS_ORDER = listOf("FINISHED", "RELEASING", "NOT_YET_RELEASED", "HIATUS", "CANCELLED")
+
+    /** The order the status picker lists its values in. */
+    fun statusRank(status: String): Int =
+        STATUS_ORDER.indexOf(status).let { if (it < 0) STATUS_ORDER.size else it }
+
+    /**
+     * The words for a status on the medium in view. Every source is stored
+     * as AniList's five values, but "Releasing" means airing for a show,
+     * publishing for a book, and TVmaze's "To Be Determined" is HIATUS.
+     */
+    fun statusLabel(status: String): String {
+        val labels = when (medium) {
+            "anime" -> listOf("Finished", "Airing", "Not yet aired", "On hiatus", "Cancelled")
+            "movie" -> listOf("Released", "Releasing", "Upcoming", "On hold", "Cancelled")
+            "tv" -> listOf("Ended", "Airing", "In development", "To be determined", "Cancelled")
+            else -> listOf("Finished", "Publishing", "Not yet published", "On hiatus", "Cancelled")
+        }
+        val i = STATUS_ORDER.indexOf(status)
+        return if (i >= 0) labels[i] else status.replace('_', ' ').lowercase()
     }
 
     /** Account names come from the server's settings, not from local state. */

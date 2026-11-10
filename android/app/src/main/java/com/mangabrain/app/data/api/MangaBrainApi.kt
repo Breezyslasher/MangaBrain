@@ -119,6 +119,13 @@ interface MangaBrainApi {
         @Query("adult") adult: Boolean = false
     ): GenresResponse
 
+    /** The countries, formats and statuses one medium group's titles carry. */
+    @GET("facets")
+    suspend fun facets(
+        @Query("medium") medium: String,
+        @Query("adult") adult: Boolean = false
+    ): FacetsResponse
+
     @GET("dub/languages")
     suspend fun dubLanguages(@Query("min_titles") minTitles: Int): DubLanguagesOut
 

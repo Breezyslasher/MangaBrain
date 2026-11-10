@@ -835,7 +835,7 @@
           "translate",
           "#8B93A7",
           "Display",
-          state.titleLang === "romaji" ? "Titles in Romaji" : "Titles in English",
+          state.titleLang === "romaji" ? "Romaji or original titles" : "Titles in English",
           () => push("display"),
         ),
         navRow("key", "#8B93A7", "Server", token ? "Access token saved" : "No access token", () =>
@@ -1116,7 +1116,7 @@
     const seg = el("div", "m-segmented");
     for (const [value, text] of [
       ["english", "English"],
-      ["romaji", "Romaji"],
+      ["romaji", "Romaji / original"],
     ]) {
       const button = el("button", "m-segment", text);
       button.type = "button";

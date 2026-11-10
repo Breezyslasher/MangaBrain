@@ -108,3 +108,24 @@ def test_a_stale_list_is_served_while_it_refreshes(db, monkeypatch):
         time.sleep(0.01)
     assert db.vocabulary("genres", "tv") == ["New"]
     assert calls == [1]
+
+
+def test_facets_list_each_medium_values(db):
+    import psycopg
+
+    from api.config import settings
+
+    with psycopg.connect(settings.database_url) as conn:
+        conn.execute(
+            "UPDATE media SET country_of_origin = CASE id WHEN 1 THEN 'JP' WHEN 3 THEN 'US'"
+            " WHEN 2 THEN 'KR' END, format = CASE id WHEN 1 THEN 'TV' WHEN 3 THEN 'SCRIPTED' END,"
+            " status = CASE id WHEN 1 THEN 'FINISHED' WHEN 3 THEN 'RELEASING' END"
+        )
+        conn.commit()
+    db.forget()
+    assert db.vocabulary("countries", "anime") == ["JP"], "the adult title's KR is left out"
+    assert db.vocabulary("countries", "anime", adult=True) == ["JP", "KR"]
+    assert db.vocabulary("countries", "tv") == ["US"]
+    assert db.vocabulary("formats", "tv") == ["SCRIPTED"]
+    assert db.vocabulary("statuses", "tv") == ["RELEASING"]
+    assert db.vocabulary("countries", "book") == []
