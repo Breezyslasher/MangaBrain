@@ -233,6 +233,16 @@ def upsert_params(rows, stored_id: str, vectors) -> list[tuple]:
     return [(row[0], stored_id, vec) for row, vec in zip(rows, vectors, strict=True)]
 
 
+# Held for a whole pass, so two passes never write the same rows. The NAS
+# worker's nightly pass and an embed run from another machine through a
+# tunnel both start from the lowest id still missing, and their batch
+# upserts deadlocked on the embeddings key ("deadlock detected ... while
+# inserting index tuple ... in relation embeddings"), aborting one of them.
+# A session lock is released when its connection ends, so a pass killed
+# with its tunnel never leaves the lock behind.
+EMBED_LOCK_KEY = 727_273
+
+
 def embed_missing(
     batch_size: int = 256,
     model_name: str | None = None,
@@ -260,10 +270,20 @@ def embed_missing(
 
     model_name = model_name or settings.embed_model
     stored_id = embed_model_id(model_name)
-    model = SentenceTransformer(model_name)
     total = 0
     with psycopg.connect(settings.database_url) as conn:
         register_vector(conn)
+        if not conn.execute("SELECT pg_try_advisory_lock(%s)", (EMBED_LOCK_KEY,)).fetchone()[0]:
+            print(
+                "[embed] another embedding pass is already running against this"
+                " database; leaving the rows to it",
+                flush=True,
+            )
+            return 0
+        conn.commit()
+        # Loaded once the lock is held: a pass that steps aside should not
+        # spend a minute reading the model first.
+        model = SentenceTransformer(model_name)
         only = list(sources) if sources is not None else None
         pending = conn.execute(PENDING_COUNT_SQL, (stored_id, only, only)).fetchone()[0]
         catalog_total = conn.execute(CATALOG_COUNT_SQL).fetchone()[0]
