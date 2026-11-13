@@ -60,6 +60,20 @@ def _load():
     return SentenceTransformer(settings.embed_model)
 
 
+def warm() -> None:
+    """Load the model on a background thread, if the settings ask for it."""
+    if not settings.preload_describe_model:
+        return
+
+    def run() -> None:
+        try:
+            _get_model()
+        except Exception:  # noqa: BLE001 - the first /describe loads it instead
+            pass
+
+    threading.Thread(target=run, name="describe-model", daemon=True).start()
+
+
 def is_loaded() -> bool:
     """Whether the model is resident, for callers that report readiness."""
     return _model is not None

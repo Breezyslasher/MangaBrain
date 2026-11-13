@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # so a long embed pass cannot starve everything else on a small host
     # (the shared mini-PC problem); set an exact count to override.
     embed_threads: int = 0
+    # Load the description-search model in the background when the API
+    # starts, so the first sentence search does not wait for it (tens of
+    # seconds on a NAS). Costs about a gigabyte of memory for the life of
+    # the process; PRELOAD_DESCRIBE_MODEL=false leaves it to the first use.
+    preload_describe_model: bool = True
     candidate_pool: int = 500
     http_cache_dir: str = ""
     anilist_min_interval: float = 2.0
