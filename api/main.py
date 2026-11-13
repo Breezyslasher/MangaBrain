@@ -13,7 +13,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from api import vocabulary
+from api import embedding, vocabulary
 from api.config import settings
 from api.db import close_pool, ensure_schema, get_pool
 from api.routers import (
@@ -41,6 +41,10 @@ async def lifespan(_app: FastAPI):
     # Counting a million books' tags outlasts a client's timeout; have the
     # filter vocabularies ready before anyone opens Filters.
     vocabulary.warm()
+    # The Media page's counts, and the description model, which the first
+    # sentence search would otherwise wait tens of seconds for on a NAS.
+    datasets.warm()
+    embedding.warm()
     yield
     close_pool()
 

@@ -63,21 +63,57 @@ def forget_counts() -> None:
     _counts_cache = None
 
 
-def release_available(dataset: Dataset) -> bool | None:
-    if dataset.key != "books":
-        return None
-    now = time.monotonic()
-    cached = _release_cache.get(dataset.key)
-    if cached and now - cached[0] < RELEASE_TTL:
-        return cached[1]
+_release_lock = threading.Lock()
+
+
+def _check_release(key: str) -> None:
     try:
         from pipeline.book_dataset import find_release_manifest
 
         found: bool | None = find_release_manifest() is not None
     except Exception:  # noqa: BLE001 - unknown, not an error page
         found = None
-    _release_cache[dataset.key] = (now, found)
-    return found
+    _release_cache[key] = (time.monotonic(), found)
+
+
+def _refresh_release(key: str) -> None:
+    try:
+        _check_release(key)
+    finally:
+        _release_lock.release()
+
+
+def release_available(dataset: Dataset) -> bool | None:
+    """Whether a books release exists. Asking GitHub lists every release,
+    up to 30 s on a slow link, and the Media page used to wait for it every
+    fifteen minutes; now the answer is refreshed in the background and the
+    page is served what is known (None until the first check returns)."""
+    if dataset.key != "books":
+        return None
+    cached = _release_cache.get(dataset.key)
+    stale = cached is None or time.monotonic() - cached[0] >= RELEASE_TTL
+    if stale and _release_lock.acquire(blocking=False):
+        threading.Thread(
+            target=_refresh_release, args=(dataset.key,), name="dataset-release", daemon=True
+        ).start()
+    return cached[1] if cached else None
+
+
+def warm() -> None:
+    """Count the catalogue and check for a books release in the background
+    when the API starts, so neither the Media page nor /settings waits."""
+
+    def run() -> None:
+        try:
+            with get_pool().connection() as conn:
+                catalogue_counts(conn)
+        except Exception:  # noqa: BLE001 - the first request counts instead
+            pass
+        books = BY_KEY.get("books")
+        if books is not None:
+            release_available(books)
+
+    threading.Thread(target=run, name="dataset-warm", daemon=True).start()
 
 
 def installed_keys(conn) -> set[str]:
