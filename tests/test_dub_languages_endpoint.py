@@ -143,3 +143,31 @@ def test_the_client_names_the_languages_the_catalog_actually_has():
     ).split()
     missing = [code for code in measured if f'"{code}"' not in app and f"{code}:" not in app]
     assert not missing, f"no display name for: {missing}"
+
+
+def test_the_language_counts_are_kept_for_ten_minutes(monkeypatch):
+    from api.routers import dub
+
+    calls = []
+
+    class Conn:
+        def execute(self, sql, params):
+            calls.append(1)
+            return type("R", (), {"fetchall": lambda self: [{"lang": "en", "titles": 5}]})()
+
+    class Pool:
+        def connection(self):
+            import contextlib
+
+            return contextlib.nullcontext(Conn())
+
+    monkeypatch.setattr(dub, "get_pool", lambda: Pool())
+    clock = [1000.0]
+    monkeypatch.setattr(dub.time, "monotonic", lambda: clock[0])
+    assert dub.dub_languages(min_titles=10).languages[0].code == "en"
+    clock[0] += 599
+    dub.dub_languages(min_titles=10)
+    assert len(calls) == 1
+    clock[0] += 2
+    dub.dub_languages(min_titles=10)
+    assert len(calls) == 2

@@ -39,7 +39,11 @@ _SCHEMA_LOCK_KEY = 727_272
 # announced in the log so a long start-up says what it is doing.
 LARGE_INDEXES: list[tuple[str, str]] = [
     ("idx_media_media_type", "ON media (media_type)"),
-    ("idx_media_browse_order", "ON media (start_year DESC NULLS LAST, id DESC)"),
+    # Per medium. One order across every medium made a browse of books
+    # walk past every film and show first: films nearly all carry a year,
+    # few Open Library works do, so the 60 newest books sat behind hundreds
+    # of thousands of other rows - 45 to 89 s on a NAS.
+    ("idx_media_medium_browse", "ON media (medium, start_year DESC NULLS LAST, id DESC)"),
     ("idx_media_genres", "ON media USING gin (genres)"),
     ("idx_media_tag_names", "ON media USING gin (mb_tag_names(tags))"),
     (

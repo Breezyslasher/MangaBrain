@@ -5,7 +5,7 @@ fill a cache other tests read. Tests that want them use `real_warmups`."""
 import pytest
 
 from api import embedding
-from api.routers import datasets
+from api.routers import datasets, dub
 
 REAL = {"embedding": embedding.warm, "datasets": datasets.warm}
 
@@ -14,6 +14,8 @@ REAL = {"embedding": embedding.warm, "datasets": datasets.warm}
 def _no_background_warmups(monkeypatch):
     monkeypatch.setattr(embedding, "warm", lambda: None)
     monkeypatch.setattr(datasets, "warm", lambda: None)
+    # A cached count from one test's database must not answer another's.
+    dub._languages_cache.clear()
 
 
 @pytest.fixture

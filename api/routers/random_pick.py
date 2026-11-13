@@ -12,11 +12,12 @@ router = APIRouter()
 # A random title used to be ORDER BY random() over every row of the medium,
 # full rows included: 1.7 s for the 1.1 million books on a fast machine, far
 # longer on a NAS. Picking from a random sample of the table's pages first
-# reads a few percent of it. Pages are chosen at random and hold similar
-# numbers of rows, so every title stays about equally likely. When the
+# reads one percent of it (two percent took 1.4 s on a NAS). Pages are
+# chosen at random and hold similar numbers of rows, so every title stays
+# about equally likely. When the
 # filters are narrow enough that the sample holds no match, the full pick
 # runs, as before.
-SAMPLE_PERCENT = 2
+SAMPLE_PERCENT = 1
 
 
 @router.get("/random", response_model=MediaOut)

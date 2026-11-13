@@ -71,13 +71,26 @@ def test_tag_names_read_the_stored_shape(conn):
     assert conn.execute("SELECT mb_tag_names(NULL)").fetchone()[0] == []
 
 
-def test_browse_reads_the_order_index(conn):
-    from api.routers.search import BROWSE_ORDER
+def test_browse_reads_the_medium_order_index(conn):
+    """Films nearly all carry a year and few books do, so one order over
+    every medium walked past every film to reach the newest books. The
+    order is per medium, and the browse must read it without a sort."""
+    from api.routers.search import BROWSE_ORDER, medium_clause
 
-    text = plan(
-        conn, f"SELECT m.id FROM media m WHERE m.medium = 'book' ORDER BY {BROWSE_ORDER} LIMIT 60"
+    conn.execute(
+        "INSERT INTO media (id, source, source_id, media_type, medium, title_romaji, start_year)"
+        " SELECT g, 'x', g::text, 'MOVIE', 'movie', 'Film ' || g, 2025"
+        " FROM generate_series(50000, 90000) g"
     )
-    assert "idx_media_browse_order" in text, text
+    conn.execute("UPDATE media SET start_year = NULL WHERE medium = 'book' AND id % 10 <> 0")
+    conn.execute("ANALYZE media")
+    sql = (
+        f"SELECT m.id FROM media m WHERE {medium_clause(['book'])} ORDER BY {BROWSE_ORDER} LIMIT 60"
+    )
+    text = plan(conn, sql, {"medium_one": "book"})
+    assert "idx_media_medium_browse" in text, text
+    assert "Sort" not in text.split("idx_media_medium_browse")[0], text
+    assert medium_clause(["manga", "manhwa", "manhua"]) == "m.medium = ANY(%(mediums)s)"
 
 
 def test_dub_counts_read_the_media_type_index(conn):

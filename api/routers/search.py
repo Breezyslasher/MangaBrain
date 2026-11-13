@@ -84,7 +84,7 @@ SEARCH_SQL_TEMPLATE = """
     SELECT {cols},
            {rank_sql} AS match_rank
     FROM media m
-    WHERE m.medium = ANY(%(mediums)s)
+    WHERE {medium_sql}
       AND ({word_sql}){filter_sql}
     ORDER BY {order_sql}
     LIMIT %(limit)s OFFSET %(offset)s
@@ -101,6 +101,14 @@ RANK_SQL = """GREATEST(
 # not popularity: the project bars popularity from ranking, and a browse list
 # ordered by member count would reintroduce it where it is least visible.
 BROWSE_ORDER = "m.start_year DESC NULLS LAST, m.id DESC"
+
+
+def medium_clause(mediums: list[str]) -> str:
+    """One medium as an equality, so a browse reads idx_media_medium_browse
+    in order and stops at the page; = ANY over an array cannot give the
+    index's order, and the planner sorts the whole medium instead. The
+    manga group (three mediums) still sorts, over its ~120,000 rows."""
+    return "m.medium = %(medium_one)s" if len(mediums) == 1 else "m.medium = ANY(%(mediums)s)"
 
 
 @router.get("/search", response_model=SearchResponse)
@@ -169,9 +177,10 @@ def search(
         word_sql=word_sql,
         filter_sql=filter_sql,
         order_sql="match_rank DESC, m.id" if q else BROWSE_ORDER,
+        medium_sql=medium_clause(mediums),
     )
     params: dict = {
-        "mediums": mediums,
+        **({"medium_one": mediums[0]} if len(mediums) == 1 else {"mediums": mediums}),
         "limit": limit,
         "offset": offset,
         **word_params,
