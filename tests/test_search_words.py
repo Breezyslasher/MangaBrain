@@ -3,7 +3,7 @@ from api.routers.search import MAX_QUERY_WORDS, word_filter
 
 def test_multi_word_query_requires_all_words_any_order():
     sql, params = word_filter("titan attack")
-    assert sql.count("ILIKE") == 2
+    assert sql.count(" LIKE ") == 2
     assert " AND " in sql
     assert params == {"word_0": "%titan%", "word_1": "%attack%"}
 
@@ -21,8 +21,8 @@ def test_punctuation_is_dropped_from_query_words():
     # A phone keyboard types a curly apostrophe; titles mostly hold a
     # straight one. Both are dropped, on both sides.
     sql, params = word_filter("A Dog’s Purpose")
-    assert params == {"word_0": "%A%", "word_1": "%Dogs%", "word_2": "%Purpose%"}
-    assert "h.hay" in sql
+    assert params == {"word_0": "%a%", "word_1": "%dogs%", "word_2": "%purpose%"}
+    assert "mb_title_search(" in sql
     assert word_filter("spider-man")[1] == {"word_0": "%spiderman%"}
 
 
@@ -32,9 +32,27 @@ def test_a_word_of_only_punctuation_is_ignored():
 
 
 def test_the_title_side_drops_the_same_characters():
-    from api.routers.search import IGNORED_PUNCTUATION, NORMALISED_SQL
+    """db/schema.sql's mb_title_search must drop exactly what the query
+    side drops, plus spaces, or a word would never match its title."""
+    from pathlib import Path
 
-    assert "translate(" in NORMALISED_SQL
-    assert IGNORED_PUNCTUATION.replace("'", "''") + " '" in NORMALISED_SQL, "spaces too"
+    from api.routers.search import IGNORED_PUNCTUATION
+
+    schema = (Path(__file__).resolve().parent.parent / "db/schema.sql").read_text()
+    body = schema[schema.index("FUNCTION mb_title_search(") :]
+    assert "'" + (IGNORED_PUNCTUATION + " ").replace("'", "''") + "', ''" in body
+    assert "lower(translate(" in body
     for ch in "'’‘-":
         assert ch in IGNORED_PUNCTUATION
+
+
+def test_the_query_matches_the_indexed_expression():
+    """The WHERE clause must be written exactly as the index is, or the
+    planner cannot use it and every search scans the catalogue again."""
+    from pathlib import Path
+
+    from api.routers.search import TITLE_SEARCH_SQL
+
+    schema = (Path(__file__).resolve().parent.parent / "db/schema.sql").read_text()
+    index = schema[schema.index("idx_media_title_search") :]
+    assert TITLE_SEARCH_SQL.replace("m.", "") in index

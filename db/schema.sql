@@ -448,3 +448,25 @@ ALTER TABLE media ADD COLUMN IF NOT EXISTS measured_dub_checked_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_media_measured_dub_unchecked
     ON media (id) WHERE measured_dub_checked_at IS NULL;
+
+-- Title search, indexed. /search matches every query word as a substring of
+-- a row's titles and synonyms run together, lowercased, with punctuation and
+-- spaces removed ("ironman" finds "Iron Man", "dogs" finds "Dog's"). That
+-- was computed per row on every search, a scan of ~2 million rows that took
+-- over 25 seconds on a NAS once books arrived. A trigram index over the same
+-- expression answers LIKE '%word%' directly. The function must stay in step
+-- with IGNORED_PUNCTUATION in api/routers/search.py (a test compares them).
+-- IMMUTABLE so it can be indexed; array_to_string is only STABLE because of
+-- type output in general, and for text[] its result never changes.
+CREATE OR REPLACE FUNCTION mb_title_search(
+    romaji TEXT, english TEXT, native TEXT, synonyms TEXT[]
+) RETURNS TEXT LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT lower(translate(
+        coalesce(romaji, '') || coalesce(english, '') || coalesce(native, '')
+            || coalesce(array_to_string(synonyms, ''), ''),
+        '''’‘ʼ`´.,:;!?"“”-‐–—()/ ', ''))
+$$;
+CREATE INDEX IF NOT EXISTS idx_media_title_search
+    ON media USING gin (
+        mb_title_search(title_romaji, title_english, title_native, synonyms) gin_trgm_ops
+    );

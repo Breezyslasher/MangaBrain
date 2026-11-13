@@ -220,19 +220,20 @@ def find_work(client, title: str, author: str) -> dict | None:
     return work.json()
 
 
-def check(lookup: bool = True) -> dict:
+def check(lookup: bool = True, books: list[tuple[str, str]] | None = None) -> dict:
     import httpx
     import psycopg
 
     from api.config import settings
 
+    books = BOOKS if books is None else books
     with psycopg.connect(settings.database_url) as conn:
         have = catalogue_titles(conn)
-    missing = [(t, a) for t, a in BOOKS if not (wanted_keys(t) & have)]
-    found = len(BOOKS) - len(missing)
-    print(f"{found}/{len(BOOKS)} of the list are in the catalogue", flush=True)
+    missing = [(t, a) for t, a in books if not (wanted_keys(t) & have)]
+    found = len(books) - len(missing)
+    print(f"{found}/{len(books)} of the list are in the catalogue", flush=True)
     if not missing:
-        return {"checked": len(BOOKS), "found": found, "missing": []}
+        return {"checked": len(books), "found": found, "missing": []}
     print(f"\nmissing ({len(missing)}):", flush=True)
     results = []
     headers = {"User-Agent": "MangaBrain/0.1 (self-hosted recommendation engine)"}
@@ -248,7 +249,7 @@ def check(lookup: bool = True) -> dict:
                 time.sleep(INTERVAL)
             print(f"  {title} ({author}): {why}", flush=True)
             results.append({"title": title, "author": author, "reason": why})
-    return {"checked": len(BOOKS), "found": found, "missing": results}
+    return {"checked": len(books), "found": found, "missing": results}
 
 
 def main() -> None:
@@ -256,8 +257,13 @@ def main() -> None:
     parser.add_argument(
         "--no-lookup", action="store_true", help="list what is missing without asking Open Library"
     )
+    parser.add_argument(
+        "--title", help='check one book instead of the list, e.g. --title "Death Troopers"'
+    )
+    parser.add_argument("--author", default="", help="its author, to find the right work")
     args = parser.parse_args()
-    check(lookup=not args.no_lookup)
+    books = [(args.title, args.author)] if args.title else None
+    check(lookup=not args.no_lookup, books=books)
 
 
 if __name__ == "__main__":

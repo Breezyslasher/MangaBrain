@@ -42,3 +42,16 @@ def test_the_list_is_well_formed():
     assert len(BOOKS) >= 100
     assert len({t for t, _ in BOOKS}) == len(BOOKS), "no duplicates"
     assert all(t.strip() and a.strip() for t, a in BOOKS)
+
+
+def test_one_book_can_be_checked_by_title(monkeypatch):
+    """--title checks the named book alone, not the whole list."""
+    from pipeline import check_books
+
+    seen = []
+    monkeypatch.setattr(check_books, "check", lambda lookup, books: seen.append(books))
+    monkeypatch.setattr(
+        "sys.argv", ["check_books", "--title", "Death Troopers", "--author", "Joe Schreiber"]
+    )
+    check_books.main()
+    assert seen == [[("Death Troopers", "Joe Schreiber")]]
