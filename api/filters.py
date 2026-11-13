@@ -100,17 +100,14 @@ def build_filters(
     if genres_exclude:
         clauses.append("NOT (m.genres && %(f_genres_exc)s::text[])")
         params["f_genres_exc"] = genres_exclude
+    # mb_tag_names (db/schema.sql) is the row's tag names as an array, and
+    # idx_media_tag_names indexes exactly that expression, so a tag filter
+    # is answered from the index rather than by unpacking every row's tags.
     if tags_include:
-        clauses.append(
-            "COALESCE((SELECT array_agg(t->>'name') FROM jsonb_array_elements(m.tags) t), '{}')"
-            " @> %(f_tags_inc)s::text[]"
-        )
+        clauses.append("mb_tag_names(m.tags) @> %(f_tags_inc)s::text[]")
         params["f_tags_inc"] = tags_include
     if tags_exclude:
-        clauses.append(
-            "NOT (COALESCE((SELECT array_agg(t->>'name')"
-            " FROM jsonb_array_elements(m.tags) t), '{}') && %(f_tags_exc)s::text[])"
-        )
+        clauses.append("NOT (mb_tag_names(m.tags) && %(f_tags_exc)s::text[])")
         params["f_tags_exc"] = tags_exclude
     if max_popularity is not None:
         # Obscurity cap: popularity is a FILTER the user opts into, never a

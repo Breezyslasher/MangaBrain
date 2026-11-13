@@ -10,6 +10,7 @@ Seeds are restricted to the dominant embedding version so the feed keeps
 working mid-way through a re-embed migration.
 """
 
+import time
 from itertools import zip_longest
 
 from fastapi import APIRouter, HTTPException, Query
@@ -32,6 +33,25 @@ DOMINANT_MODEL_SQL = """
     ORDER BY count(*) DESC, (embed_model = %(preferred)s) DESC, embed_model
     LIMIT 1
 """
+
+
+# Counting the embeddings by version reads all ~2 million rows, and every
+# For-you request asked. The answer only changes during a re-embed, and a
+# few minutes late is harmless then, so it is kept for that long.
+DOMINANT_MODEL_TTL = 600.0
+_dominant: tuple[float, str] | None = None
+
+
+def dominant_model(conn, now: float | None = None) -> str | None:
+    global _dominant
+    now = time.monotonic() if now is None else now
+    if _dominant is not None and now - _dominant[0] < DOMINANT_MODEL_TTL:
+        return _dominant[1]
+    row = conn.execute(DOMINANT_MODEL_SQL, {"preferred": embed_model_id()}).fetchone()
+    if row is None:
+        return None
+    _dominant = (now, row["embed_model"])
+    return _dominant[1]
 
 
 def round_robin(per_source: list[list[int]], limit: int) -> list[int]:
@@ -192,13 +212,13 @@ def foryou(
 
     per_source: list[list[int]] = []
     with get_pool().connection() as conn:
-        model_row = conn.execute(DOMINANT_MODEL_SQL, {"preferred": embed_model_id()}).fetchone()
-        if model_row is None:
+        model = dominant_model(conn)
+        if model is None:
             raise HTTPException(status_code=409, detail="no embeddings yet; run pipeline.embed")
         for template, source_params in sources:
             seeds_sql = template.format(order=order)
             params = {
-                "model": model_row["embed_model"],
+                "model": model,
                 "mediums": mediums,
                 "n": seeds,
                 **source_params,

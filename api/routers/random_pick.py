@@ -9,6 +9,15 @@ from api.models import MediaOut
 
 router = APIRouter()
 
+# A random title used to be ORDER BY random() over every row of the medium,
+# full rows included: 1.7 s for the 1.1 million books on a fast machine, far
+# longer on a NAS. Picking from a random sample of the table's pages first
+# reads a few percent of it. Pages are chosen at random and hold similar
+# numbers of rows, so every title stays about equally likely. When the
+# filters are narrow enough that the sample holds no match, the full pick
+# runs, as before.
+SAMPLE_PERCENT = 2
+
 
 @router.get("/random", response_model=MediaOut)
 def random_pick(
@@ -56,16 +65,24 @@ def random_pick(
         exclude_lists=exclude_list,
         keep_planned=keep_planned,
     )
-    sql = f"""
-        SELECT {MEDIA_COLS}
-        FROM media m
+    template = """
+        SELECT {cols}
+        FROM media m {sample}
         WHERE m.medium = ANY(%(mediums)s)
-          {filter_sql}
+          {filters}
         ORDER BY random()
         LIMIT 1
     """
+    params = {"mediums": MEDIUM_GROUPS[medium], "sample": SAMPLE_PERCENT, **filter_params}
+    sampled = template.format(
+        cols=MEDIA_COLS, sample="TABLESAMPLE SYSTEM (%(sample)s)", filters=filter_sql
+    )
+    full = template.format(cols=MEDIA_COLS, sample="", filters=filter_sql)
     with get_pool().connection() as conn:
-        row = conn.execute(sql, {"mediums": MEDIUM_GROUPS[medium], **filter_params}).fetchone()
+        row = conn.execute(sampled, params).fetchone()
+        if row is None:
+            params.pop("sample")
+            row = conn.execute(full, params).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="no title matches the active filters")
     return media_from_row(row)
