@@ -470,3 +470,23 @@ CREATE INDEX IF NOT EXISTS idx_media_title_search
     ON media USING gin (
         mb_title_search(title_romaji, title_english, title_native, synonyms) gin_trgm_ops
     );
+
+-- Indexes for the other catalogue-wide queries, measured on 1.25 million
+-- rows once books arrived (a NAS is roughly ten times slower again):
+--   - media_type: the dub coverage and language counts, /search/resolve and
+--     the For-you list seeds filter on it, and each scanned every row.
+--   - the browse order: /search with no query lists newest first, which
+--     sorted the whole medium on every page (0.6 s for books).
+--   - genres and tag names: a genre or tag filter checked every row; a
+--     rare tag took 4.2 s. The filter in api/filters.py is written exactly
+--     as mb_tag_names below, so the planner can use the index.
+CREATE INDEX IF NOT EXISTS idx_media_media_type ON media (media_type);
+CREATE INDEX IF NOT EXISTS idx_media_browse_order
+    ON media (start_year DESC NULLS LAST, id DESC);
+CREATE INDEX IF NOT EXISTS idx_media_genres ON media USING gin (genres);
+CREATE OR REPLACE FUNCTION mb_tag_names(tags JSONB)
+RETURNS TEXT[] LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT coalesce(array_agg(t->>'name'), '{}')
+    FROM jsonb_array_elements(coalesce(tags, '[]'::jsonb)) t
+$$;
+CREATE INDEX IF NOT EXISTS idx_media_tag_names ON media USING gin (mb_tag_names(tags));
