@@ -60,6 +60,10 @@ INDEX_BUILD_SETTINGS = (
 
 
 def build_large_indexes(conn) -> None:
+    """Build the missing LARGE_INDEXES. One that fails is reported and
+    skipped rather than raised: these only make queries faster, and a
+    raise here stopped the API and the worker from starting at all - they
+    restarted, failed on the same index, and restarted again."""
     missing = [
         (name, definition)
         for name, definition in LARGE_INDEXES
@@ -72,7 +76,15 @@ def build_large_indexes(conn) -> None:
     for name, definition in missing:
         print(f"[schema] building {name} (once; can take minutes on a large catalogue)", flush=True)
         started = time.monotonic()
-        conn.execute(f"CREATE INDEX IF NOT EXISTS {name} {definition}")
+        try:
+            conn.execute(f"CREATE INDEX IF NOT EXISTS {name} {definition}")
+        except psycopg.Error as exc:
+            print(
+                f"[schema] could not build {name}, so queries it serves stay slow:"
+                f" {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            continue
         print(f"[schema] {name} built in {time.monotonic() - started:.0f}s", flush=True)
     conn.execute("RESET maintenance_work_mem")
     conn.execute("RESET max_parallel_maintenance_workers")

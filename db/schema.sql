@@ -479,8 +479,14 @@ $$;
 --     rare tag took 4.2 s. The filter in api/filters.py is written exactly
 --     as mb_tag_names below, so the planner can use the index.
 -- The indexes themselves are api/db.py's LARGE_INDEXES.
+-- Names over 512 bytes are left out: a GIN index entry can hold at most
+-- 2,712 bytes, and Open Library has subjects far longer than that - the
+-- first build failed with "index row size 3264 exceeds maximum 2712". No
+-- one types such a name into a tag filter, and the tags themselves are
+-- untouched, so ranking still sees them.
 CREATE OR REPLACE FUNCTION mb_tag_names(tags JSONB)
 RETURNS TEXT[] LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
     SELECT coalesce(array_agg(t->>'name'), '{}')
     FROM jsonb_array_elements(coalesce(tags, '[]'::jsonb)) t
+    WHERE octet_length(t->>'name') <= 512
 $$;
