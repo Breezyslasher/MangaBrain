@@ -39,38 +39,27 @@ from api.vocabulary import vocabulary
 
 router = APIRouter()
 
-# All searchable title text for one row, so multi-word queries can match with
-# words in any order and across title variants ("titan attack" finds Attack
-# on Titan). Not indexable, but a filtered scan over the catalog stays well
-# inside interactive latency for a single-user instance.
-HAYSTACK_SQL = (
-    "(coalesce(m.title_romaji, '') || ' ' || coalesce(m.title_english, '') || ' ' ||"
-    " coalesce(m.title_native, '') || ' ' || array_to_string(m.synonyms, ' '))"
-)
-
 # Punctuation dropped from both the titles and the query before matching, so
 # a phone keyboard's curly apostrophe finds a title stored with a straight
 # one ("Dog’s" finds "Dog's"), and "dogs", "jojos" or "spiderman" find
 # "Dog's", "JoJo's" and "Spider-Man". Removed, not turned into spaces: words
-# match as substrings, so "spider man" still finds "spiderman".
+# match as substrings, so "spider man" still finds "spiderman". The title
+# side is db/schema.sql's mb_title_search, which must drop the same set.
 IGNORED_PUNCTUATION = "'\u2019\u2018\u02bc`\u00b4.,:;!?\"\u201c\u201d-\u2010\u2013\u2014()/"
 _STRIP = str.maketrans("", "", IGNORED_PUNCTUATION)
 
-# Once per row, not once per query word. Spaces go too, on the title side
-# only: a query word never holds one, so "iron" still finds "Iron Man" and
-# "ironman" now does as well, as "spiderman" finds "Spider-Man".
-NORMALISED_SQL = (
-    f"CROSS JOIN LATERAL (SELECT translate({HAYSTACK_SQL}, "
-    + "'"
-    + IGNORED_PUNCTUATION.replace("'", "''")
-    + " ', '') AS hay) h"
-)
+# Every title and synonym of a row run together, lowercased, punctuation and
+# spaces removed, so multi-word queries match in any order and across title
+# variants ("titan attack" finds Attack on Titan, "ironman" finds Iron Man).
+# Written exactly as idx_media_title_search indexes it, so LIKE '%word%' is
+# answered from the trigram index instead of a scan of every row.
+TITLE_SEARCH_SQL = "mb_title_search(m.title_romaji, m.title_english, m.title_native, m.synonyms)"
 
 MAX_QUERY_WORDS = 8
 
 
 def normalise(text: str) -> str:
-    return text.translate(_STRIP)
+    return text.translate(_STRIP).lower()
 
 
 def word_filter(q: str) -> tuple[str, dict[str, str]]:
@@ -83,7 +72,7 @@ def word_filter(q: str) -> tuple[str, dict[str, str]]:
     params: dict[str, str] = {}
     for i, word in enumerate(words):
         key = f"word_{i}"
-        clauses.append(f"h.hay ILIKE %({key})s")
+        clauses.append(f"{TITLE_SEARCH_SQL} LIKE %({key})s")
         params[key] = f"%{word}%"
     return " AND ".join(clauses), params
 
@@ -95,7 +84,6 @@ SEARCH_SQL_TEMPLATE = """
     SELECT {cols},
            {rank_sql} AS match_rank
     FROM media m
-    {normalised_sql}
     WHERE m.medium = ANY(%(mediums)s)
       AND ({word_sql}){filter_sql}
     ORDER BY {order_sql}
@@ -179,7 +167,6 @@ def search(
         cols=MEDIA_COLS,
         rank_sql=RANK_SQL if q else "0",
         word_sql=word_sql,
-        normalised_sql=NORMALISED_SQL if word_params else "",
         filter_sql=filter_sql,
         order_sql="match_rank DESC, m.id" if q else BROWSE_ORDER,
     )
