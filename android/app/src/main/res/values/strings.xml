@@ -121,6 +121,7 @@
     <string name="needs_server">Set the server URL first.</string>
     <string name="searching">Searching…</string>
     <string name="loading">Loading…</string>
+    <string name="show_more">Show more</string>
     <string name="checking">Checking…</string>
     <string name="connected">Connected. The catalog answered with %1$d result(s).</string>
     <string name="no_matches">No matches.</string>

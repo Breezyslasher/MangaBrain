@@ -2,6 +2,9 @@
 
 const state = {
   medium: "anime",
+  // Bumped whenever the results are cleared, so a page of an earlier search
+  // that answers late is dropped instead of landing in the new results.
+  searchSeq: 0,
   // The tabs to show, from /settings. null until it answers: every tab.
   enabledMedia: null,
   mode: null, // {type: "single", id} | {type: "mix"}
@@ -541,6 +544,7 @@ function clearResults() {
   if (more) more.remove();
   state.pending = [];
   state.shown = 0;
+  state.searchSeq += 1;
   setStatus("");
 }
 
@@ -647,19 +651,48 @@ async function runSearch(query, withFilters = false) {
         delete params.exclude_list;
       }
     }
-    const data = await api("/search", params);
+    await loadSearchPage(state.searchSeq, params, 0, withFilters);
+  } catch (err) {
+    setStatus(err.message);
+  }
+}
+
+// One page of a search or browse, appended to the grid. A full page means
+// there may be more, so a "Show more" button asks for the next one; the
+// server pages with offset, newest first for a browse and best match first
+// for a search.
+async function loadSearchPage(seq, params, offset, withFilters) {
+  const data = await api("/search", { ...params, offset: String(offset) });
+  if (seq !== state.searchSeq) return;
+  if (offset === 0) {
     if (data.results.length) {
       setStatus("");
     } else {
       setStatus(withFilters ? "No titles match those filters." : "No matches.");
     }
-    const grid = $("results");
-    for (const media of data.results) {
-      grid.appendChild(card(media, null, () => loadRecommendations(media.id)));
-    }
-  } catch (err) {
-    setStatus(err.message);
   }
+  const grid = $("results");
+  for (const media of data.results) {
+    grid.appendChild(card(media, null, () => loadRecommendations(media.id)));
+  }
+  const existing = document.querySelector(".show-more");
+  if (existing) existing.remove();
+  if (data.results.length < Number(params.limit)) return;
+  const btn = document.createElement("button");
+  btn.className = "show-more";
+  btn.textContent = "Show more";
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Loading...";
+    try {
+      await loadSearchPage(seq, params, offset + data.results.length, withFilters);
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = "Show more";
+      setStatus(err.message);
+    }
+  });
+  grid.after(btn);
 }
 
 function renderSeedCard(seed) {
