@@ -49,10 +49,8 @@ def test_the_title_side_drops_the_same_characters():
 def test_the_query_matches_the_indexed_expression():
     """The WHERE clause must be written exactly as the index is, or the
     planner cannot use it and every search scans the catalogue again."""
-    from pathlib import Path
-
+    from api.db import LARGE_INDEXES
     from api.routers.search import TITLE_SEARCH_SQL
 
-    schema = (Path(__file__).resolve().parent.parent / "db/schema.sql").read_text()
-    index = schema[schema.index("idx_media_title_search") :]
+    index = dict(LARGE_INDEXES)["idx_media_title_search"]
     assert TITLE_SEARCH_SQL.replace("m.", "") in index

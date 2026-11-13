@@ -1,5 +1,6 @@
 """Connection pool, schema bootstrap, and row helpers shared by all routers."""
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,53 @@ def _schema_path() -> Path | None:
 # Arbitrary app-wide advisory lock key for schema application.
 _SCHEMA_LOCK_KEY = 727_272
 
+# Indexes over the whole catalogue that take minutes each to build on a NAS
+# holding ~2 million rows. db/schema.sql runs as one statement batch, and
+# so as one transaction: when anything in it failed, or the process was
+# stopped part-way, every index already built was rolled back and the next
+# start began again from nothing. Built here instead, one transaction each,
+# after the file, so each one is kept as soon as it is done, and each is
+# announced in the log so a long start-up says what it is doing.
+LARGE_INDEXES: list[tuple[str, str]] = [
+    ("idx_media_media_type", "ON media (media_type)"),
+    ("idx_media_browse_order", "ON media (start_year DESC NULLS LAST, id DESC)"),
+    ("idx_media_genres", "ON media USING gin (genres)"),
+    ("idx_media_tag_names", "ON media USING gin (mb_tag_names(tags))"),
+    (
+        "idx_media_title_search",
+        "ON media USING gin ("
+        "mb_title_search(title_romaji, title_english, title_native, synonyms) gin_trgm_ops)",
+    ),
+]
+
+# For the session that builds them. GIN builds are much faster with room
+# to work in than with the 64 MB default. Parallel workers are off: a
+# parallel build shares memory through /dev/shm, which Docker caps at
+# 64 MB, and fails with "could not resize shared memory segment".
+INDEX_BUILD_SETTINGS = (
+    "SET maintenance_work_mem = '512MB'",
+    "SET max_parallel_maintenance_workers = 0",
+)
+
+
+def build_large_indexes(conn) -> None:
+    missing = [
+        (name, definition)
+        for name, definition in LARGE_INDEXES
+        if conn.execute("SELECT to_regclass(%s)", (name,)).fetchone()[0] is None
+    ]
+    if not missing:
+        return
+    for statement in INDEX_BUILD_SETTINGS:
+        conn.execute(statement)
+    for name, definition in missing:
+        print(f"[schema] building {name} (once; can take minutes on a large catalogue)", flush=True)
+        started = time.monotonic()
+        conn.execute(f"CREATE INDEX IF NOT EXISTS {name} {definition}")
+        print(f"[schema] {name} built in {time.monotonic() - started:.0f}s", flush=True)
+    conn.execute("RESET maintenance_work_mem")
+    conn.execute("RESET max_parallel_maintenance_workers")
+
 
 def ensure_schema() -> None:
     """Apply db/schema.sql on every startup. The schema file is fully
@@ -50,6 +98,7 @@ def ensure_schema() -> None:
                     return
                 raise RuntimeError("media table missing and db/schema.sql not found")
             conn.execute(schema.read_text())
+            build_large_indexes(conn)
         finally:
             conn.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_LOCK_KEY,))
 
