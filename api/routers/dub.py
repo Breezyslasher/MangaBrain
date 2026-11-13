@@ -16,6 +16,8 @@ counted as accounted for rather than pending, and reported separately so the
 number is not simply hidden.
 """
 
+import time
+
 from fastapi import APIRouter, Query
 
 from api.db import get_pool
@@ -88,6 +90,13 @@ LANGUAGES_SQL = """
 """
 
 
+# Counting every anime's dub languages took 1.2 s on a NAS, on each opening
+# of the Anime tab's filters. The counts move only when the dub backfill
+# runs, so ten minutes stale is harmless.
+LANGUAGES_TTL = 600.0
+_languages_cache: dict[int, tuple[float, list]] = {}
+
+
 @router.get("/dub/languages", response_model=DubLanguagesOut)
 def dub_languages(
     min_titles: int = Query(
@@ -109,8 +118,13 @@ def dub_languages(
     noise in a dropdown - vi and zh-tw each have exactly one. The caller
     chooses it, so a client that wants the full tail can ask for it.
     """
-    with get_pool().connection() as conn:
-        rows = conn.execute(LANGUAGES_SQL, {"min_titles": min_titles}).fetchall()
+    cached = _languages_cache.get(min_titles)
+    if cached is not None and time.monotonic() - cached[0] < LANGUAGES_TTL:
+        rows = cached[1]
+    else:
+        with get_pool().connection() as conn:
+            rows = conn.execute(LANGUAGES_SQL, {"min_titles": min_titles}).fetchall()
+        _languages_cache[min_titles] = (time.monotonic(), rows)
     return DubLanguagesOut(
         languages=[DubLanguageOut(code=row["lang"], titles=row["titles"] or 0) for row in rows]
     )
