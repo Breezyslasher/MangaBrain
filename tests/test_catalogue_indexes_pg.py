@@ -114,3 +114,51 @@ def test_a_random_pick_falls_back_when_the_sample_is_empty(conn):
             assert resp.status_code == 200
             assert resp.json()["title"] == "Show"
         assert client.get("/random", params={"medium": "book"}).status_code == 200
+
+
+def test_a_browse_of_several_mediums_merges_ordered_pages(conn):
+    """The Manga tab is three mediums. Each is read newest-first from the
+    per-medium index and the pages merged, and the order and paging come
+    out as one sort over all of them would give."""
+    from fastapi.testclient import TestClient
+
+    from api import vocabulary
+    from api.main import app
+
+    conn.execute(
+        "INSERT INTO media (id, source, source_id, media_type, medium, title_romaji, start_year)"
+        " SELECT g, 'x', g::text, 'MANGA',"
+        " (ARRAY['manga', 'manhwa', 'manhua'])[1 + g % 3], 'M ' || g,"
+        " CASE WHEN g % 7 = 0 THEN NULL ELSE 1990 + g % 30 END"
+        " FROM generate_series(100000, 100600) g"
+    )
+    conn.execute("ANALYZE media")
+    conn.commit()
+    expected = [
+        r[0]
+        for r in conn.execute(
+            "SELECT id FROM media WHERE medium IN ('manga', 'manhwa', 'manhua')"
+            " ORDER BY start_year DESC NULLS LAST, id DESC"
+        ).fetchall()
+    ]
+    # The app's start-up takes locks on media; an open read here would hold it.
+    conn.commit()
+    vocabulary.warm = lambda: None
+    with TestClient(app) as client:
+        got = []
+        for offset in (0, 60, 120):
+            resp = client.get("/search", params={"medium": "manga", "limit": 60, "offset": offset})
+            assert resp.status_code == 200
+            got += [r["id"] for r in resp.json()["results"]]
+    assert got == expected[:180]
+
+    from api.routers.search import browse_union_sql
+
+    sql, params = browse_union_sql(["manga", "manhwa", "manhua"], "")
+    # A few hundred rows per medium are cheaper to sort, so the planner
+    # sorts here; with sorting priced out, each branch must be able to read
+    # its order from the index, as it does on a catalogue of real size.
+    conn.execute("SET enable_sort = off")
+    text = plan(conn, sql, {**params, "limit": 60, "offset": 0, "branch_limit": 60})
+    conn.execute("RESET enable_sort")
+    assert text.count("idx_media_medium_browse") == 3, text

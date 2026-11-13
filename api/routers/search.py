@@ -106,9 +106,37 @@ BROWSE_ORDER = "m.start_year DESC NULLS LAST, m.id DESC"
 def medium_clause(mediums: list[str]) -> str:
     """One medium as an equality, so a browse reads idx_media_medium_browse
     in order and stops at the page; = ANY over an array cannot give the
-    index's order, and the planner sorts the whole medium instead. The
-    manga group (three mediums) still sorts, over its ~120,000 rows."""
+    index's order, and the planner sorts the whole medium instead."""
     return "m.medium = %(medium_one)s" if len(mediums) == 1 else "m.medium = ANY(%(mediums)s)"
+
+
+# A browse of several mediums at once - the Manga tab is manga, manhwa and
+# manhua - as one newest-first page per medium, each read in order from
+# idx_media_medium_browse, merged. With = ANY the planner sorted every
+# matching row, descriptions and all: 7.6 to 21 s on a NAS. Each branch
+# needs at most offset + limit rows for the merged page to be exact.
+BROWSE_UNION_BRANCH = """(
+        SELECT m.* FROM media m
+        WHERE m.medium = %(medium_{i})s{filter_sql}
+        ORDER BY {order}
+        LIMIT %(branch_limit)s
+    )"""
+
+BROWSE_UNION_TEMPLATE = """
+    SELECT {cols}, 0 AS match_rank
+    FROM ({branches}) m
+    ORDER BY {order}
+    LIMIT %(limit)s OFFSET %(offset)s
+"""
+
+
+def browse_union_sql(mediums: list[str], filter_sql: str) -> tuple[str, dict]:
+    branches = "\n    UNION ALL ".join(
+        BROWSE_UNION_BRANCH.format(i=i, filter_sql=filter_sql, order=BROWSE_ORDER)
+        for i in range(len(mediums))
+    )
+    sql = BROWSE_UNION_TEMPLATE.format(cols=MEDIA_COLS, branches=branches, order=BROWSE_ORDER)
+    return sql, {f"medium_{i}": medium for i, medium in enumerate(mediums)}
 
 
 @router.get("/search", response_model=SearchResponse)
@@ -171,6 +199,18 @@ def search(
         exclude_lists=exclude_lists,
         keep_planned=keep_planned,
     )
+    if not q and len(mediums) > 1:
+        sql, medium_params = browse_union_sql(mediums, filter_sql)
+        params = {
+            **medium_params,
+            "limit": limit,
+            "offset": offset,
+            "branch_limit": limit + offset,
+            **filter_params,
+        }
+        with get_pool().connection() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return SearchResponse(results=[media_from_row(row) for row in rows])
     sql = SEARCH_SQL_TEMPLATE.format(
         cols=MEDIA_COLS,
         rank_sql=RANK_SQL if q else "0",
