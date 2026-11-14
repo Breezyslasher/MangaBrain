@@ -173,7 +173,86 @@ function debounce(fn, ms) {
 // once on the first 401 and remembered locally.
 function authHeaders() {
   const token = localStorage.getItem("mb_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  // Whose accounts and lists (see api/profiles.py). None is the default.
+  const profile = currentProfile();
+  if (profile !== "default") headers["X-Profile"] = profile;
+  return headers;
+}
+
+// ------------------------------------------------------------- profiles
+// Each person on one server can have their own profile: their own account
+// names, tokens and synced lists. This browser remembers which it uses.
+const PROFILE_KEY = "mb_profile";
+
+function currentProfile() {
+  try {
+    return localStorage.getItem(PROFILE_KEY) || "default";
+  } catch {
+    return "default";
+  }
+}
+
+// Switching reloads the page, so every account, list status and result
+// is fetched again as the new profile.
+function useProfile(name) {
+  try {
+    if (name && name !== "default") localStorage.setItem(PROFILE_KEY, name);
+    else localStorage.removeItem(PROFILE_KEY);
+  } catch {
+    // Without storage the profile cannot be remembered.
+  }
+  location.reload();
+}
+
+async function loadProfiles() {
+  const select = $("profileSelect");
+  try {
+    const data = await api("/profiles");
+    state.profiles = data.profiles;
+    // A profile removed from another device falls back to the default.
+    if (!data.profiles.includes(currentProfile())) {
+      useProfile("default");
+      return;
+    }
+    if (!select) return;
+    select.innerHTML = "";
+    for (const name of data.profiles) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+    select.value = currentProfile();
+    $("profileRemove").disabled = currentProfile() === "default";
+  } catch {
+    // An older server without profiles: everything stays the default.
+  }
+}
+
+async function addProfile() {
+  const name = (window.prompt("Name for the new profile (a-z, 0-9, - and _):") || "")
+    .trim()
+    .toLowerCase();
+  if (!name) return;
+  try {
+    await apiSend("POST", "/profiles", { name });
+    useProfile(name);
+  } catch (err) {
+    if ($("profileStatus")) $("profileStatus").textContent = err.message;
+  }
+}
+
+async function removeProfile() {
+  const name = currentProfile();
+  if (name === "default") return;
+  if (!window.confirm(`Remove the profile "${name}" with its accounts and lists?`)) return;
+  try {
+    await apiSend("DELETE", `/profiles/${encodeURIComponent(name)}`);
+    useProfile("default");
+  } catch (err) {
+    if ($("profileStatus")) $("profileStatus").textContent = err.message;
+  }
 }
 
 async function authFetch(url, options = {}) {
@@ -199,6 +278,22 @@ async function authFetch(url, options = {}) {
       resp = await withAuth();
   }
   return resp;
+}
+
+// A write: JSON body, the same error handling as api().
+async function apiSend(method, path, body) {
+  const resp = await authFetch(path, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(
+      typeof data.detail === "string" ? data.detail : `Request failed (${resp.status})`,
+    );
+  }
+  return resp.json();
 }
 
 async function api(path, params = {}) {
@@ -1659,6 +1754,9 @@ function bindEvents() {
   on("ytRefresh", "click", refreshYamtrack);
   on("kitsuRefresh", "click", refreshKitsu);
   on("acctSave", "click", saveAccountSettings);
+  on("profileSelect", "change", (e) => useProfile(e.target.value));
+  on("profileAdd", "click", addProfile);
+  on("profileRemove", "click", removeProfile);
   on("settingsBtn", "click", openSettings);
   on("openSettingsLink", "click", openSettings);
   on("settingsClose", "click", closeSettings);
@@ -1812,6 +1910,7 @@ document.addEventListener("change", (e) => {
   else loadVocabularies();
 }
 loadAccountSettings();
+loadProfiles();
 applyHash();
 
 if ("serviceWorker" in navigator) {

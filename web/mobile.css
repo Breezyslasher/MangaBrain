@@ -1314,3 +1314,9 @@ body.m-on .m-media .dataset > button {
   padding: 0 16px;
   border-radius: 0;
 }
+
+/* The profile this browser uses, on the Profile page. */
+.m-nav-row.on .m-row-title {
+  color: var(--accent);
+  font-weight: 700;
+}

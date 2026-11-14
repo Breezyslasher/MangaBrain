@@ -41,6 +41,17 @@
       <button id="settingsClose" class="secondary" type="button">Close</button>
     </div>
     <section class="panel-block">
+      <h2>Profile</h2>
+      <div class="chips-hint">Each profile has its own accounts and lists to hide. This
+        browser uses the one chosen here; filters are remembered per browser.</div>
+      <label>Profile <select id="profileSelect"><option value="default">default</option></select></label>
+      <div class="profile-actions">
+        <button id="profileAdd" class="secondary" type="button">New profile</button>
+        <button id="profileRemove" class="secondary" type="button">Remove this profile</button>
+      </div>
+      <div id="profileStatus" class="chips-hint" role="status"></div>
+    </section>
+    <section class="panel-block">
       <h2>Media</h2>
       <div class="chips-hint">Choose which tabs to show. Switching on a medium that is not
         downloaded yet downloads it in the background; switching one off only hides the tab.</div>

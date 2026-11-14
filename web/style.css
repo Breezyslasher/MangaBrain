@@ -364,3 +364,10 @@ button:hover { filter: brightness(1.1); }
   header { flex-wrap: wrap; gap: 0.5rem; }
   #tabs { font-size: 16px; }
 }
+
+/* Profile buttons in the settings dialog, side by side. */
+.profile-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
