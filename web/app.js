@@ -408,7 +408,8 @@ async function loadDubLanguages() {
     const data = await api("/dub/languages", {});
     const languages = (data && data.languages) || [];
     if (!languages.length) return;
-    const chosen = select.value;
+    const chosen = select.value || select.dataset.want || "";
+    delete select.dataset.want;
     // Rebuild rather than append: the markup carries English as a
     // pre-fetch fallback and it would otherwise appear twice.
     select.innerHTML = "";
@@ -1345,6 +1346,7 @@ function shownGenres() {
 }
 
 function renderGenreChips() {
+  if (typeof saveFilters === "function") saveFilters();
   const wrap = $("genreChips");
   wrap.innerHTML = "";
   for (const genre of shownGenres()) {
@@ -1367,6 +1369,7 @@ function renderGenreChips() {
 }
 
 function renderTagChips() {
+  if (typeof saveFilters === "function") saveFilters();
   const wrap = $("tagChips");
   wrap.innerHTML = "";
   for (const [name, mode] of Object.entries(state.tagState)) {
@@ -1703,9 +1706,104 @@ function bindEvents() {
   });
 }
 
+// Filters, weights and switches are remembered per browser, as the Android
+// app remembers them per phone. They used to reset on every reload. Account
+// names, tokens and the synced lists live on the server, per profile.
+const SAVED_FILTERS_KEY = "mb_filters";
+const SAVED_CONTROLS = [
+  "wSemantic",
+  "wTags",
+  "wGenres",
+  "wTaste",
+  "adult",
+  "dubLang",
+  "crossMedia",
+  "excludeFranchise",
+  "yearMin",
+  "yearMax",
+  "minScore",
+  "country",
+  "status",
+  "format",
+  "maxPop",
+  "maxLen",
+  "minLen",
+  "malExclude",
+  "alExclude",
+  "kitsuExclude",
+  "ytExclude",
+  "hcExclude",
+  "keepPlanned",
+  "useRatings",
+  "forYouSeeds",
+];
+
+function saveFilters() {
+  const controls = {};
+  for (const id of SAVED_CONTROLS) {
+    const el = $(id);
+    if (!el) continue;
+    // A dropdown still loading its options holds the wanted value aside.
+    controls[id] = el.type === "checkbox" ? el.checked : el.value || el.dataset.want || "";
+  }
+  const saved = { controls, genres: state.genreState, tags: state.tagState };
+  try {
+    localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(saved));
+  } catch {
+    // Private mode or a full store: filters simply are not remembered.
+  }
+}
+
+function restoreFilters() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(SAVED_FILTERS_KEY) || "null");
+  } catch {
+    saved = null;
+  }
+  if (!saved || typeof saved !== "object") return;
+  for (const [id, value] of Object.entries(saved.controls || {})) {
+    const el = $(id);
+    if (!el || !SAVED_CONTROLS.includes(id)) continue;
+    if (el.type === "checkbox") {
+      el.checked = Boolean(value);
+    } else if (el.tagName === "SELECT") {
+      // Its options arrive from the server later; fillSelect and the dub
+      // language list pick this up when they do.
+      el.dataset.want = String(value || "");
+      el.value = String(value || "");
+    } else {
+      el.value = String(value ?? "");
+    }
+    if (el.type === "range") {
+      const label = $(id + "Val");
+      if (label) label.textContent = el.value;
+    }
+  }
+  for (const [key, target] of [
+    ["genres", "genreState"],
+    ["tags", "tagState"],
+  ]) {
+    const chips = saved[key];
+    if (chips && typeof chips === "object") {
+      state[target] = Object.fromEntries(
+        Object.entries(chips).filter(([, v]) => v === "inc" || v === "exc"),
+      );
+    }
+  }
+}
+
+restoreFilters();
 populateFormats();
 renderGenreChips();
+renderTagChips();
 bindEvents();
+// Any remembered control changing, by hand or through the phone layout
+// (which moves these same elements), is saved. Chip changes save as they
+// redraw, in renderGenreChips and renderTagChips.
+document.addEventListener("change", (e) => {
+  if (e.target && SAVED_CONTROLS.includes(e.target.id)) saveFilters();
+});
 {
   const pathMedium = PATH_TO_MEDIUM[location.pathname];
   // setMedium loads the medium's vocabularies when it changes the medium;
