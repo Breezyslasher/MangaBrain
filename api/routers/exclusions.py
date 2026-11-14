@@ -11,6 +11,7 @@ import re
 
 from fastapi import APIRouter, HTTPException
 
+from api import profiles
 from api.db import get_pool
 from api.models import ExclusionListIn, ExclusionStatus
 
@@ -99,15 +100,20 @@ def get_status(name: str) -> ExclusionStatus:
             (name,),
         ).fetchone()
     if row is None:
-        raise HTTPException(status_code=404, detail=f"no exclusion list named '{name}'")
+        raise HTTPException(
+            status_code=404, detail=f"no exclusion list named '{profiles.shown_list_name(name)}'"
+        )
     return ExclusionStatus(
-        name=row["list_name"], entry_count=row["entry_count"], updated_at=row["updated_at"]
+        name=profiles.shown_list_name(row["list_name"]),
+        entry_count=row["entry_count"],
+        updated_at=row["updated_at"],
     )
 
 
 @router.post("/exclusions/{name}", response_model=ExclusionStatus)
 def replace_exclusion_list(name: str, body: ExclusionListIn) -> ExclusionStatus:
-    name = normalize_name(name)
+    # Stored under the request's profile (api.profiles).
+    name = profiles.list_name(normalize_name(name))
     entries: dict[tuple[str, int], EntryState] = {}
     # Bare ids carry no tracker status or rating: they always exclude
     # (planned=False) and sample with neutral weight (score=None).
@@ -153,12 +159,12 @@ def replace_exclusion_list(name: str, body: ExclusionListIn) -> ExclusionStatus:
 
 @router.get("/exclusions/{name}", response_model=ExclusionStatus)
 def exclusion_list_status(name: str) -> ExclusionStatus:
-    return get_status(normalize_name(name))
+    return get_status(profiles.list_name(normalize_name(name)))
 
 
 @router.delete("/exclusions/{name}", response_model=ExclusionStatus)
 def delete_exclusion_list(name: str) -> ExclusionStatus:
-    name = normalize_name(name)
+    name = profiles.list_name(normalize_name(name))
     status = get_status(name)
     with get_pool().connection() as conn:
         conn.execute("DELETE FROM custom_exclusion_entries WHERE list_name = %s", (name,))

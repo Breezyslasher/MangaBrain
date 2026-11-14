@@ -23,6 +23,7 @@ Configure YAMTRACK_URL (e.g. http://192.168.1.5:8000) and YAMTRACK_TOKEN
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from api import profiles
 from api.config import settings
 from api.models import ExclusionStatus
 from api.openlibrary_match import book_ids_by_work, openlibrary_client, openlibrary_work_key
@@ -141,12 +142,12 @@ def refresh_yamtrack() -> ExclusionStatus:
         else:
             add(("anilist", media_id), row)
 
-    store_exclusion_list(LIST_NAME, entries)
-    status = get_status(LIST_NAME)
+    store_exclusion_list(profiles.list_name(LIST_NAME), entries)
+    status = get_status(profiles.list_name(LIST_NAME))
     status.skipped = skipped
     return status
 
 
 @router.get("/yamtrack", response_model=ExclusionStatus)
 def yamtrack_status() -> ExclusionStatus:
-    return get_status(LIST_NAME)
+    return get_status(profiles.list_name(LIST_NAME))

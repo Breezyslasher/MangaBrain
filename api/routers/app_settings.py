@@ -1,4 +1,4 @@
-"""Single-user application settings, editable from the web UI.
+"""Application settings, editable from the web UI, per profile.
 
 Stores tracker account details (AniList/MAL/Kitsu usernames, Yamtrack
 endpoint and token, Hardcover token, TMDB key) in the database so they survive
@@ -11,6 +11,7 @@ import json
 
 from fastapi import APIRouter, HTTPException
 
+from api import profiles
 from api.config import settings
 from api.datasets import dataset_for_medium, read_install, request_install
 from api.db import get_pool
@@ -19,15 +20,29 @@ from api.models import AppSettingsIn, AppSettingsOut
 
 router = APIRouter()
 
-SETTING_KEYS = (
+# Each profile's own (api.profiles): whose lists to fetch and exclude.
+PROFILE_KEYS = (
     "anilist_username",
     "mal_username",
     "kitsu_username",
     "yamtrack_url",
     "yamtrack_token",
     "hardcover_token",
-    "tmdb_api_key",
 )
+# Shared: the TMDB key only downloads public catalogue data.
+SHARED_KEYS = ("tmdb_api_key",)
+SETTING_KEYS = PROFILE_KEYS + SHARED_KEYS
+
+
+def stored_key(key: str) -> str:
+    return profiles.setting_key(key) if key in PROFILE_KEYS else key
+
+
+def env_fallback(value: str) -> str:
+    """Environment settings are the server owner's: the default profile's
+    fallback, never another person's."""
+    return value if profiles.current() == profiles.DEFAULT else ""
+
 
 UPSERT_SQL = """
     INSERT INTO app_settings (key, value, updated_at)
@@ -37,24 +52,26 @@ UPSERT_SQL = """
 
 
 def read_settings() -> dict[str, str]:
+    """The current profile's settings, plus the shared ones, by plain key."""
+    wanted = {stored_key(key): key for key in SETTING_KEYS}
     with get_pool().connection() as conn:
         rows = conn.execute(
-            "SELECT key, value FROM app_settings WHERE key = ANY(%s)", (list(SETTING_KEYS),)
+            "SELECT key, value FROM app_settings WHERE key = ANY(%s)", (list(wanted),)
         ).fetchall()
-    return {row["key"]: row["value"] for row in rows}
+    return {wanted[row["key"]]: row["value"] for row in rows}
 
 
 def effective_yamtrack_config() -> tuple[str, str]:
     """Yamtrack url and token: database settings first, env fallback."""
     stored = read_settings()
-    url = stored.get("yamtrack_url") or settings.yamtrack_url
-    token = stored.get("yamtrack_token") or settings.yamtrack_token
+    url = stored.get("yamtrack_url") or env_fallback(settings.yamtrack_url)
+    token = stored.get("yamtrack_token") or env_fallback(settings.yamtrack_token)
     return url, token
 
 
 def effective_hardcover_token() -> str:
     """Hardcover API token: database setting first, env fallback."""
-    return read_settings().get("hardcover_token") or settings.hardcover_token
+    return read_settings().get("hardcover_token") or env_fallback(settings.hardcover_token)
 
 
 # Stored apart from SETTING_KEYS: a list, not a string, and a value the
@@ -120,10 +137,15 @@ def _to_out(stored: dict[str, str], media: list[str]) -> AppSettingsOut:
         anilist_username=stored.get("anilist_username", ""),
         mal_username=stored.get("mal_username", ""),
         kitsu_username=stored.get("kitsu_username", ""),
-        yamtrack_url=stored.get("yamtrack_url") or settings.yamtrack_url,
-        yamtrack_token_set=bool(stored.get("yamtrack_token") or settings.yamtrack_token),
-        hardcover_token_set=bool(stored.get("hardcover_token") or settings.hardcover_token),
+        yamtrack_url=stored.get("yamtrack_url") or env_fallback(settings.yamtrack_url),
+        yamtrack_token_set=bool(
+            stored.get("yamtrack_token") or env_fallback(settings.yamtrack_token)
+        ),
+        hardcover_token_set=bool(
+            stored.get("hardcover_token") or env_fallback(settings.hardcover_token)
+        ),
         tmdb_api_key_set=bool(stored.get("tmdb_api_key") or settings.tmdb_api_key),
+        profile=profiles.label(),
         enabled_media=media,
     )
 
@@ -147,8 +169,8 @@ def update_settings(body: AppSettingsIn) -> AppSettingsOut:
             _save_enabled_media(conn, list(dict.fromkeys(body.enabled_media)))
         for key, value in updates.items():
             if value:
-                conn.execute(UPSERT_SQL, (key, value))
+                conn.execute(UPSERT_SQL, (stored_key(key), value))
             else:
-                conn.execute("DELETE FROM app_settings WHERE key = %s", (key,))
+                conn.execute("DELETE FROM app_settings WHERE key = %s", (stored_key(key),))
         media = enabled_media(conn)
     return _to_out(read_settings(), media)

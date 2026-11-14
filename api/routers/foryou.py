@@ -15,6 +15,7 @@ from itertools import zip_longest
 
 from fastapi import APIRouter, HTTPException, Query
 
+from api import profiles
 from api.config import embed_model_id
 from api.db import get_pool
 from api.media_groups import ALL_MEDIUMS, MEDIUM_GROUPS, MediumGroup
@@ -204,7 +205,7 @@ def foryou(
     if mal_user:
         sources.append((MAL_SEEDS_SQL, {"username": mal_user.strip().lower()}))
     if list_names:
-        sources.append((LIST_SEEDS_SQL, {"lists": list_names}))
+        sources.append((LIST_SEEDS_SQL, {"lists": profiles.list_names(list_names)}))
     # use_ratings=false reverts to uniform sampling: every list entry has
     # the same chance of anchoring the feed, ratings ignored entirely.
     order = weighted_order("r.pct") if use_ratings else "ORDER BY random()"
