@@ -99,6 +99,8 @@ def test_every_page_in_the_spec_exists():
     pages = re.search(r"enum class Page \{([^}]*)\}", SETTINGS).group(1)
     assert [p.strip() for p in pages.split(",")] == [
         "HOME",
+        # Profiles (api/profiles.py) came after the redesign spec.
+        "PROFILE",
         "ACCOUNTS",
         "ACCOUNT",
         "EXCLUDE",

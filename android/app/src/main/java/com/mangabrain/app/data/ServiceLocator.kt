@@ -41,6 +41,7 @@ object ServiceLocator {
         // Read every time: the token can be set in Settings between calls,
         // and the interceptor holds only a reference to the provider.
         tokenProvider.setToken(prefs.token)
+        tokenProvider.setProfile(prefs.profile.takeIf { it != DEFAULT_PROFILE })
         if (url != cachedUrl || cachedApi == null) {
             cachedApi = build(url)
             cachedUrl = url

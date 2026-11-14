@@ -25,3 +25,20 @@ def test_a_profile_removed_elsewhere_falls_back_to_the_default():
     body = APP_JS.split("async function loadProfiles()")[1].split("\n}\n")[0]
     assert "!data.profiles.includes(currentProfile())" in body
     assert 'useProfile("default")' in body
+
+
+ANDROID = ROOT / "android/app/src/main/java/com/mangabrain/app"
+
+
+def test_android_sends_the_profile_with_every_request():
+    interceptor = (ANDROID / "data/api/Interceptors.kt").read_text()
+    assert 'builder.header("X-Profile", profile)' in interceptor
+    locator = (ANDROID / "data/ServiceLocator.kt").read_text()
+    assert "tokenProvider.setProfile(prefs.profile.takeIf { it != DEFAULT_PROFILE })" in locator
+
+
+def test_android_has_a_profile_page():
+    settings = (ANDROID / "ui/settings/SettingsFragment.kt").read_text()
+    assert "Page.PROFILE -> buildProfile(body)" in settings
+    assert "api.makeProfile(ProfileIn(name))" in settings
+    assert "api.removeProfile(name)" in settings

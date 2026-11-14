@@ -145,6 +145,16 @@
     <string name="row_media">Media</string>
     <string name="row_display">Display</string>
     <string name="row_server">Server</string>
+    <string name="row_profile">Profile</string>
+    <string name="group_profiles">Profiles</string>
+    <string name="profile_summary">%1$s · its own accounts and lists</string>
+    <string name="profile_new">New profile</string>
+    <string name="profile_remove">Remove this profile</string>
+    <string name="profile_remove_confirm">Remove the profile \"%1$s\" with its accounts and lists?</string>
+    <string name="profile_in_use">Used on this phone</string>
+    <string name="profile_tap_to_use">Tap to use</string>
+    <string name="profile_name_hint">a-z, 0-9, - and _</string>
+    <string name="profile_help">Each profile has its own account names, tokens and synced lists. Filters are remembered per phone.</string>
     <string name="sync_all">Sync all</string>
     <string name="lists_connected">%1$d of %2$d lists connected</string>
     <string name="last_sync">Last sync %1$s</string>

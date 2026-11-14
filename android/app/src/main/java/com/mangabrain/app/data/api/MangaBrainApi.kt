@@ -1,6 +1,7 @@
 package com.mangabrain.app.data.api
 
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.PUT
 import retrofit2.http.POST
@@ -134,6 +135,16 @@ interface MangaBrainApi {
 
     @PUT("settings")
     suspend fun saveSettings(@Body body: AppSettingsIn): AppSettingsOut
+
+    /** Profiles on the server: each has its own accounts and lists. */
+    @GET("profiles")
+    suspend fun profiles(): ProfilesOut
+
+    @POST("profiles")
+    suspend fun makeProfile(@Body body: ProfileIn): ProfilesOut
+
+    @DELETE("profiles/{name}")
+    suspend fun removeProfile(@Path("name") name: String): ProfilesOut
 
     @GET("datasets")
     suspend fun datasets(): DatasetsOut
