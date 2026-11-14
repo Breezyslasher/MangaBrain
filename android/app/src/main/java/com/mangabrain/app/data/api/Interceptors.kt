@@ -7,16 +7,29 @@ import okhttp3.Response
 interface TokenProvider {
     fun getToken(): String?
     fun setToken(token: String?)
+
+    /** The profile to send, or null for the default, which sends none. */
+    fun getProfile(): String? = null
+    fun setProfile(profile: String?) = Unit
 }
 
 class InMemoryTokenProvider : TokenProvider {
     @Volatile
     private var token: String? = null
 
+    @Volatile
+    private var profile: String? = null
+
     override fun getToken(): String? = token
 
     override fun setToken(token: String?) {
         this.token = token
+    }
+
+    override fun getProfile(): String? = profile
+
+    override fun setProfile(profile: String?) {
+        this.profile = profile
     }
 }
 
@@ -35,6 +48,12 @@ class AuthInterceptor(private val tokenProvider: TokenProvider) : Interceptor {
         val token = tokenProvider.getToken()
         if (!token.isNullOrBlank()) {
             builder.header("Authorization", "Bearer $token")
+        }
+        // Whose accounts and lists (api/profiles.py). The default sends
+        // nothing, exactly as before profiles existed.
+        val profile = tokenProvider.getProfile()
+        if (!profile.isNullOrBlank()) {
+            builder.header("X-Profile", profile)
         }
         return chain.proceed(builder.build())
     }

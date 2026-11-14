@@ -25,6 +25,7 @@ library; they do not allow a public or commercial site to use user data.
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from api import profiles
 from api.config import settings
 from api.models import ExclusionStatus
 from api.openlibrary_match import book_ids_by_work, isbn_work_key, openlibrary_client
@@ -171,12 +172,12 @@ def refresh_hardcover() -> ExclusionStatus:
         scores = [s for s in (prev_score, score) if s is not None]
         entries[key] = (prev_planned and planned, max(scores) if scores else None)
 
-    store_exclusion_list(LIST_NAME, entries)
-    status = get_status(LIST_NAME)
+    store_exclusion_list(profiles.list_name(LIST_NAME), entries)
+    status = get_status(profiles.list_name(LIST_NAME))
     status.skipped = skipped
     return status
 
 
 @router.get("/hardcover", response_model=ExclusionStatus)
 def hardcover_status() -> ExclusionStatus:
-    return get_status(LIST_NAME)
+    return get_status(profiles.list_name(LIST_NAME))

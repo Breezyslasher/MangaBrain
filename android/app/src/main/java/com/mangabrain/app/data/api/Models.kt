@@ -143,6 +143,8 @@ data class AppSettingsOut(
     val yamtrack_token_set: Boolean? = null,
     val hardcover_token_set: Boolean? = null,
     val tmdb_api_key_set: Boolean? = null,
+    /** Which profile these accounts belong to. */
+    val profile: String? = null,
     val enabled_media: List<String>? = null
 )
 
@@ -220,6 +222,15 @@ data class DubLanguagesOut(
 
 data class TagsResponse(
     val tags: List<String> = emptyList()
+)
+
+/** POST /profiles. */
+data class ProfileIn(val name: String)
+
+/** Every profile on the server, the default first, and the one asked as. */
+data class ProfilesOut(
+    val profiles: List<String> = emptyList(),
+    val current: String = "default"
 )
 
 data class GenresResponse(

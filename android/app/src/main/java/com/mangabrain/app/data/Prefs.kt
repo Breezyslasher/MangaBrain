@@ -11,6 +11,8 @@ import android.content.Context
  * is still an alpha dependency. Worth revisiting if this ever holds
  * anything with a blast radius beyond one MangaBrain instance.
  */
+const val DEFAULT_PROFILE = "default"
+
 class Prefs(context: Context) {
 
     private val prefs = context.applicationContext
@@ -28,11 +30,20 @@ class Prefs(context: Context) {
         get() = prefs.getString(KEY_TOKEN, null)?.takeIf { it.isNotBlank() }
         set(value) = prefs.edit().putString(KEY_TOKEN, value?.trim()).apply()
 
+    /**
+     * Whose accounts and lists this phone uses (api/profiles.py on the
+     * server): "default", or a profile made in Settings > Profile.
+     */
+    var profile: String
+        get() = prefs.getString(KEY_PROFILE, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_PROFILE
+        set(value) = prefs.edit().putString(KEY_PROFILE, value.trim().lowercase()).apply()
+
     val isConfigured: Boolean
         get() = serverUrl != null
 
     private companion object {
         const val KEY_URL = "server_url"
         const val KEY_TOKEN = "access_token"
+        const val KEY_PROFILE = "profile"
     }
 }

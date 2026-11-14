@@ -26,6 +26,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.mangabrain.app.R
 import com.mangabrain.app.ui.centerContent
+import com.mangabrain.app.data.DEFAULT_PROFILE
 import com.mangabrain.app.data.FilterState
 import com.mangabrain.app.data.Prefs
 import com.mangabrain.app.data.ServiceLocator
@@ -33,6 +34,7 @@ import com.mangabrain.app.data.api.AppSettingsIn
 import com.mangabrain.app.data.api.DatasetOut
 import com.mangabrain.app.data.api.ExclusionStatus
 import com.mangabrain.app.data.api.MangaBrainApi
+import com.mangabrain.app.data.api.ProfileIn
 import com.mangabrain.app.data.api.UserListsStatus
 import com.mangabrain.app.data.api.httpMessage
 import com.mangabrain.app.ui.MainActivity
@@ -66,7 +68,7 @@ import java.util.TimeZone
  */
 class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
-    enum class Page { HOME, ACCOUNTS, ACCOUNT, EXCLUDE, FOR_YOU, MEDIA, DISPLAY, SERVER }
+    enum class Page { HOME, PROFILE, ACCOUNTS, ACCOUNT, EXCLUDE, FOR_YOU, MEDIA, DISPLAY, SERVER }
 
     /** The four list sources. Badge colours are the 3b palette. */
     /**
@@ -186,6 +188,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         }
         when (page) {
             Page.HOME -> buildHome(body)
+            Page.PROFILE -> buildProfile(body)
             Page.ACCOUNTS -> buildAccounts(body)
             Page.ACCOUNT -> buildAccount(body, actions, pageView.findViewById(R.id.pageScroll))
             Page.EXCLUDE -> buildExclude(body)
@@ -199,6 +202,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
     private fun titleOf(page: Page): String = when (page) {
         Page.HOME -> getString(R.string.tab_settings)
+        Page.PROFILE -> getString(R.string.row_profile)
         Page.ACCOUNTS -> getString(R.string.row_accounts)
         Page.ACCOUNT -> getString(account.labelRes)
         Page.EXCLUDE -> getString(R.string.row_exclude)
@@ -223,6 +227,10 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
         label(body, R.string.group_lists)
         card(body).apply {
+            addView(navRow(R.drawable.mdi_account_multiple_outline, R.color.w_taste,
+                getString(R.string.row_profile),
+                getString(R.string.profile_summary, Prefs(requireContext()).profile)
+            ) { open(Page.PROFILE) })
             addView(navRow(R.drawable.mdi_account_multiple_outline, R.color.accent,
                 getString(R.string.row_accounts), accountsSummary()) { open(Page.ACCOUNTS) })
             addView(navRow(R.drawable.mdi_eye_off_outline, R.color.bad,
@@ -764,6 +772,106 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
     // --------------------------------------------------------------- server
 
     /** How to reach the server. Local to this device, unlike everything else. */
+    // -------------------------------------------------------------- profile
+
+    /**
+     * Profiles on the server (api/profiles.py): each has its own account
+     * names, tokens and synced lists, and this phone uses one. Switching
+     * restarts the screens, so everything is fetched again as the new one.
+     */
+    private fun buildProfile(body: LinearLayout) {
+        label(body, R.string.group_profiles)
+        val list = card(body)
+        val hint = text(13f, R.color.muted).apply { setPadding(dp(4), dp(10), dp(4), 0) }
+        val actions = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dp(14), 0, dp(14), dp(16)) }
+        }
+        body.addView(actions)
+        val current = Prefs(requireContext()).profile
+        actions.addView(pill(getString(R.string.profile_new)).apply {
+            setOnClickListener { askNewProfile() }
+        })
+        if (current != DEFAULT_PROFILE) {
+            actions.addView(pill(getString(R.string.profile_remove), bad = true).apply {
+                layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(8) }
+                setOnClickListener { confirmRemoveProfile(current) }
+            })
+        }
+        actions.addView(hint.apply { text = getString(R.string.profile_help) })
+
+        val api = api() ?: return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val names = try {
+                api.profiles().profiles
+            } catch (e: Exception) {
+                hint.text = message(e)
+                listOf(current)
+            }
+            for (name in names) {
+                val chosen = name == current
+                list.addView(row(
+                    FrameLayout(requireContext()),
+                    name,
+                    getString(if (chosen) R.string.profile_in_use else R.string.profile_tap_to_use)
+                ) { if (!chosen) useProfile(name) })
+            }
+        }
+    }
+
+    private fun askNewProfile() {
+        val input = EditText(requireContext()).apply {
+            inputType = InputType.TYPE_CLASS_TEXT
+            hint = getString(R.string.profile_name_hint)
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.profile_new)
+            .setView(FrameLayout(requireContext()).apply {
+                setPadding(dp(20), dp(8), dp(20), 0)
+                addView(input)
+            })
+            .setPositiveButton(R.string.save) { _, _ ->
+                val name = input.text.toString().trim().lowercase()
+                if (name.isEmpty()) return@setPositiveButton
+                val api = api() ?: return@setPositiveButton
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        api.makeProfile(ProfileIn(name))
+                        useProfile(name)
+                    } catch (e: Exception) {
+                        toast(message(e))
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmRemoveProfile(name: String) {
+        AlertDialog.Builder(requireContext())
+            .setMessage(getString(R.string.profile_remove_confirm, name))
+            .setPositiveButton(R.string.profile_remove) { _, _ ->
+                val api = api() ?: return@setPositiveButton
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        api.removeProfile(name)
+                        useProfile(DEFAULT_PROFILE)
+                    } catch (e: Exception) {
+                        toast(message(e))
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Uses [name] from now on; restarts the screens as that profile. */
+    private fun useProfile(name: String) {
+        Prefs(requireContext()).profile = name
+        ServiceLocator.invalidate()
+        requireActivity().recreate()
+    }
+
     private fun buildServer(body: LinearLayout) {
         val prefs = Prefs(requireContext())
         label(body, R.string.section_server)

@@ -702,6 +702,7 @@
   }
 
   const TITLES = {
+    profile: "Profile",
     accounts: "Accounts",
     exclude: "Exclude from results",
     foryou: "For you",
@@ -735,6 +736,7 @@
       account: renderAccount,
       exclude: renderExclude,
       foryou: renderForYou,
+      profile: renderProfile,
       media: renderMedia,
       display: renderDisplay,
       server: renderServer,
@@ -787,6 +789,13 @@
     page.append(
       label("Lists"),
       card(
+        navRow(
+          "accounts",
+          "#9B7BEA",
+          "Profile",
+          `${currentProfile()} · its own accounts and lists`,
+          () => push("profile"),
+        ),
         navRow(
           "accounts",
           "#5B8DEF",
@@ -1108,6 +1117,47 @@
     park(byId("mediaSettings"), wrap);
     page.append(wrap);
     renderMediaSettings();
+  }
+
+  // Profiles (api/profiles.py): each has its own accounts and lists; this
+  // browser uses one. Choosing another reloads the page as that profile.
+  function renderProfile(page) {
+    const names = state.profiles || [currentProfile()];
+    const rows = names.map((name) => {
+      const row = el("button", "m-nav-row");
+      row.type = "button";
+      const text = el("span", "m-row-text");
+      text.append(
+        el("span", "m-row-title", name),
+        el("span", "m-row-summary", name === currentProfile() ? "Used in this browser" : "Tap to use"),
+      );
+      row.append(text);
+      if (name === currentProfile()) row.classList.add("on");
+      row.addEventListener("click", () => {
+        if (name !== currentProfile()) useProfile(name);
+      });
+      return row;
+    });
+    page.append(label("Profiles"), card(...rows));
+    const actions = el("div", "m-fields");
+    const add = el("button", "m-pill wide", "New profile");
+    add.type = "button";
+    add.addEventListener("click", addProfile);
+    actions.append(add);
+    if (currentProfile() !== "default") {
+      const remove = el("button", "m-pill wide bad", "Remove this profile");
+      remove.type = "button";
+      remove.addEventListener("click", removeProfile);
+      actions.append(remove);
+    }
+    actions.append(
+      el(
+        "div",
+        "m-hint",
+        "Each profile has its own account names, tokens and synced lists. Filters are remembered per browser.",
+      ),
+    );
+    page.append(actions);
   }
 
   function renderDisplay(page) {

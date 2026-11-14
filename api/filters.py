@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from api import profiles
+
 
 def build_filters(
     *,
@@ -227,7 +229,8 @@ def build_filters(
             f" WHERE al.username = %(f_anilist_user)s AND al.media_id = m.id{planned_guard})"
         )
         params["f_anilist_user"] = anilist_user.strip().lower()
-    names = [n.strip().lower() for n in (exclude_lists or []) if n.strip()]
+    # Stored per profile (api.profiles): the request's own lists, by name.
+    names = profiles.list_names([n.strip().lower() for n in (exclude_lists or []) if n.strip()])
     if names:
         # Generic named exclusion lists (see /exclusions endpoints), combined:
         # a row on ANY of the named lists is excluded. AniList ids match the

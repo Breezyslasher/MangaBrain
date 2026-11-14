@@ -17,6 +17,7 @@ the Accounts panel. No token needed: libraries are public on Kitsu.
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from api import profiles
 from api.config import settings
 from api.models import ExclusionStatus
 from api.routers.app_settings import read_settings
@@ -242,12 +243,12 @@ def refresh_kitsu() -> ExclusionStatus:
     finally:
         client.close()
 
-    store_exclusion_list(LIST_NAME, all_entries)
-    status = get_status(LIST_NAME)
+    store_exclusion_list(profiles.list_name(LIST_NAME), all_entries)
+    status = get_status(profiles.list_name(LIST_NAME))
     status.skipped = skipped
     return status
 
 
 @router.get("/kitsu", response_model=ExclusionStatus)
 def kitsu_status() -> ExclusionStatus:
-    return get_status(LIST_NAME)
+    return get_status(profiles.list_name(LIST_NAME))

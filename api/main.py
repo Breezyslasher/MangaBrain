@@ -13,7 +13,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from api import embedding, vocabulary
+from api import embedding, profiles, vocabulary
 from api.config import settings
 from api.db import close_pool, ensure_schema, get_pool
 from api.routers import (
@@ -27,6 +27,7 @@ from api.routers import (
     hardcover,
     kitsu,
     mal,
+    profile_admin,
     random_pick,
     recommend,
     search,
@@ -103,6 +104,7 @@ API_PREFIXES = (
     "/kitsu",
     "/hardcover",
     "/settings",
+    "/profiles",
     # Installing a dataset starts a multi-gigabyte download on the server;
     # it is the last endpoint that should be reachable without the token.
     "/datasets",
@@ -157,6 +159,23 @@ def _rate_limited(ip: str, limit: int) -> bool:
 
 
 @app.middleware("http")
+async def profile_context(request, call_next):
+    """Which profile a request is for (see api.profiles): the X-Profile
+    header, or ?profile= for a link. Declared before security, so it runs
+    inside it: the token is checked first."""
+    raw = request.headers.get("X-Profile") or request.query_params.get("profile")
+    try:
+        name = profiles.normalise(raw)
+    except ValueError as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=422)
+    token = profiles.use(name)
+    try:
+        return await call_next(request)
+    finally:
+        profiles.reset(token)
+
+
+@app.middleware("http")
 async def security(request, call_next):
     path = request.url.path
     is_api = path.startswith(API_PREFIXES)
@@ -192,6 +211,7 @@ app.include_router(yamtrack.router)
 app.include_router(hardcover.router)
 app.include_router(kitsu.router)
 app.include_router(app_settings.router)
+app.include_router(profile_admin.router)
 app.include_router(datasets.router)
 app.include_router(dub.router)
 app.include_router(describe.router)

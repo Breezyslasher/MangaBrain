@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 
+from api import profiles
 from api.config import embed_model_id, settings
 from api.db import (
     MEDIA_COLS,
@@ -209,7 +210,7 @@ def taste_sources(
     if mal_user:
         sources.append((TASTE_MAL_SQL, {"username": mal_user.strip().lower()}))
     if names:
-        sources.append((TASTE_LIST_SQL, {"lists": names}))
+        sources.append((TASTE_LIST_SQL, {"lists": profiles.list_names(names)}))
     return sources
 
 

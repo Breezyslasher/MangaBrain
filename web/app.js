@@ -173,7 +173,86 @@ function debounce(fn, ms) {
 // once on the first 401 and remembered locally.
 function authHeaders() {
   const token = localStorage.getItem("mb_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  // Whose accounts and lists (see api/profiles.py). None is the default.
+  const profile = currentProfile();
+  if (profile !== "default") headers["X-Profile"] = profile;
+  return headers;
+}
+
+// ------------------------------------------------------------- profiles
+// Each person on one server can have their own profile: their own account
+// names, tokens and synced lists. This browser remembers which it uses.
+const PROFILE_KEY = "mb_profile";
+
+function currentProfile() {
+  try {
+    return localStorage.getItem(PROFILE_KEY) || "default";
+  } catch {
+    return "default";
+  }
+}
+
+// Switching reloads the page, so every account, list status and result
+// is fetched again as the new profile.
+function useProfile(name) {
+  try {
+    if (name && name !== "default") localStorage.setItem(PROFILE_KEY, name);
+    else localStorage.removeItem(PROFILE_KEY);
+  } catch {
+    // Without storage the profile cannot be remembered.
+  }
+  location.reload();
+}
+
+async function loadProfiles() {
+  const select = $("profileSelect");
+  try {
+    const data = await api("/profiles");
+    state.profiles = data.profiles;
+    // A profile removed from another device falls back to the default.
+    if (!data.profiles.includes(currentProfile())) {
+      useProfile("default");
+      return;
+    }
+    if (!select) return;
+    select.innerHTML = "";
+    for (const name of data.profiles) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+    select.value = currentProfile();
+    $("profileRemove").disabled = currentProfile() === "default";
+  } catch {
+    // An older server without profiles: everything stays the default.
+  }
+}
+
+async function addProfile() {
+  const name = (window.prompt("Name for the new profile (a-z, 0-9, - and _):") || "")
+    .trim()
+    .toLowerCase();
+  if (!name) return;
+  try {
+    await apiSend("POST", "/profiles", { name });
+    useProfile(name);
+  } catch (err) {
+    if ($("profileStatus")) $("profileStatus").textContent = err.message;
+  }
+}
+
+async function removeProfile() {
+  const name = currentProfile();
+  if (name === "default") return;
+  if (!window.confirm(`Remove the profile "${name}" with its accounts and lists?`)) return;
+  try {
+    await apiSend("DELETE", `/profiles/${encodeURIComponent(name)}`);
+    useProfile("default");
+  } catch (err) {
+    if ($("profileStatus")) $("profileStatus").textContent = err.message;
+  }
 }
 
 async function authFetch(url, options = {}) {
@@ -199,6 +278,22 @@ async function authFetch(url, options = {}) {
       resp = await withAuth();
   }
   return resp;
+}
+
+// A write: JSON body, the same error handling as api().
+async function apiSend(method, path, body) {
+  const resp = await authFetch(path, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(
+      typeof data.detail === "string" ? data.detail : `Request failed (${resp.status})`,
+    );
+  }
+  return resp.json();
 }
 
 async function api(path, params = {}) {
@@ -408,7 +503,8 @@ async function loadDubLanguages() {
     const data = await api("/dub/languages", {});
     const languages = (data && data.languages) || [];
     if (!languages.length) return;
-    const chosen = select.value;
+    const chosen = select.value || select.dataset.want || "";
+    delete select.dataset.want;
     // Rebuild rather than append: the markup carries English as a
     // pre-fetch fallback and it would otherwise appear twice.
     select.innerHTML = "";
@@ -1345,6 +1441,7 @@ function shownGenres() {
 }
 
 function renderGenreChips() {
+  if (typeof saveFilters === "function") saveFilters();
   const wrap = $("genreChips");
   wrap.innerHTML = "";
   for (const genre of shownGenres()) {
@@ -1367,6 +1464,7 @@ function renderGenreChips() {
 }
 
 function renderTagChips() {
+  if (typeof saveFilters === "function") saveFilters();
   const wrap = $("tagChips");
   wrap.innerHTML = "";
   for (const [name, mode] of Object.entries(state.tagState)) {
@@ -1656,6 +1754,9 @@ function bindEvents() {
   on("ytRefresh", "click", refreshYamtrack);
   on("kitsuRefresh", "click", refreshKitsu);
   on("acctSave", "click", saveAccountSettings);
+  on("profileSelect", "change", (e) => useProfile(e.target.value));
+  on("profileAdd", "click", addProfile);
+  on("profileRemove", "click", removeProfile);
   on("settingsBtn", "click", openSettings);
   on("openSettingsLink", "click", openSettings);
   on("settingsClose", "click", closeSettings);
@@ -1703,9 +1804,104 @@ function bindEvents() {
   });
 }
 
+// Filters, weights and switches are remembered per browser, as the Android
+// app remembers them per phone. They used to reset on every reload. Account
+// names, tokens and the synced lists live on the server, per profile.
+const SAVED_FILTERS_KEY = "mb_filters";
+const SAVED_CONTROLS = [
+  "wSemantic",
+  "wTags",
+  "wGenres",
+  "wTaste",
+  "adult",
+  "dubLang",
+  "crossMedia",
+  "excludeFranchise",
+  "yearMin",
+  "yearMax",
+  "minScore",
+  "country",
+  "status",
+  "format",
+  "maxPop",
+  "maxLen",
+  "minLen",
+  "malExclude",
+  "alExclude",
+  "kitsuExclude",
+  "ytExclude",
+  "hcExclude",
+  "keepPlanned",
+  "useRatings",
+  "forYouSeeds",
+];
+
+function saveFilters() {
+  const controls = {};
+  for (const id of SAVED_CONTROLS) {
+    const el = $(id);
+    if (!el) continue;
+    // A dropdown still loading its options holds the wanted value aside.
+    controls[id] = el.type === "checkbox" ? el.checked : el.value || el.dataset.want || "";
+  }
+  const saved = { controls, genres: state.genreState, tags: state.tagState };
+  try {
+    localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(saved));
+  } catch {
+    // Private mode or a full store: filters simply are not remembered.
+  }
+}
+
+function restoreFilters() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(SAVED_FILTERS_KEY) || "null");
+  } catch {
+    saved = null;
+  }
+  if (!saved || typeof saved !== "object") return;
+  for (const [id, value] of Object.entries(saved.controls || {})) {
+    const el = $(id);
+    if (!el || !SAVED_CONTROLS.includes(id)) continue;
+    if (el.type === "checkbox") {
+      el.checked = Boolean(value);
+    } else if (el.tagName === "SELECT") {
+      // Its options arrive from the server later; fillSelect and the dub
+      // language list pick this up when they do.
+      el.dataset.want = String(value || "");
+      el.value = String(value || "");
+    } else {
+      el.value = String(value ?? "");
+    }
+    if (el.type === "range") {
+      const label = $(id + "Val");
+      if (label) label.textContent = el.value;
+    }
+  }
+  for (const [key, target] of [
+    ["genres", "genreState"],
+    ["tags", "tagState"],
+  ]) {
+    const chips = saved[key];
+    if (chips && typeof chips === "object") {
+      state[target] = Object.fromEntries(
+        Object.entries(chips).filter(([, v]) => v === "inc" || v === "exc"),
+      );
+    }
+  }
+}
+
+restoreFilters();
 populateFormats();
 renderGenreChips();
+renderTagChips();
 bindEvents();
+// Any remembered control changing, by hand or through the phone layout
+// (which moves these same elements), is saved. Chip changes save as they
+// redraw, in renderGenreChips and renderTagChips.
+document.addEventListener("change", (e) => {
+  if (e.target && SAVED_CONTROLS.includes(e.target.id)) saveFilters();
+});
 {
   const pathMedium = PATH_TO_MEDIUM[location.pathname];
   // setMedium loads the medium's vocabularies when it changes the medium;
@@ -1714,6 +1910,7 @@ bindEvents();
   else loadVocabularies();
 }
 loadAccountSettings();
+loadProfiles();
 applyHash();
 
 if ("serviceWorker" in navigator) {

@@ -262,9 +262,24 @@ class AppSettingsOut(BaseModel):
     yamtrack_token_set: bool = False
     hardcover_token_set: bool = False
     tmdb_api_key_set: bool = False
+    # Which profile these accounts belong to (api.profiles): "default", or
+    # the name the request's X-Profile header gave.
+    profile: str = "default"
     # Never empty. Until someone chooses, every medium whose data is
     # present - so an install without books does not show an empty tab.
     enabled_media: list[str] = []
+
+
+class ProfileIn(BaseModel):
+    name: str
+
+
+class ProfilesOut(BaseModel):
+    """Every profile on this server, the default first, and which one the
+    request was made as."""
+
+    profiles: list[str]
+    current: str
 
 
 class DatasetInstallOut(BaseModel):
