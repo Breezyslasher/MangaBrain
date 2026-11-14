@@ -47,6 +47,13 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
 
     private lateinit var grid: GridAdapter
     private lateinit var header: DiscoverHeaderAdapter
+    private val more = ShowMoreAdapter()
+
+    /**
+     * Bumped by every new list, so a "Show more" page that answers after the
+     * user has moved on is dropped instead of landing under the new list.
+     */
+    private var pageSeq = 0
     private var searchJob: Job? = null
 
     /**
@@ -92,12 +99,18 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         val manager = GridLayoutManager(requireContext(), columns)
         manager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
             // The header is one row wide; everything after it is one cell.
+            // The header and the Show more row are one row wide; every
+            // result between them is one cell.
             override fun getSpanSize(position: Int): Int =
-                if (position < header.itemCount) columns else 1
+                if (position < header.itemCount || position >= header.itemCount + grid.itemCount) {
+                    columns
+                } else {
+                    1
+                }
         }
         view.findViewById<RecyclerView>(R.id.resultsGrid).apply {
             layoutManager = manager
-            adapter = ConcatAdapter(header, grid)
+            adapter = ConcatAdapter(header, grid, more)
         }
 
         buildMediumSpinner(view.findViewById(R.id.mediumSpinner))
@@ -249,21 +262,73 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         viewLifecycleOwner.lifecycleScope.launch { block() }
     }
 
+    /** One page of a search or browse, from [offset] in the server's order. */
+    private suspend fun searchPage(
+        api: MangaBrainApi,
+        query: String,
+        withFilters: Boolean,
+        offset: Int
+    ) = if (withFilters) {
+        api.search(
+            query.ifBlank { null },
+            FilterState.searchParams(PAGE) + ("offset" to offset.toString()),
+            FilterState.formats, FilterState.genreIn, FilterState.genreEx,
+            FilterState.tagIn, FilterState.tagEx, FilterState.excludeLists
+        )
+    } else {
+        api.search(
+            query,
+            mapOf(
+                "medium" to FilterState.medium,
+                "limit" to PAGE.toString(),
+                "offset" to offset.toString()
+            )
+        )
+    }
+
+    /**
+     * Offers the page after [offset] when the last page was full. The server
+     * pages a search or browse with offset, best match or newest first.
+     */
+    private fun offerMoreSearch(
+        seq: Int,
+        api: MangaBrainApi,
+        query: String,
+        withFilters: Boolean,
+        offset: Int,
+        lastPage: Int
+    ) {
+        if (lastPage < PAGE) {
+            more.withdraw()
+            return
+        }
+        more.offer {
+            runOnScope {
+                try {
+                    val page = searchPage(api, query, withFilters, offset).results
+                    if (seq != pageSeq) return@runOnScope
+                    grid.append(page.map { GridAdapter.Row(it) })
+                    header.show(null, emptyList(), grid.itemCount)
+                    offerMoreSearch(seq, api, query, withFilters, offset + page.size, page.size)
+                } catch (e: Exception) {
+                    if (seq != pageSeq) return@runOnScope
+                    more.failed()
+                    status(getString(R.string.error_unreachable, e.message ?: ""))
+                }
+            }
+        }
+    }
+
     private suspend fun runSearch(query: String, withFilters: Boolean) {
         val api = api() ?: return
         mode = Mode.Browse(query, withFilters)
         status(getString(R.string.searching))
+        val seq = newList()
         call {
-            val response = if (withFilters) {
-                api.search(
-                    query.ifBlank { null }, FilterState.searchParams(),
-                    FilterState.formats, FilterState.genreIn, FilterState.genreEx,
-                    FilterState.tagIn, FilterState.tagEx, FilterState.excludeLists
-                )
-            } else {
-                api.search(query, mapOf("medium" to FilterState.medium, "limit" to "60"))
-            }
+            val response = searchPage(api, query, withFilters, 0)
+            if (seq != pageSeq) return@call
             grid.submit(response.results.map { GridAdapter.Row(it) })
+            offerMoreSearch(seq, api, query, withFilters, response.results.size, response.results.size)
             // No seed in browse mode: the header carries only the count.
             header.show(null, emptyList(), response.results.size)
             // A new result set is a new page, whatever produced it.
@@ -285,6 +350,7 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         if (query.length < MIN_DESCRIPTION) return
         mode = Mode.Describe(query)
         status(getString(R.string.describing))
+        newList()
         call {
             val response = api.describe(
                 query, FilterState.describeParams(),
@@ -316,16 +382,12 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         val api = api() ?: return
         mode = Mode.Seed(mediaId)
         status(getString(R.string.loading))
-        runOnScope {
-            call {
-                render(
-                    api.recommend(
-                        mediaId, FilterState.recommendParams(),
-                        FilterState.formats, FilterState.genreIn, FilterState.genreEx,
-                        FilterState.tagIn, FilterState.tagEx, FilterState.excludeLists
-                    )
-                )
-            }
+        renderPaged { limit ->
+            api.recommend(
+                mediaId, FilterState.recommendParams(limit),
+                FilterState.formats, FilterState.genreIn, FilterState.genreEx,
+                FilterState.tagIn, FilterState.tagEx, FilterState.excludeLists
+            )
         }
     }
 
@@ -334,16 +396,13 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         if (MixStore.size == 0) return
         mode = Mode.Mix
         status(getString(R.string.loading))
-        runOnScope {
-            call {
-                render(
-                    api.recommendMix(
-                        MixStore.ids, FilterState.recommendParams(),
-                        FilterState.formats, FilterState.genreIn, FilterState.genreEx,
-                        FilterState.tagIn, FilterState.tagEx, FilterState.excludeLists
-                    )
-                )
-            }
+        val ids = MixStore.ids
+        renderPaged { limit ->
+            api.recommendMix(
+                ids, FilterState.recommendParams(limit),
+                FilterState.formats, FilterState.genreIn, FilterState.genreEx,
+                FilterState.tagIn, FilterState.tagEx, FilterState.excludeLists
+            )
         }
     }
 
@@ -351,9 +410,8 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
         val api = api() ?: return
         mode = Mode.ForYou
         status(getString(R.string.loading))
-        runOnScope {
-            call {
-                val params = FilterState.recommendParams().toMutableMap()
+        renderRevealed { limit ->
+                val params = FilterState.recommendParams(limit).toMutableMap()
                 params["medium"] = FilterState.medium
                 params["seeds"] = ForYouPrefs.seeds.toString()
                 // The Mix tab's switch used to set a field nobody sent, so
@@ -365,13 +423,10 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
                 if (FilterState.excludeMal && FilterState.malUser.isNotBlank()) {
                     params["mal_user"] = FilterState.malUser
                 }
-                render(
-                    api.forYou(
-                        params, FilterState.formats, FilterState.genreIn, FilterState.genreEx,
-                        FilterState.tagIn, FilterState.tagEx, FilterState.excludeLists
-                    )
+                api.forYou(
+                    params, FilterState.formats, FilterState.genreIn, FilterState.genreEx,
+                    FilterState.tagIn, FilterState.tagEx, FilterState.excludeLists
                 )
-            }
         }
     }
 
@@ -405,6 +460,92 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
     }
 
     // --------------------------------------------------------------- render
+
+    /** Starts a new list: earlier Show more pages are dropped from here on. */
+    private fun newList(): Int {
+        pageSeq += 1
+        more.withdraw()
+        return pageSeq
+    }
+
+    /**
+     * A recommendation list, PAGE titles at first. Recommendations have no
+     * offset - the ranking is computed per request - so Show more asks for
+     * the list again, longer, and adds the titles past those already shown.
+     * The ranking is deterministic, so the first part is the same list. The
+     * server answers up to MAX_RECOMMENDATIONS.
+     */
+    private fun renderPaged(fetch: suspend (Int) -> RecommendResponse) {
+        val seq = newList()
+        runOnScope {
+            call {
+                val data = fetch(PAGE)
+                if (seq != pageSeq) return@call
+                render(data)
+                offerMoreRecommendations(seq, fetch, PAGE, data.results.size)
+            }
+        }
+    }
+
+    /**
+     * For you draws its seed titles at random on every request, so asking
+     * again for a longer list would give a different list. It fetches the
+     * longest list once and reveals it PAGE titles at a time instead.
+     */
+    private fun renderRevealed(fetch: suspend (Int) -> RecommendResponse) {
+        val seq = newList()
+        runOnScope {
+            call {
+                val data = fetch(MAX_RECOMMENDATIONS)
+                if (seq != pageSeq) return@call
+                render(data.copy(results = data.results.take(PAGE)))
+                offerReveal(seq, data)
+            }
+        }
+    }
+
+    private fun offerReveal(seq: Int, data: RecommendResponse) {
+        if (grid.itemCount >= data.results.size) {
+            more.withdraw()
+            return
+        }
+        more.offer {
+            if (seq != pageSeq) return@offer
+            val next = data.results.drop(grid.itemCount).take(PAGE)
+            grid.append(next.map { GridAdapter.Row(it.media, it.similarity) })
+            header.show(data.seed, data.related, grid.itemCount)
+            offerReveal(seq, data)
+        }
+    }
+
+    private fun offerMoreRecommendations(
+        seq: Int,
+        fetch: suspend (Int) -> RecommendResponse,
+        limit: Int,
+        got: Int
+    ) {
+        if (got < limit || limit >= MAX_RECOMMENDATIONS) {
+            more.withdraw()
+            return
+        }
+        more.offer {
+            runOnScope {
+                try {
+                    val next = minOf(limit + PAGE, MAX_RECOMMENDATIONS)
+                    val data = fetch(next)
+                    if (seq != pageSeq) return@runOnScope
+                    val added = data.results.drop(grid.itemCount)
+                    grid.append(added.map { GridAdapter.Row(it.media, it.similarity) })
+                    header.show(data.seed, data.related, grid.itemCount)
+                    offerMoreRecommendations(seq, fetch, next, data.results.size)
+                } catch (e: Exception) {
+                    if (seq != pageSeq) return@runOnScope
+                    more.failed()
+                    status(getString(R.string.error_unreachable, e.message ?: ""))
+                }
+            }
+        }
+    }
 
     private fun render(data: RecommendResponse) {
         header.show(data.seed, data.related, data.results.size)
@@ -451,6 +592,7 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
     }
 
     private fun clear() {
+        newList()
         grid.submit(emptyList())
         header.show(null, emptyList(), 0)
         shownSeedIds = null
@@ -459,6 +601,12 @@ class DiscoverFragment : Fragment(R.layout.fragment_discover) {
 
 /** Matches the server's min_length on q: shorter cannot describe anything. */
 private const val MIN_DESCRIPTION = 3
+
+/** Titles per page in the grid, and per Show more. */
+private const val PAGE = 60
+
+/** The most /recommend, /recommend?ids and /foryou answer in one list. */
+private const val MAX_RECOMMENDATIONS = 200
 
 /** For-you sampling options, shared with the Mix tab that edits them. */
 object ForYouPrefs {

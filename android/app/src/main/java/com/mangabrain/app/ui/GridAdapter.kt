@@ -37,6 +37,14 @@ class GridAdapter(
         notifyDataSetChanged()
     }
 
+    /** Adds the next page under what is already shown. */
+    fun append(more: List<Row>) {
+        if (more.isEmpty()) return
+        val start = rows.size
+        rows.addAll(more)
+        notifyItemRangeInserted(start, more.size)
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder =
         Holder(LayoutInflater.from(parent.context).inflate(R.layout.item_grid, parent, false))
 

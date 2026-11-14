@@ -860,6 +860,15 @@ body.m-on input.m-switch:checked::after {
   overflow-y: auto;
   padding-bottom: 24px;
 }
+/* The page is a flex column, and a flex item with overflow: hidden may
+   shrink below its content: once the page was taller than the screen, every
+   card was squeezed to its first row and the rest cut off. The page scrolls
+   instead. */
+.m-settings > *,
+.m-mix > *,
+.m-scroll > * {
+  flex-shrink: 0;
+}
 .m-settings.m-with-actions {
   padding-bottom: 120px;
 }

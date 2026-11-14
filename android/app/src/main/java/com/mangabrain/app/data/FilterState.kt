@@ -211,11 +211,10 @@ object FilterState {
     }
 
     /**
-     * 60, not the web client's 200. The web asks for 200 and reveals them
-     * 60 at a time behind a "show more" button; this grid has no paging, so
-     * 200 would mean downloading - and parsing - 140 results nobody scrolls
-     * to. Every MediaOut carries its full synopsis, so the difference is
-     * most of the payload on a phone connection.
+     * 60 to start, not the web client's 200: every MediaOut carries its
+     * full synopsis, so fetching 140 results nobody scrolls to would be most
+     * of the payload on a phone connection. Discover's Show more asks for
+     * the list again, 60 longer each time, up to the server's 200.
      */
     fun recommendParams(limit: Int = 60): Map<String, String> =
         weightParams() + filterParams() + mapOf(
