@@ -1320,3 +1320,9 @@ body.m-on .m-media .dataset > button {
   color: var(--accent);
   font-weight: 700;
 }
+
+/* The PC layout caps the search rows; on a phone they fill the width. */
+body.m-on .searchbar,
+body.m-on .describe-hint {
+  max-width: none;
+}
