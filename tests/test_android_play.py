@@ -29,3 +29,8 @@ def test_plain_http_to_a_lan_server_is_allowed():
     config = (APP / "res/xml/network_security_config.xml").read_text()
     assert '<base-config cleartextTrafficPermitted="true">' in config
     assert "192.168.0.0" not in config.split("-->")[-1]
+
+
+def test_the_play_identity_is_set_and_the_code_package_is_not_moved():
+    assert 'applicationId "io.github.breezyslasher.mangabrain"' in GRADLE
+    assert "namespace 'com.mangabrain.app'" in GRADLE
