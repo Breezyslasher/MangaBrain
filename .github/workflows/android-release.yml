@@ -1,0 +1,131 @@
+name: Android release (Google Play)
+
+# A signed Android App Bundle (.aab) for Google Play, which takes bundles
+# rather than APKs for new apps. Run it by pushing a tag such as
+# android-v0.2.0, or by hand from the Actions tab.
+#
+# It needs four repository secrets (Settings > Secrets and variables >
+# Actions), made once - see android/README.md, "Publishing to Google Play":
+#   ANDROID_KEYSTORE_BASE64    the upload keystore, base64-encoded
+#   ANDROID_KEYSTORE_PASSWORD  its password
+#   ANDROID_KEY_ALIAS          the key's alias in it
+#   ANDROID_KEY_PASSWORD       the key's password
+# The keystore is decoded into the runner's temp directory for the build and
+# never committed.
+#
+# The version code is this workflow's run number, which only ever grows, so
+# each upload is accepted as newer than the last.
+
+on:
+  push:
+    tags: ['android-v*']
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: version name shown in the store, e.g. 0.2.0
+        required: true
+        default: "0.1.0"
+
+jobs:
+  bundle:
+    name: Signed App Bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the signing secrets
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=""
+          [ -n "$KEYSTORE" ] || missing="$missing ANDROID_KEYSTORE_BASE64"
+          [ -n "$STORE_PASSWORD" ] || missing="$missing ANDROID_KEYSTORE_PASSWORD"
+          [ -n "$ALIAS" ] || missing="$missing ANDROID_KEY_ALIAS"
+          [ -n "$KEY_PASSWORD" ] || missing="$missing ANDROID_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "Missing repository secrets:$missing" >&2
+            echo "See android/README.md, 'Publishing to Google Play'." >&2
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            name="${GITHUB_REF_NAME#android-v}"
+          else
+            name="${{ github.event.inputs.version_name }}"
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "Version $name (code ${{ github.run_number }})"
+
+      - name: Build the signed bundle
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          MANGABRAIN_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MANGABRAIN_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MANGABRAIN_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          MANGABRAIN_VERSION_CODE: ${{ steps.version.outputs.code }}
+          MANGABRAIN_VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          set -o pipefail
+          export MANGABRAIN_KEYSTORE_FILE="$RUNNER_TEMP/upload.keystore"
+          printf '%s' "$KEYSTORE" | base64 --decode > "$MANGABRAIN_KEYSTORE_FILE"
+          ./gradlew bundleRelease --no-daemon 2>&1 | tee "$RUNNER_TEMP/build.log"
+          rm -f "$MANGABRAIN_KEYSTORE_FILE"
+
+      - name: Repeat compiler errors
+        if: failure()
+        run: |
+          grep -E "^(e|w): " "$RUNNER_TEMP/build.log" || true
+
+      # A bundle signed with the debug key would be refused by Play; say so
+      # here rather than at upload.
+      - name: Check the bundle is release-signed
+        run: |
+          aab=app/build/outputs/bundle/release/app-release.aab
+          test -f "$aab"
+          if keytool -printcert -jarfile "$aab" | grep -q "CN=Android Debug"; then
+            echo "The bundle is signed with the debug key" >&2
+            exit 1
+          fi
+          keytool -printcert -jarfile "$aab" | grep -E "Owner|SHA256" | head -3
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: mangabrain-play-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
