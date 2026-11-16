@@ -20,7 +20,12 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.mangabrain.app"
+        // The app's identity on Google Play and on a phone; permanent once a
+        // build is uploaded to Play. Not the code's package: `namespace`
+        // above stays com.mangabrain.app, so no source file moves. Changed
+        // from com.mangabrain.app before the first Play upload; a phone
+        // with the old id installed keeps it as a separate app.
+        applicationId "io.github.breezyslasher.mangabrain"
         minSdk 24
         targetSdk 35
         // CI passes a number that only grows (the release workflow's run
