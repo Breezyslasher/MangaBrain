@@ -41,6 +41,10 @@ header {
   font-size: 1rem;
   min-height: 2.75rem;
   cursor: pointer;
+  /* The general select rule below is full width, for the filter panel; in
+     the header that stretched the picker across the whole bar. */
+  width: auto;
+  flex: 0 0 auto;
 }
 
 main {
