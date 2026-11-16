@@ -115,6 +115,10 @@ button:hover { filter: brightness(1.1); }
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+  /* Wide enough for any title or sentence. The results grid below keeps
+     the full width; a search box as wide as a large monitor only puts its
+     button far from where the eye is. */
+  max-width: 760px;
 }
 
 .searchbar input {
@@ -136,6 +140,7 @@ button:hover { filter: brightness(1.1); }
 .describebar { margin-top: 0.5rem; }
 
 .describe-hint {
+  max-width: 760px;
   margin-top: 0.35rem;
   margin-bottom: 0.25rem;
 }
