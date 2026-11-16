@@ -43,6 +43,40 @@ cannot publish to Play. Its entire purpose is that every build shares one
 certificate. A real release key is the opposite case and belongs in CI
 secrets.
 
+## Publishing to Google Play
+
+The release build is the Play build: it targets API 35 and is signed with
+your own upload key. It keeps the adult-content toggle, off by default;
+declare it in the Play Console's content rating questionnaire.
+`.github/workflows/android-release.yml` builds it as a signed App Bundle.
+
+Once, on your own computer (keep the keystore and passwords safe; losing
+them means asking Google to reset the upload key):
+
+```
+keytool -genkeypair -v -keystore upload.keystore -alias upload \
+  -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 upload.keystore > upload.keystore.b64
+```
+
+Then add four repository secrets under Settings > Secrets and variables >
+Actions:
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | the contents of `upload.keystore.b64` |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
+| `ANDROID_KEY_ALIAS` | `upload` |
+| `ANDROID_KEY_PASSWORD` | the key password |
+
+To build a release, push a tag (`git tag android-v0.2.0 && git push origin
+android-v0.2.0`) or run "Android release (Google Play)" from the Actions tab.
+Download the `.aab` from the run and upload it in the Play Console. The
+version code is the workflow's run number, so every upload is newer than
+the last. Use Play App Signing (the Console's default): Google holds the
+key that signs what users install, and this one only proves uploads come
+from you.
+
 ## Configure
 
 On first run the app opens Settings. Enter the server URL, for example

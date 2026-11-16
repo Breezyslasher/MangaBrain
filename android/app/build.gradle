@@ -3,16 +3,30 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// A Play upload must be signed with a release key and carry a version code
+// higher than the last one. Both come from the environment, set by
+// .github/workflows/android-release.yml from repository secrets; nothing
+// secret is ever committed. Without them a release build still works for
+// sideloading, signed with the shared debug key.
+def releaseKeystore = System.getenv("MANGABRAIN_KEYSTORE_FILE")
+def hasReleaseKey = releaseKeystore != null && !releaseKeystore.isEmpty() && file(releaseKeystore).exists()
+
 android {
     namespace 'com.mangabrain.app'
-    compileSdk 34
+    // 35: Google Play requires new apps and updates to target a recent
+    // Android release (35 from August 2025). Android 15 then draws apps
+    // edge to edge; values-v35/themes.xml opts out until the screens
+    // handle window insets, which 36 will require.
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.mangabrain.app"
         minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "0.1.0"
+        targetSdk 35
+        // CI passes a number that only grows (the release workflow's run
+        // number); a local build is 1.
+        versionCode((System.getenv("MANGABRAIN_VERSION_CODE") ?: "1").toInteger())
+        versionName(System.getenv("MANGABRAIN_VERSION_NAME") ?: "0.1.0")
         // Blank on purpose: a self-hosted app has no default server, and
         // guessing one would send a first run at somebody else's host.
         buildConfigField "String", "DEFAULT_SERVER_URL", '""'
@@ -41,17 +55,24 @@ android {
             keyAlias "androiddebugkey"
             keyPassword "android"
         }
+        if (hasReleaseKey) {
+            release {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv("MANGABRAIN_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("MANGABRAIN_KEY_ALIAS")
+                keyPassword System.getenv("MANGABRAIN_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // An unsigned release APK cannot be installed at all, so until
-            // a real release key exists it is signed with the debug one.
-            // That makes it installable and sideloadable; it does NOT make
-            // it releasable.
-            signingConfig signingConfigs.debug
+            // The release key when the environment provides one (the Play
+            // build); otherwise the debug key, which makes it installable
+            // and sideloadable but NOT releasable.
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
         }
         debug {
             signingConfig signingConfigs.debug

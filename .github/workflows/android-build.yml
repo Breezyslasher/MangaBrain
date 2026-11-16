@@ -87,7 +87,9 @@ jobs:
       - name: Build debug APK
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon 2>&1 | tee "$RUNNER_TEMP/build.log"
+          # bundleRelease too, so the Play build is compiled on every push;
+          # without the release secrets it is debug-signed and not uploaded.
+          ./gradlew assembleDebug bundleRelease --no-daemon 2>&1 | tee "$RUNNER_TEMP/build.log"
 
       # The errors again at the very end, where a tail finds them.
       - name: Repeat compiler errors

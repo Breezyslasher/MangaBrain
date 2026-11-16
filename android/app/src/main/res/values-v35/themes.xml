@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 15 draws an app targeting API 35 edge to edge, under the
+         status and navigation bars. The screens do not yet pad themselves
+         for those bars, so this opts out and keeps the layout as it was.
+         The opt-out stops working at API 36, when insets must be handled. -->
+    <style name="Theme.MangaBrain" parent="Base.Theme.MangaBrain">
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+</resources>
