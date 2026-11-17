@@ -3,6 +3,9 @@ package com.mangabrain.app.ui
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.mangabrain.app.R
@@ -33,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        padForSystemBars()
         FilterState.load(this)
 
         if (savedInstanceState == null) {
@@ -60,6 +64,36 @@ class MainActivity : AppCompatActivity() {
         if (!Prefs(this).isConfigured) {
             settings.openServer()
             nav.selectedItemId = R.id.nav_settings
+        }
+    }
+
+    /**
+     * Android 15 and later draw the app edge to edge, under the status bar,
+     * the navigation bar and the keyboard, and targeting API 36 removes the
+     * opt-out. So the screens pad themselves by those insets:
+     *  - the status bar and any camera cutout: the top of the whole screen,
+     *    over the screens' own background;
+     *  - the navigation bar: the bottom of the tab bar, so its surface runs
+     *    on under the gesture handle as it did before;
+     *  - the open keyboard: the bottom of the whole screen, so a field being
+     *    typed into stays above it, as adjustResize used to do.
+     */
+    private fun padForSystemBars() {
+        val root = findViewById<View>(android.R.id.content)
+        root.setBackgroundColor(ContextCompat.getColor(this, R.color.bg))
+        val navBottom = nav.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val typing = ime > bars.bottom
+            view.setPadding(bars.left, bars.top, bars.right, if (typing) ime else 0)
+            nav.setPadding(
+                nav.paddingLeft, nav.paddingTop, nav.paddingRight,
+                navBottom + if (typing) 0 else bars.bottom
+            )
+            WindowInsetsCompat.CONSUMED
         }
     }
 

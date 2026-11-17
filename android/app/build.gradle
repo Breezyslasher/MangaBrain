@@ -13,11 +13,12 @@ def hasReleaseKey = releaseKeystore != null && !releaseKeystore.isEmpty() && fil
 
 android {
     namespace 'com.mangabrain.app'
-    // 35: Google Play requires new apps and updates to target a recent
-    // Android release (35 from August 2025). Android 15 then draws apps
-    // edge to edge; values-v35/themes.xml opts out until the screens
-    // handle window insets, which 36 will require.
-    compileSdk 35
+    // 36: Google Play requires new apps and updates to target a recent
+    // Android release (36 from 2026). Android 15 and later draw an app
+    // edge to edge, under the status and navigation bars, and 36 removes
+    // the opt-out; MainActivity pads the screens for the bars and the
+    // keyboard instead.
+    compileSdk 36
 
     defaultConfig {
         // The app's identity on Google Play and on a phone; permanent once a
@@ -27,7 +28,7 @@ android {
         // with the old id installed keeps it as a separate app.
         applicationId "io.github.breezyslasher.mangabrain"
         minSdk 24
-        targetSdk 35
+        targetSdk 36
         // CI passes a number that only grows (the release workflow's run
         // number); a local build is 1.
         versionCode((System.getenv("MANGABRAIN_VERSION_CODE") ?: "1").toInteger())
