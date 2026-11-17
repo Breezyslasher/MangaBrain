@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: SG; src: url("../../../web/fonts/space_grotesk_bold.ttf"); font-weight: 700; }
+  @font-face { font-family: SG; src: url("../../../web/fonts/space_grotesk_medium.ttf"); font-weight: 500; }
+  @font-face { font-family: JB; src: url("../../../web/fonts/jetbrains_mono_bold.ttf"); font-weight: 700; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    width: 1024px; height: 500px; overflow: hidden; position: relative;
+    background: radial-gradient(circle at 78% 30%, #1a2440 0%, #0e1015 58%);
+    font-family: SG, sans-serif; color: #e6e9f0;
+  }
+  .left { position: absolute; left: 64px; top: 0; bottom: 0; width: 470px;
+    display: flex; flex-direction: column; justify-content: center; }
+  .brand { display: flex; align-items: center; gap: 18px; }
+  .brand img { width: 84px; height: 84px; border-radius: 20px; }
+  .name { font-size: 54px; font-weight: 700; letter-spacing: -0.03em; }
+  .tag { margin-top: 26px; font-size: 34px; font-weight: 700; line-height: 1.15;
+    letter-spacing: -0.02em; }
+  .tag span { color: #37c9a5; }
+  .sub { margin-top: 16px; font-size: 19px; font-weight: 500; color: #8b93a7; line-height: 1.4; }
+  .grid { position: absolute; right: -30px; top: -6px; width: 470px;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+    transform: rotate(-8deg); }
+  .card { aspect-ratio: 2 / 3; border-radius: 14px; position: relative;
+    border: 1px solid #232a3a; overflow: hidden; }
+  .card::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 14px;
+    height: 10px; border-radius: 5px; background: rgba(255,255,255,0.28); }
+  .card::before { content: ""; position: absolute; left: 12px; right: 40px; bottom: 32px;
+    height: 10px; border-radius: 5px; background: rgba(255,255,255,0.5); }
+  .badge { position: absolute; top: 10px; right: 10px; padding: 4px 9px; border-radius: 999px;
+    background: rgba(14,16,21,0.82); font-family: JB; font-size: 15px; font-weight: 700; color: #37c9a5; }
+  .c1 { background: linear-gradient(160deg, #5b8def, #2c3f86); }
+  .c2 { background: linear-gradient(160deg, #37c9a5, #165a52); }
+  .c3 { background: linear-gradient(160deg, #e0637a, #6d2338); }
+  .c4 { background: linear-gradient(160deg, #f0b44c, #7a4d12); }
+  .c5 { background: linear-gradient(160deg, #9b7bea, #3f2a7d); }
+  .c6 { background: linear-gradient(160deg, #4cc3e8, #164e66); }
+  .c7 { background: linear-gradient(160deg, #e88a4c, #6e3313); }
+  .c8 { background: linear-gradient(160deg, #6ad07a, #1f5a2b); }
+  .c9 { background: linear-gradient(160deg, #e86fb6, #6a1e4f); }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="card c1"><div class="badge">96%</div></div>
+    <div class="card c2"><div class="badge">93%</div></div>
+    <div class="card c3"><div class="badge">91%</div></div>
+    <div class="card c4"><div class="badge">89%</div></div>
+    <div class="card c5"><div class="badge">88%</div></div>
+    <div class="card c6"><div class="badge">86%</div></div>
+    <div class="card c7"><div class="badge">85%</div></div>
+    <div class="card c8"><div class="badge">83%</div></div>
+    <div class="card c9"><div class="badge">82%</div></div>
+  </div>
+  <div class="left">
+    <div class="brand">
+      <img src="../../../web/icon-maskable-512.png" alt="">
+      <div class="name">MangaBrain</div>
+    </div>
+    <div class="tag">Recommendations by <span>story</span>,<br>not popularity</div>
+    <div class="sub">Anime, manga, books, films and TV,<br>from your own self-hosted server</div>
+  </div>
+</body>
+</html>
