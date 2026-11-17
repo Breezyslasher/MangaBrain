@@ -7,6 +7,8 @@
         <item name="android:colorBackground">@color/bg</item>
         <item name="android:textColorPrimary">@color/text</item>
         <item name="android:textColorSecondary">@color/muted</item>
+        <!-- Used below Android 15 only; from 15 the bars are transparent and
+             MainActivity pads the screens so their own colours show. -->
         <item name="android:statusBarColor" tools:targetApi="21">@color/bg</item>
         <item name="android:navigationBarColor">@color/surface</item>
         <!-- Space Grotesk throughout; numbers that should line up use

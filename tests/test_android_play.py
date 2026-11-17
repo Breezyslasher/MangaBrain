@@ -13,14 +13,28 @@ def test_release_signing_and_version_come_from_the_environment():
     assert 'System.getenv("MANGABRAIN_KEYSTORE_FILE")' in GRADLE
     assert "hasReleaseKey ? signingConfigs.release : signingConfigs.debug" in GRADLE
     assert 'System.getenv("MANGABRAIN_VERSION_CODE")' in GRADLE
-    assert "targetSdk 35" in GRADLE
+    assert "targetSdk 36" in GRADLE and "compileSdk 36" in GRADLE
     assert "./gradlew bundleRelease" in RELEASE
     assert 'grep -q "CN=Android Debug"' in RELEASE, "a debug-signed bundle fails the job"
 
 
-def test_android_15_keeps_the_layout_out_from_under_the_bars():
-    v35 = (APP / "res/values-v35/themes.xml").read_text()
-    assert '"android:windowOptOutEdgeToEdgeEnforcement">true' in v35
+def test_the_screens_pad_themselves_for_the_system_bars():
+    """Targeting 36 draws the app under the bars with no opt-out; the
+    activity pads for the bars and the keyboard."""
+    main = (APP / "java/com/mangabrain/app/ui/MainActivity.kt").read_text()
+    assert "padForSystemBars()" in main
+    assert "WindowInsetsCompat.Type.ime()" in main
+    assert "WindowInsetsCompat.Type.systemBars()" in main
+    assert not (APP / "res/values-v35").exists(), "the API 35 opt-out is gone"
+    layout = (APP / "res/layout/activity_main.xml").read_text()
+    assert "fitsSystemWindows" not in layout, "the activity pads, not the layout"
+
+
+def test_the_build_tools_can_target_36():
+    root = (ROOT / "android/build.gradle").read_text()
+    assert "id 'com.android.application' version '8.11.1'" in root
+    wrapper = (ROOT / "android/gradle/wrapper/gradle-wrapper.properties").read_text()
+    assert "gradle-8.13-bin.zip" in wrapper
 
 
 def test_plain_http_to_a_lan_server_is_allowed():
