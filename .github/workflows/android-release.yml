@@ -10,6 +10,9 @@ name: Android release (Google Play)
 #   ANDROID_KEYSTORE_PASSWORD  its password
 #   ANDROID_KEY_ALIAS          the key's alias in it
 #   ANDROID_KEY_PASSWORD       the key's password
+# The same four under SIGNING_ names are accepted too (SIGNING_KEYSTORE_BASE64,
+# SIGNING_KEYSTORE_PASSWORD or SIGNING_STORE_PASSWORD, SIGNING_KEY_ALIAS,
+# SIGNING_KEY_PASSWORD), the naming other Android projects and guides use.
 # The keystore is decoded into the runner's temp directory for the build and
 # never committed.
 #
@@ -42,16 +45,16 @@ jobs:
 
       - name: Check the signing secrets
         env:
-          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.SIGNING_KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.SIGNING_KEY_PASSWORD }}
         run: |
           missing=""
-          [ -n "$KEYSTORE" ] || missing="$missing ANDROID_KEYSTORE_BASE64"
-          [ -n "$STORE_PASSWORD" ] || missing="$missing ANDROID_KEYSTORE_PASSWORD"
-          [ -n "$ALIAS" ] || missing="$missing ANDROID_KEY_ALIAS"
-          [ -n "$KEY_PASSWORD" ] || missing="$missing ANDROID_KEY_PASSWORD"
+          [ -n "$KEYSTORE" ] || missing="$missing ANDROID_KEYSTORE_BASE64(or SIGNING_KEYSTORE_BASE64)"
+          [ -n "$STORE_PASSWORD" ] || missing="$missing ANDROID_KEYSTORE_PASSWORD(or SIGNING_KEYSTORE_PASSWORD)"
+          [ -n "$ALIAS" ] || missing="$missing ANDROID_KEY_ALIAS(or SIGNING_KEY_ALIAS)"
+          [ -n "$KEY_PASSWORD" ] || missing="$missing ANDROID_KEY_PASSWORD(or SIGNING_KEY_PASSWORD)"
           if [ -n "$missing" ]; then
             echo "Missing repository secrets:$missing" >&2
             echo "See android/README.md, 'Publishing to Google Play'." >&2
@@ -93,10 +96,10 @@ jobs:
 
       - name: Build the signed bundle
         env:
-          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          MANGABRAIN_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          MANGABRAIN_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          MANGABRAIN_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.SIGNING_KEYSTORE_BASE64 }}
+          MANGABRAIN_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.SIGNING_KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
+          MANGABRAIN_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.SIGNING_KEY_ALIAS }}
+          MANGABRAIN_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.SIGNING_KEY_PASSWORD }}
           MANGABRAIN_VERSION_CODE: ${{ steps.version.outputs.code }}
           MANGABRAIN_VERSION_NAME: ${{ steps.version.outputs.name }}
         run: |
