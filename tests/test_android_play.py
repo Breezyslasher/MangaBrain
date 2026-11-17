@@ -48,3 +48,20 @@ def test_plain_http_to_a_lan_server_is_allowed():
 def test_the_play_identity_is_set_and_the_code_package_is_not_moved():
     assert 'applicationId "io.github.breezyslasher.mangabrain"' in GRADLE
     assert "namespace 'com.mangabrain.app'" in GRADLE
+
+
+def test_tabs_survive_the_activity_being_rebuilt():
+    """Folding, rotating or a profile switch rebuild the activity; its
+    tabs must be the restored fragments, not fresh unattached ones."""
+    main = (APP / "java/com/mangabrain/app/ui/MainActivity.kt").read_text()
+    assert "private val discover = DiscoverFragment()" not in main
+    assert "fm.findFragmentByTag(TAG_DISCOVER) as? DiscoverFragment" in main
+    assert "firstOrNull { !it.isHidden }" in main
+
+
+def test_weights_are_not_restored_from_a_shared_view_id():
+    """Four included rows share the bar's id; restoring by id set every
+    weight to the last bar's value and wrote it back."""
+    filters = (APP / "java/com/mangabrain/app/ui/filters/FiltersFragment.kt").read_text()
+    assert "bar.isSaveEnabled = false" in filters
+    assert "if (fromUser) row.set(progress)" in filters

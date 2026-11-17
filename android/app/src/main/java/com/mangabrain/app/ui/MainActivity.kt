@@ -25,11 +25,19 @@ import com.mangabrain.app.ui.settings.SettingsFragment
  */
 class MainActivity : AppCompatActivity() {
 
-    private val discover = DiscoverFragment()
-    private val filters = FiltersFragment()
-    private val mix = MixFragment()
-    private val settings = SettingsFragment()
-    private var current: Fragment = discover
+    // The four tabs. Not created as fields: when Android rebuilds this
+    // activity - folding or unfolding, rotating, a profile switch, or
+    // coming back after the system reclaimed the app - the fragment
+    // manager restores the original fragments itself. Fresh fields were
+    // never added, so tapping a tab then showed and hid fragments that were
+    // not on screen, and Filters' Apply asked a detached Discover to search,
+    // which crashed (requireContext on a fragment with no activity). They
+    // are looked up by tag instead, and only made on a first start.
+    private lateinit var discover: DiscoverFragment
+    private lateinit var filters: FiltersFragment
+    private lateinit var mix: MixFragment
+    private lateinit var settings: SettingsFragment
+    private lateinit var current: Fragment
 
     private val nav: BottomNavigationView get() = findViewById(R.id.bottomNav)
 
@@ -39,14 +47,21 @@ class MainActivity : AppCompatActivity() {
         padForSystemBars()
         FilterState.load(this)
 
-        if (savedInstanceState == null) {
-            supportFragmentManager.beginTransaction().apply {
-                add(R.id.fragmentHost, discover, "discover")
-                add(R.id.fragmentHost, filters, "filters"); hide(filters)
-                add(R.id.fragmentHost, mix, "mix"); hide(mix)
-                add(R.id.fragmentHost, settings, "settings"); hide(settings)
-            }.commit()
+        val fm = supportFragmentManager
+        discover = fm.findFragmentByTag(TAG_DISCOVER) as? DiscoverFragment ?: DiscoverFragment()
+        filters = fm.findFragmentByTag(TAG_FILTERS) as? FiltersFragment ?: FiltersFragment()
+        mix = fm.findFragmentByTag(TAG_MIX) as? MixFragment ?: MixFragment()
+        settings = fm.findFragmentByTag(TAG_SETTINGS) as? SettingsFragment ?: SettingsFragment()
+        if (!discover.isAdded) {
+            fm.beginTransaction().apply {
+                add(R.id.fragmentHost, discover, TAG_DISCOVER)
+                add(R.id.fragmentHost, filters, TAG_FILTERS); hide(filters)
+                add(R.id.fragmentHost, mix, TAG_MIX); hide(mix)
+                add(R.id.fragmentHost, settings, TAG_SETTINGS); hide(settings)
+            }.commitNow()
         }
+        // The tab on screen: the one the restored fragments left visible.
+        current = listOf(discover, filters, mix, settings).firstOrNull { !it.isHidden } ?: discover
 
         nav.setOnItemSelectedListener { item ->
             val target = when (item.itemId) {
@@ -117,6 +132,13 @@ class MainActivity : AppCompatActivity() {
      */
     fun setTabBarVisible(visible: Boolean) {
         nav.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
+    private companion object {
+        const val TAG_DISCOVER = "discover"
+        const val TAG_FILTERS = "filters"
+        const val TAG_MIX = "mix"
+        const val TAG_SETTINGS = "settings"
     }
 
     override fun onPause() {
