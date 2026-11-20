@@ -121,6 +121,16 @@ jobs:
       - name: Take screenshots
         run: screenshots/take.sh build/Build/Products/Debug-iphonesimulator/MangaBrain.app shots
 
+      # Small copies in the log too, for reading where artifacts need a login.
+      - name: Print small previews
+        run: |
+          for f in shots/*.png; do
+            sips -s format jpeg -s formatOptions 50 -Z 720 "$f" --out /tmp/preview.jpg >/dev/null
+            echo "PREVIEW-BEGIN $(basename "$f" .png)"
+            base64 -i /tmp/preview.jpg | fold -w 4000
+            echo "PREVIEW-END"
+          done
+
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
