@@ -1,0 +1,95 @@
+name: iOS IPA
+
+# Builds an unsigned .ipa for real iPhones and iPads (arm64), the same way
+# Breezyslasher/Yamtrack_andriod builds its iOS app. A sideloading tool
+# (Sideloadly, AltStore, SideStore) signs it with the user's own Apple ID at
+# install, so CI needs no certificate or provisioning profile, and no Mac is
+# needed at home.
+#
+# Only ios/** triggers it: a macOS runner is the costliest one GitHub has,
+# and most commits here are Python. A tag ios-v* also attaches the .ipa to
+# a draft GitHub release.
+
+on:
+  push:
+    branches: ['**']
+    tags: ['ios-v*']
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: iOS (.ipa, unsigned)
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build for iOS devices (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MangaBrain.xcodeproj \
+            -scheme MangaBrain \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            build
+
+      - name: Pack .ipa
+        run: |
+          set -eu
+          app=build/Build/Products/Release-iphoneos/MangaBrain.app
+          test -d "$app"
+          mkdir -p ipa/Payload
+          cp -R "$app" ipa/Payload/
+          (cd ipa && zip -qry ../MangaBrain.ipa Payload)
+          ls -la MangaBrain.ipa
+
+      - name: Upload .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: MangaBrain-ios-${{ github.run_number }}
+          path: ios/MangaBrain.ipa
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/ios-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: MangaBrain iOS ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: true
+          files: dist/MangaBrain-ios-*/*.ipa

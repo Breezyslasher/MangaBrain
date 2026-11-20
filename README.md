@@ -273,13 +273,28 @@ All settings come from environment variables (see `.env.example`):
 | `AUTH_TOKEN` | empty | when set, every API request must carry `Authorization: Bearer <token>`; the web app asks once and remembers it. Set this before exposing the app publicly |
 | `RATE_LIMIT_PER_MINUTE` | `0` (off) | per-client-IP cap on API requests (reads `CF-Connecting-IP` behind Cloudflare) |
 
-## Android and phone use
+## Android, iOS and phone use
 
 The web app is an installable PWA: open it in Chrome on Android (or Safari
 on iOS), choose "Add to Home Screen" / "Install app", and it runs as a
-standalone full-screen app with its own icon. There is no separate native
-client to install or update - the app on your phone is always exactly as
-current as your server.
+standalone full-screen app with its own icon, always as current as your
+server.
+
+There are also native apps with the same four tabs (Discover, Filters,
+Mix, Settings):
+
+- **Android** (`android/`): the APK from the "Android APK" workflow, or the
+  signed bundle from "Android release" for Google Play.
+- **iOS and iPadOS** (`ios/`, iOS 17 or later): the "iOS IPA" workflow
+  builds an unsigned `MangaBrain.ipa` (artifact `MangaBrain-ios-<run>`).
+  Install it with Sideloadly, AltStore or SideStore, which sign it with
+  your own Apple ID; a free Apple ID's signature lasts 7 days, so those
+  tools re-sign it. No Mac is needed. To build on a Mac instead:
+  `brew install xcodegen`, then `cd ios && xcodegen generate` and open
+  `MangaBrain.xcodeproj`.
+
+Both apps keep the server URL, access token and filters on the device;
+accounts and synced lists live on the server, per profile.
 
 ## Exposing publicly (Cloudflare Tunnel)
 
@@ -353,6 +368,8 @@ signals (popularity, favourites, members, trending).
             backfill_dub_ann.py, propagate_dub.py, ann.py, nightly.py (worker loop)
 /web        vanilla SPA: medium tabs, search, sliders, filter panel, surprise button
 /db         schema.sql
+/android    native Android app (Kotlin)
+/ios        native iOS app (SwiftUI, built by CI with XcodeGen)
 ```
 
 ## Non-goals (v1)
