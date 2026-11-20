@@ -31,7 +31,8 @@ def fetch_titles():
         req = urllib.request.Request(
             "https://graphql.anilist.co",
             data=json.dumps({"query": QUERY}).encode(),
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            headers={"Content-Type": "application/json", "Accept": "application/json",
+                     "User-Agent": "MangaBrain-screenshots/1.0"},
         )
         with urllib.request.urlopen(req, timeout=30) as resp:
             media = json.load(resp)["data"]["Page"]["media"]
