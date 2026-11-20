@@ -50,6 +50,11 @@ struct MainTabView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(AppTab.settings)
         }
-        .task(id: app.generation) { await app.refreshSettings() }
+        .task(id: app.generation) {
+            await app.refreshSettings()
+            #if DEBUG
+            await app.runScreenshotHooks()
+            #endif
+        }
     }
 }

@@ -74,6 +74,63 @@ jobs:
           path: ios/MangaBrain.ipa
           if-no-files-found: error
 
+  # Screenshots from the iOS Simulator, against ios/screenshots/mock_server.py
+  # (real AniList titles, made-up scores), so the app can be looked at
+  # without an iPhone. Debug build: the launch-argument hooks that open each
+  # screen exist only there.
+  screenshots:
+    name: Simulator screenshots
+    runs-on: macos-15
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MangaBrain.xcodeproj \
+            -scheme MangaBrain \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Start the mock server
+        run: |
+          nohup python3 screenshots/mock_server.py > mock.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8009/settings >/dev/null && break
+            sleep 1
+          done
+          head -3 mock.log
+
+      - name: Take screenshots
+        run: screenshots/take.sh build/Build/Products/Debug-iphonesimulator/MangaBrain.app shots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MangaBrain-ios-screenshots-${{ github.run_number }}
+          path: |
+            ios/shots/*.png
+            ios/mock.log
+          if-no-files-found: warn
+
   release:
     name: Draft release
     needs: build

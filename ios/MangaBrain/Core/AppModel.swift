@@ -95,7 +95,34 @@ final class AppModel {
             tab = .settings
             settingsPath = [.server]
         }
+        #if DEBUG
+        // Screenshot hooks for CI (ios/screenshots): -ui.tab filters, and
+        // so on. Launch arguments land in UserDefaults; Debug builds only.
+        switch d.string(forKey: "ui.tab") {
+        case "filters": tab = .filters
+        case "mix": tab = .mix
+        case "settings": tab = .settings; settingsPath = []
+        case "discover": tab = .discover
+        default: break
+        }
+        #endif
     }
+
+    #if DEBUG
+    /// The rest of the screenshot hooks, once the settings have loaded:
+    /// -ui.browse YES, -ui.seed <id> (0 picks the first title), -ui.mix YES.
+    func runScreenshotHooks() async {
+        let d = UserDefaults.standard
+        guard let client else { return }
+        let first = (try? await client.search([URLQueryItem(name: "limit", value: "4")])) ?? []
+        if d.bool(forKey: "ui.mix") { first.prefix(3).forEach { addToMix($0) } }
+        if d.bool(forKey: "ui.browse") { await discover.runSearch("", filtered: true) }
+        if d.object(forKey: "ui.seed") != nil {
+            let id = d.integer(forKey: "ui.seed")
+            if let pick = id > 0 ? id : first.first?.id { discover.loadRecommendations(pick) }
+        }
+    }
+    #endif
 
     var isConfigured: Bool { !serverURL.isEmpty }
 
