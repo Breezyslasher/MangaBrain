@@ -71,7 +71,7 @@ Actions:
 
 To build a release, run "Build apps" from the Actions tab with build type
 `release` (tick "publish" to also put the APK and the iOS `.ipa` on a GitHub
-release), or push a tag (`git tag app-v0.2.0 && git push origin app-v0.2.0`),
+prerelease), or push a tag (`git tag app-v0.2.0 && git push origin app-v0.2.0`),
 which builds and publishes both. Download the `MangaBrain-play-bundle-<run>`
 artifact and upload its `.aab` in the Play Console. The version code is the
 workflow's run number plus 100, so every upload is newer than the last. Use Play App Signing (the Console's default): Google holds the

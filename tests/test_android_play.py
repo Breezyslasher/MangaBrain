@@ -22,6 +22,7 @@ def test_one_workflow_builds_both_apps_and_publishes_them():
     """Build apps: a platform picker, and a release carrying the APK and the .ipa."""
     assert "- both" in RELEASE and "- android" in RELEASE and "- ios" in RELEASE
     assert "softprops/action-gh-release" in RELEASE
+    assert "prerelease: true" in RELEASE, "app uploads are prereleases"
     assert "dist/*.apk" in RELEASE and "dist/*.ipa" in RELEASE
     # A published APK is always the signed one.
     assert '[ "$PUBLISH" = "true" ] && { publish=true; release=true; }' in RELEASE

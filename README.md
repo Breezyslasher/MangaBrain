@@ -295,7 +295,7 @@ Mix, Settings):
 Both come from the "Build apps" workflow (`.github/workflows/apps.yml`): a
 push builds whichever app changed, and "Run workflow" on the Actions tab
 picks the platform (both, Android or iOS), debug or release, and can
-publish a GitHub release `v<version>` carrying the APK and the `.ipa`.
+publish a GitHub prerelease `v<version>` carrying the APK and the `.ipa`.
 Pushing a tag `app-v0.2.0` does the same for both.
 
 Both apps keep the server URL, access token and filters on the device;
