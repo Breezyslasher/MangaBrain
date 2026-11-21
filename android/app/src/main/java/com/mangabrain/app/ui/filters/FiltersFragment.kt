@@ -179,12 +179,21 @@ class FiltersFragment : Fragment(R.layout.fragment_filters) {
             container.findViewById<TextView>(R.id.weightLabel).setText(row.label)
             val value = container.findViewById<TextView>(R.id.weightValue)
             val bar = container.findViewById<SeekBar>(R.id.weightBar)
+            // The four rows are one included layout, so their bars share an
+            // id. Android saves and restores a view's state by id, so when
+            // the screen was rebuilt (a fold, a rotation, coming back to the
+            // app) every bar was restored to the last one's position - My
+            // taste, usually 0 - and the listener below saved that 0 as the
+            // real weight. FilterState is the only source of these values.
+            bar.isSaveEnabled = false
             bar.progress = row.get()
             value.text = row.get().toString()
             bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     value.text = progress.toString()
-                    row.set(progress)
+                    // Only a drag changes a weight; a bar set from code
+                    // must never write back.
+                    if (fromUser) row.set(progress)
                 }
 
                 override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit

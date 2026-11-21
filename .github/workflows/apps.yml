@@ -1,0 +1,434 @@
+name: Build apps
+
+# The Android and iOS apps in one workflow, laid out like the build in
+# Breezyslasher/Yamtrack_andriod.
+#
+#  - A push or pull request builds whichever app's code changed: a debug
+#    APK (plus a compile of the Play bundle) and an unsigned .ipa.
+#  - "Run workflow" on the Actions tab picks the platform(s) and the build
+#    type, and can publish a GitHub release with the APK and the .ipa.
+#  - A tag app-v<version> (e.g. app-v0.2.0) builds both as release builds
+#    and publishes them.
+#
+# Release builds are signed with the upload key from four repository
+# secrets, under either naming (see android/README.md, "Publishing to
+# Google Play"):
+#   ANDROID_KEYSTORE_BASE64   or SIGNING_KEYSTORE_BASE64
+#   ANDROID_KEYSTORE_PASSWORD or SIGNING_KEYSTORE_PASSWORD / SIGNING_STORE_PASSWORD
+#   ANDROID_KEY_ALIAS         or SIGNING_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD      or SIGNING_KEY_PASSWORD
+# The keystore is decoded into the runner's temp directory and never
+# committed. The release also carries the signed .aab for Google Play as a
+# workflow artifact (Play takes bundles, a phone takes the APK).
+#
+# The .ipa is unsigned: Sideloadly, AltStore or SideStore sign it with the
+# user's own Apple ID at install, so no certificate is needed here.
+
+on:
+  push:
+    branches: ['**']
+    tags: ['app-v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform(s) to build
+        type: choice
+        default: both
+        options:
+          - both
+          - android
+          - ios
+      build_type:
+        description: Android build type (release is signed and also makes the Play bundle)
+        type: choice
+        default: debug
+        options:
+          - debug
+          - release
+      version_name:
+        description: Version name, e.g. 0.2.0 (the release is tagged v<version>)
+        type: string
+        default: "0.1.0"
+      publish:
+        description: Publish a GitHub release with the APK and the .ipa (builds Android as release)
+        type: boolean
+        default: false
+      screenshots:
+        description: Also take iOS Simulator screenshots
+        type: boolean
+        default: false
+
+jobs:
+  # Which apps to build. Manual runs follow the inputs and tags build both;
+  # pushes and pull requests build only what changed, so a Python commit
+  # costs one short job and no macOS runner.
+  changes:
+    name: Plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      android: ${{ steps.decide.outputs.android }}
+      ios: ${{ steps.decide.outputs.ios }}
+      release: ${{ steps.decide.outputs.release }}
+      publish: ${{ steps.decide.outputs.publish }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push' && github.ref_type == 'branch'
+
+      - name: Detect changed paths
+        id: filter
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch')
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            android:
+              - 'android/**'
+              - '.github/workflows/apps.yml'
+            ios:
+              - 'ios/**'
+              - '.github/workflows/apps.yml'
+
+      - name: Decide
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          PLATFORM: ${{ inputs.platform }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          PUBLISH: ${{ inputs.publish }}
+          VERSION: ${{ inputs.version_name }}
+          ANDROID_CHANGED: ${{ steps.filter.outputs.android }}
+          IOS_CHANGED: ${{ steps.filter.outputs.ios }}
+        run: |
+          release=false
+          publish=false
+          version="0.1.0"
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            android=$([ "$PLATFORM" != "ios" ] && echo true || echo false)
+            ios=$([ "$PLATFORM" != "android" ] && echo true || echo false)
+            [ "$BUILD_TYPE" = "release" ] && release=true
+            # A published APK must be the signed one.
+            [ "$PUBLISH" = "true" ] && { publish=true; release=true; }
+            version="${VERSION:-0.1.0}"
+          elif [ "$REF_TYPE" = "tag" ]; then
+            android=true
+            ios=true
+            release=true
+            publish=true
+            version="${REF_NAME#app-v}"
+          else
+            android=${ANDROID_CHANGED:-false}
+            ios=${IOS_CHANGED:-false}
+          fi
+          {
+            echo "android=$android"
+            echo "ios=$ios"
+            echo "release=$release"
+            echo "publish=$publish"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "Android: $android, iOS: $ios, release: $release, publish: $publish, version: $version"
+
+  # ---------------------------------------------------------------------
+  # Android: an APK, and for release builds the signed Play bundle.
+  # ---------------------------------------------------------------------
+  android:
+    name: Android (${{ needs.changes.outputs.release == 'true' && 'release' || 'debug' }})
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The Gradle cache needs to write; an explicit permissions block drops
+      # every scope it does not name.
+      actions: write
+    defaults:
+      run:
+        working-directory: android
+    env:
+      RELEASE: ${{ needs.changes.outputs.release }}
+      VERSION: ${{ needs.changes.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the signing secrets
+        if: env.RELEASE == 'true'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.SIGNING_KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          missing=""
+          [ -n "$KEYSTORE" ] || missing="$missing ANDROID_KEYSTORE_BASE64(or SIGNING_KEYSTORE_BASE64)"
+          [ -n "$STORE_PASSWORD" ] || missing="$missing ANDROID_KEYSTORE_PASSWORD(or SIGNING_KEYSTORE_PASSWORD)"
+          [ -n "$ALIAS" ] || missing="$missing ANDROID_KEY_ALIAS(or SIGNING_KEY_ALIAS)"
+          [ -n "$KEY_PASSWORD" ] || missing="$missing ANDROID_KEY_PASSWORD(or SIGNING_KEY_PASSWORD)"
+          if [ -n "$missing" ]; then
+            echo "Missing repository secrets:$missing" >&2
+            echo "See android/README.md, 'Publishing to Google Play'." >&2
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # Not the default set: it also installs the legacy 'tools'
+          # package, which the SDK repository no longer serves.
+          packages: platform-tools
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # Play needs a version code above every earlier upload. The old
+      # release workflow reached 5; this one's run number plus 100 stays
+      # above it and only grows.
+      - name: Build
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.SIGNING_KEYSTORE_BASE64 }}
+          MANGABRAIN_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.SIGNING_KEYSTORE_PASSWORD || secrets.SIGNING_STORE_PASSWORD }}
+          MANGABRAIN_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.SIGNING_KEY_ALIAS }}
+          MANGABRAIN_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          # pipefail is load-bearing: without it tee's status hides a failed build.
+          set -o pipefail
+          export MANGABRAIN_VERSION_CODE=$((GITHUB_RUN_NUMBER + 100))
+          export MANGABRAIN_VERSION_NAME="$VERSION"
+          echo "Version $MANGABRAIN_VERSION_NAME (code $MANGABRAIN_VERSION_CODE)"
+          if [ "$RELEASE" = "true" ]; then
+            export MANGABRAIN_KEYSTORE_FILE="$RUNNER_TEMP/upload.keystore"
+            printf '%s' "$KEYSTORE" | base64 --decode > "$MANGABRAIN_KEYSTORE_FILE"
+            ./gradlew assembleRelease bundleRelease --no-daemon 2>&1 | tee "$RUNNER_TEMP/build.log"
+            rm -f "$MANGABRAIN_KEYSTORE_FILE"
+          else
+            # bundleRelease too, so the Play build compiles on every push;
+            # without the key it is debug-signed and not kept.
+            ./gradlew assembleDebug bundleRelease --no-daemon 2>&1 | tee "$RUNNER_TEMP/build.log"
+          fi
+
+      # The compiler's errors again at the very end, where a tail finds them.
+      - name: Repeat compiler errors
+        if: failure()
+        run: |
+          grep -E "^(e|w): " "$RUNNER_TEMP/build.log" || echo "(no e:/w: lines; the failure was not a compile error)"
+
+      # A release signed with the debug key would be refused by Play.
+      - name: Check the release is signed with the upload key
+        if: env.RELEASE == 'true'
+        run: |
+          aab=app/build/outputs/bundle/release/app-release.aab
+          test -f "$aab"
+          if keytool -printcert -jarfile "$aab" | grep -q "CN=Android Debug"; then
+            echo "The bundle is signed with the debug key" >&2
+            exit 1
+          fi
+          keytool -printcert -jarfile "$aab" | grep -E "Owner|SHA256" | head -3
+
+      - name: Name the outputs
+        working-directory: .
+        run: |
+          mkdir -p dist
+          if [ "$RELEASE" = "true" ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk "dist/MangaBrain-$VERSION.apk"
+            cp android/app/build/outputs/bundle/release/app-release.aab "dist/MangaBrain-$VERSION.aab"
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk "dist/MangaBrain-$VERSION-debug.apk"
+          fi
+          ls -la dist
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MangaBrain-android-${{ github.run_number }}
+          path: dist/*.apk
+          if-no-files-found: error
+
+      # Apart from the APK, so the GitHub release attaches only the APK.
+      - name: Upload Play bundle
+        if: env.RELEASE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MangaBrain-play-bundle-${{ github.run_number }}
+          path: dist/*.aab
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # iOS: an unsigned .ipa for real iPhones and iPads (arm64).
+  # ---------------------------------------------------------------------
+  ios:
+    name: iOS (.ipa, unsigned)
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build for iOS devices (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MangaBrain.xcodeproj \
+            -scheme MangaBrain \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION="${{ needs.changes.outputs.version }}" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            build
+
+      - name: Pack .ipa
+        run: |
+          set -eu
+          app=build/Build/Products/Release-iphoneos/MangaBrain.app
+          test -d "$app"
+          mkdir -p ipa/Payload
+          cp -R "$app" ipa/Payload/
+          name="MangaBrain-${{ needs.changes.outputs.version }}.ipa"
+          (cd ipa && zip -qry "../$name" Payload)
+          ls -la "$name"
+
+      - name: Upload .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: MangaBrain-ios-${{ github.run_number }}
+          path: ios/MangaBrain-*.ipa
+          if-no-files-found: error
+
+  # Screenshots from the iOS Simulator against ios/screenshots/mock_server.py
+  # (real AniList titles, made-up scores). Manual runs only, when asked: a
+  # macOS runner for ten minutes is not worth spending on every push. Debug
+  # build, where the launch-argument hooks that open each screen exist.
+  ios-screenshots:
+    name: iOS screenshots
+    needs: changes
+    if: needs.changes.outputs.ios == 'true' && inputs.screenshots
+    runs-on: macos-15
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MangaBrain.xcodeproj \
+            -scheme MangaBrain \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Start the mock server
+        run: |
+          nohup python3 screenshots/mock_server.py > mock.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8009/settings >/dev/null && break
+            sleep 1
+          done
+          head -3 mock.log
+
+      - name: Take screenshots
+        run: screenshots/take.sh build/Build/Products/Debug-iphonesimulator/MangaBrain.app shots
+
+      # Small copies in the log too, for reading where artifacts need a login.
+      - name: Print previews
+        run: |
+          for f in shots/*.png; do
+            sips -s format jpeg -s formatOptions 70 -Z 1400 "$f" --out /tmp/preview.jpg >/dev/null
+            echo "PREVIEW-BEGIN $(basename "$f" .png)"
+            base64 -i /tmp/preview.jpg | fold -w 4000
+            echo "PREVIEW-END"
+          done
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MangaBrain-ios-screenshots-${{ github.run_number }}
+          path: |
+            ios/shots/*.png
+            ios/mock.log
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------
+  # Publish: a GitHub release v<version> with the APK and the .ipa. Runs
+  # when one platform was skipped, not when one failed.
+  # ---------------------------------------------------------------------
+  release:
+    name: Publish release
+    needs: [changes, android, ios]
+    if: >-
+      !cancelled() && !contains(needs.*.result, 'failure') &&
+      needs.changes.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the builds
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: MangaBrain-{android,ios}-*
+          merge-multiple: true
+
+      - name: List
+        run: ls -la dist
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MangaBrain ${{ needs.changes.outputs.version }}
+          tag_name: v${{ needs.changes.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            dist/*.apk
+            dist/*.ipa

@@ -273,13 +273,33 @@ All settings come from environment variables (see `.env.example`):
 | `AUTH_TOKEN` | empty | when set, every API request must carry `Authorization: Bearer <token>`; the web app asks once and remembers it. Set this before exposing the app publicly |
 | `RATE_LIMIT_PER_MINUTE` | `0` (off) | per-client-IP cap on API requests (reads `CF-Connecting-IP` behind Cloudflare) |
 
-## Android and phone use
+## Android, iOS and phone use
 
 The web app is an installable PWA: open it in Chrome on Android (or Safari
 on iOS), choose "Add to Home Screen" / "Install app", and it runs as a
-standalone full-screen app with its own icon. There is no separate native
-client to install or update - the app on your phone is always exactly as
-current as your server.
+standalone full-screen app with its own icon, always as current as your
+server.
+
+There are also native apps with the same four tabs (Discover, Filters,
+Mix, Settings):
+
+- **Android** (`android/`): an APK, and for release builds the signed
+  bundle for Google Play.
+- **iOS and iPadOS** (`ios/`, iOS 17 or later): an unsigned `.ipa`.
+  Install it with Sideloadly, AltStore or SideStore, which sign it with
+  your own Apple ID; a free Apple ID's signature lasts 7 days, so those
+  tools re-sign it. No Mac is needed. To build on a Mac instead:
+  `brew install xcodegen`, then `cd ios && xcodegen generate` and open
+  `MangaBrain.xcodeproj`.
+
+Both come from the "Build apps" workflow (`.github/workflows/apps.yml`): a
+push builds whichever app changed, and "Run workflow" on the Actions tab
+picks the platform (both, Android or iOS), debug or release, and can
+publish a GitHub release `v<version>` carrying the APK and the `.ipa`.
+Pushing a tag `app-v0.2.0` does the same for both.
+
+Both apps keep the server URL, access token and filters on the device;
+accounts and synced lists live on the server, per profile.
 
 ## Exposing publicly (Cloudflare Tunnel)
 
@@ -353,6 +373,8 @@ signals (popularity, favourites, members, trending).
             backfill_dub_ann.py, propagate_dub.py, ann.py, nightly.py (worker loop)
 /web        vanilla SPA: medium tabs, search, sliders, filter panel, surprise button
 /db         schema.sql
+/android    native Android app (Kotlin)
+/ios        native iOS app (SwiftUI, built by CI with XcodeGen)
 ```
 
 ## Non-goals (v1)

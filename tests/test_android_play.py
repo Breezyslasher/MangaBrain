@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 GRADLE = (ROOT / "android/app/build.gradle").read_text()
-RELEASE = (ROOT / ".github/workflows/android-release.yml").read_text()
+RELEASE = (ROOT / ".github/workflows/apps.yml").read_text()
 APP = ROOT / "android/app/src/main"
 
 
@@ -14,8 +14,17 @@ def test_release_signing_and_version_come_from_the_environment():
     assert "hasReleaseKey ? signingConfigs.release : signingConfigs.debug" in GRADLE
     assert 'System.getenv("MANGABRAIN_VERSION_CODE")' in GRADLE
     assert "targetSdk 36" in GRADLE and "compileSdk 36" in GRADLE
-    assert "./gradlew bundleRelease" in RELEASE
+    assert "./gradlew assembleRelease bundleRelease" in RELEASE
     assert 'grep -q "CN=Android Debug"' in RELEASE, "a debug-signed bundle fails the job"
+
+
+def test_one_workflow_builds_both_apps_and_publishes_them():
+    """Build apps: a platform picker, and a release carrying the APK and the .ipa."""
+    assert "- both" in RELEASE and "- android" in RELEASE and "- ios" in RELEASE
+    assert "softprops/action-gh-release" in RELEASE
+    assert "dist/*.apk" in RELEASE and "dist/*.ipa" in RELEASE
+    # A published APK is always the signed one.
+    assert '[ "$PUBLISH" = "true" ] && { publish=true; release=true; }' in RELEASE
 
 
 def test_the_screens_pad_themselves_for_the_system_bars():
@@ -48,3 +57,20 @@ def test_plain_http_to_a_lan_server_is_allowed():
 def test_the_play_identity_is_set_and_the_code_package_is_not_moved():
     assert 'applicationId "io.github.breezyslasher.mangabrain"' in GRADLE
     assert "namespace 'com.mangabrain.app'" in GRADLE
+
+
+def test_tabs_survive_the_activity_being_rebuilt():
+    """Folding, rotating or a profile switch rebuild the activity; its
+    tabs must be the restored fragments, not fresh unattached ones."""
+    main = (APP / "java/com/mangabrain/app/ui/MainActivity.kt").read_text()
+    assert "private val discover = DiscoverFragment()" not in main
+    assert "fm.findFragmentByTag(TAG_DISCOVER) as? DiscoverFragment" in main
+    assert "firstOrNull { !it.isHidden }" in main
+
+
+def test_weights_are_not_restored_from_a_shared_view_id():
+    """Four included rows share the bar's id; restoring by id set every
+    weight to the last bar's value and wrote it back."""
+    filters = (APP / "java/com/mangabrain/app/ui/filters/FiltersFragment.kt").read_text()
+    assert "bar.isSaveEnabled = false" in filters
+    assert "if (fromUser) row.set(progress)" in filters

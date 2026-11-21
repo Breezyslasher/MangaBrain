@@ -5,7 +5,7 @@ plugins {
 
 // A Play upload must be signed with a release key and carry a version code
 // higher than the last one. Both come from the environment, set by
-// .github/workflows/android-release.yml from repository secrets; nothing
+// .github/workflows/apps.yml (release builds) from repository secrets; nothing
 // secret is ever committed. Without them a release build still works for
 // sideloading, signed with the shared debug key.
 def releaseKeystore = System.getenv("MANGABRAIN_KEYSTORE_FILE")
@@ -29,8 +29,8 @@ android {
         applicationId "io.github.breezyslasher.mangabrain"
         minSdk 24
         targetSdk 36
-        // CI passes a number that only grows (the release workflow's run
-        // number); a local build is 1.
+        // CI passes a number that only grows (the Build apps workflow's run
+        // number plus 100); a local build is 1.
         versionCode((System.getenv("MANGABRAIN_VERSION_CODE") ?: "1").toInteger())
         versionName(System.getenv("MANGABRAIN_VERSION_NAME") ?: "0.1.0")
         // Blank on purpose: a self-hosted app has no default server, and
