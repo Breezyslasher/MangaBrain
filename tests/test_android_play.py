@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 GRADLE = (ROOT / "android/app/build.gradle").read_text()
-RELEASE = (ROOT / ".github/workflows/android-release.yml").read_text()
+RELEASE = (ROOT / ".github/workflows/apps.yml").read_text()
 APP = ROOT / "android/app/src/main"
 
 
@@ -14,8 +14,17 @@ def test_release_signing_and_version_come_from_the_environment():
     assert "hasReleaseKey ? signingConfigs.release : signingConfigs.debug" in GRADLE
     assert 'System.getenv("MANGABRAIN_VERSION_CODE")' in GRADLE
     assert "targetSdk 36" in GRADLE and "compileSdk 36" in GRADLE
-    assert "./gradlew bundleRelease" in RELEASE
+    assert "./gradlew assembleRelease bundleRelease" in RELEASE
     assert 'grep -q "CN=Android Debug"' in RELEASE, "a debug-signed bundle fails the job"
+
+
+def test_one_workflow_builds_both_apps_and_publishes_them():
+    """Build apps: a platform picker, and a release carrying the APK and the .ipa."""
+    assert "- both" in RELEASE and "- android" in RELEASE and "- ios" in RELEASE
+    assert "softprops/action-gh-release" in RELEASE
+    assert "dist/*.apk" in RELEASE and "dist/*.ipa" in RELEASE
+    # A published APK is always the signed one.
+    assert '[ "$PUBLISH" = "true" ] && { publish=true; release=true; }' in RELEASE
 
 
 def test_the_screens_pad_themselves_for_the_system_bars():

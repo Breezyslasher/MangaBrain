@@ -19,8 +19,8 @@ Needs the Android SDK (API 34) and JDK 17.
 The Gradle wrapper is committed, so this needs no Gradle on the machine - just
 a JDK and the SDK. Android Studio can also open the `android/` folder directly.
 
-CI builds the same debug APK on every push that touches `android/`, and
-uploads it as a workflow artifact, so an installable build is always one
+CI ("Build apps", `.github/workflows/apps.yml`) builds the same debug APK on
+every push that touches `android/`, and uploads it as a workflow artifact, so an installable build is always one
 download away without a local SDK.
 
 ## Installing over a previous build
@@ -48,7 +48,7 @@ secrets.
 The release build is the Play build: it targets API 35 and is signed with
 your own upload key. It keeps the adult-content toggle, off by default;
 declare it in the Play Console's content rating questionnaire.
-`.github/workflows/android-release.yml` builds it as a signed App Bundle.
+`.github/workflows/apps.yml` builds it as a signed APK and App Bundle.
 
 Once, on your own computer (keep the keystore and passwords safe; losing
 them means asking Google to reset the upload key):
@@ -69,11 +69,12 @@ Actions:
 | `ANDROID_KEY_ALIAS` | `upload` |
 | `ANDROID_KEY_PASSWORD` | the key password |
 
-To build a release, push a tag (`git tag android-v0.2.0 && git push origin
-android-v0.2.0`) or run "Android release (Google Play)" from the Actions tab.
-Download the `.aab` from the run and upload it in the Play Console. The
-version code is the workflow's run number, so every upload is newer than
-the last. Use Play App Signing (the Console's default): Google holds the
+To build a release, run "Build apps" from the Actions tab with build type
+`release` (tick "publish" to also put the APK and the iOS `.ipa` on a GitHub
+release), or push a tag (`git tag app-v0.2.0 && git push origin app-v0.2.0`),
+which builds and publishes both. Download the `MangaBrain-play-bundle-<run>`
+artifact and upload its `.aab` in the Play Console. The version code is the
+workflow's run number plus 100, so every upload is newer than the last. Use Play App Signing (the Console's default): Google holds the
 key that signs what users install, and this one only proves uploads come
 from you.
 

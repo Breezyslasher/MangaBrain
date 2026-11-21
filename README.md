@@ -283,15 +283,20 @@ server.
 There are also native apps with the same four tabs (Discover, Filters,
 Mix, Settings):
 
-- **Android** (`android/`): the APK from the "Android APK" workflow, or the
-  signed bundle from "Android release" for Google Play.
-- **iOS and iPadOS** (`ios/`, iOS 17 or later): the "iOS IPA" workflow
-  builds an unsigned `MangaBrain.ipa` (artifact `MangaBrain-ios-<run>`).
+- **Android** (`android/`): an APK, and for release builds the signed
+  bundle for Google Play.
+- **iOS and iPadOS** (`ios/`, iOS 17 or later): an unsigned `.ipa`.
   Install it with Sideloadly, AltStore or SideStore, which sign it with
   your own Apple ID; a free Apple ID's signature lasts 7 days, so those
   tools re-sign it. No Mac is needed. To build on a Mac instead:
   `brew install xcodegen`, then `cd ios && xcodegen generate` and open
   `MangaBrain.xcodeproj`.
+
+Both come from the "Build apps" workflow (`.github/workflows/apps.yml`): a
+push builds whichever app changed, and "Run workflow" on the Actions tab
+picks the platform (both, Android or iOS), debug or release, and can
+publish a GitHub release `v<version>` carrying the APK and the `.ipa`.
+Pushing a tag `app-v0.2.0` does the same for both.
 
 Both apps keep the server URL, access token and filters on the device;
 accounts and synced lists live on the server, per profile.
